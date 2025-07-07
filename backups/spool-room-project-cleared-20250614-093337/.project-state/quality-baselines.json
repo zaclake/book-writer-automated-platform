@@ -1,0 +1,33 @@
+{
+  "establishedBaselines": {
+    "prose": { "target": 8.2, "variance": 0.3, "samples": 0 },
+    "character": { "target": 8.3, "variance": 0.2, "samples": 0 },
+    "story": { "target": 8.1, "variance": 0.4, "samples": 0 },
+    "emotion": { "target": 8.4, "variance": 0.3, "samples": 0 },
+    "freshness": { "target": 8.0, "variance": 0.4, "samples": 0 },
+    "engagement": { "target": 8.2, "variance": 0.3, "samples": 0 }
+  },
+  "characterVoices": {
+    "Debbie Harrow": { 
+      "formality": 0.6, 
+      "introspection": 0.8, 
+      "emotionalRestraint": 0.7,
+      "regionalDialect": 0.4,
+      "intellectualVocabulary": 0.7
+    }
+  },
+  "genreExpectations": {
+    "pacing": "slow-build",
+    "tensionLevel": "high",
+    "atmosphericDensity": "heavy",
+    "horrorStyle": "psychological",
+    "supernaturalSubtlety": "high",
+    "emotionalDepth": "deep"
+  },
+  "inspirationTargets": {
+    "stephenKing": { "psychologicalHorror": 0.9, "characterDepth": 0.8 },
+    "sarahWaters": { "atmosphericBuilding": 0.8, "proseQuality": 0.9 },
+    "shirleyJackson": { "subtleDread": 0.9, "pacing": 0.8 },
+    "tanaFrench": { "characterVoice": 0.8, "introspection": 0.7 }
+  }
+} 

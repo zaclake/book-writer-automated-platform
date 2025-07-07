@@ -1,0 +1,423 @@
+# Quality Gates Configuration
+# Machine-readable consolidation of all writing system quality thresholds
+# Version: 2.0
+# Last Updated: 2024-07-07
+
+metadata:
+  version: "2.0"
+  created: "2024-07-07"
+  description: "Consolidated quality thresholds for automated chapter assessment"
+  frameworks_consolidated:
+    - "chapter-generation-protocol.md"
+    - "analysis/brutal-quality-assessment-system.md"
+    - "frameworks/craft-excellence-framework.md"
+    - "frameworks/authenticity-framework.md"
+    - "frameworks/repetition-prevention-system.md"
+
+# Core Quality Categories and Thresholds
+quality_categories:
+  
+  # Prose and Language Quality
+  prose_quality:
+    minimum_score: 8.0
+    target_score: 8.5
+    maximum_score: 10.0
+    weight: 0.15
+    sub_metrics:
+      sentence_rhythm: 
+        minimum: 8.0
+        description: "Varied lengths creating musical flow"
+      word_precision:
+        minimum: 8.0  
+        description: "Every word chosen for maximum impact"
+      voice_consistency:
+        minimum: 8.0
+        description: "Narrator personality clear in every paragraph"
+      metaphor_quality:
+        minimum: 8.0
+        description: "Imagery serves character/theme, never decorative"
+      subtext_density:
+        minimum: 8.0
+        description: "Multiple meaning layers in dialogue and description"
+
+  # Character Development and Authenticity  
+  character_authenticity:
+    minimum_score: 8.0
+    target_score: 8.5
+    maximum_score: 10.0
+    weight: 0.20
+    sub_metrics:
+      motivation_consistency:
+        minimum: 8.0
+        description: "Actions spring from established psychology"
+      voice_distinction:
+        minimum: 8.0
+        description: "Each character speaks uniquely"
+      relationship_dynamics:
+        minimum: 8.0
+        description: "Realistic power shifts and emotional history"
+      growth_authenticity:
+        minimum: 8.0
+        description: "Development feels earned, not convenient"
+      internal_logic:
+        minimum: 8.0
+        description: "Complex psychology drives all behavior"
+
+  # Story Structure and Function
+  story_function:
+    minimum_score: 8.0
+    target_score: 8.5
+    maximum_score: 10.0
+    weight: 0.15
+    sub_metrics:
+      plot_advancement:
+        minimum: 8.0
+        description: "Meaningful story progression achieved"
+        required_points_per_chapter: 2
+      information_management:
+        minimum: 8.0
+        description: "Reveals timed for maximum emotional impact"
+      conflict_escalation:
+        minimum: 8.0
+        description: "Tension builds appropriately for story position"
+      pacing_effectiveness:
+        minimum: 8.0
+        description: "Chapter rhythm serves larger story needs"
+      structural_integration:
+        minimum: 8.0
+        description: "Chapter fits perfectly in overall architecture"
+
+  # Emotional Impact and Reader Engagement
+  emotional_impact:
+    minimum_score: 8.0
+    target_score: 8.5
+    maximum_score: 10.0
+    weight: 0.15
+    sub_metrics:
+      target_emotion_delivery:
+        minimum: 8.0
+        description: "Reader feels intended experience"
+      stakes_authenticity:
+        minimum: 8.0
+        description: "Conflicts matter to characters and readers"
+      tension_maintenance:
+        minimum: 8.0
+        description: "Unease present throughout without exhausting reader"
+      surprise_quality:
+        minimum: 8.0
+        description: "Unexpected developments feel inevitable in hindsight"
+      momentum_creation:
+        minimum: 8.0
+        description: "Ending generates desire to continue reading"
+
+  # Pattern Freshness and Variety
+  pattern_freshness:
+    minimum_score: 7.0
+    target_score: 8.0
+    maximum_score: 10.0
+    weight: 0.10
+    sub_metrics:
+      cross_chapter_comparison:
+        minimum: 7.0
+        description: "Check current chapter against all previous"
+      description_originality:
+        minimum: 7.0
+        description: "Physical/setting descriptions feel fresh while maintaining voice"
+      language_pattern_variety:
+        minimum: 7.0
+        description: "Sentence structures and word choices show appropriate variation"
+      paragraph_structure_variety:
+        minimum: 7.0
+        description: "Avoid repetitive thinking patterns"
+        max_similar_structures_per_5_chapters: 2
+      metaphor_freshness:
+        minimum: 7.0
+        description: "Imagery avoids overused patterns while serving story"
+      emotional_expression_variety:
+        minimum: 7.0
+        description: "Feelings shown through diverse, authentic methods"
+
+  # Reader Engagement
+  reader_engagement:
+    minimum_score: 7.0
+    target_score: 8.0
+    maximum_score: 10.0
+    weight: 0.10
+    sub_metrics:
+      hook_strength:
+        minimum: 7.0
+        description: "Opening creates immediate reader interest"
+      momentum_maintenance:
+        minimum: 7.0
+        description: "Chapter maintains forward pull throughout"
+      ending_propulsion:
+        minimum: 7.0
+        description: "Conclusion generates desire to continue reading"
+      conflict_density:
+        minimum: 7.0
+        description: "Sufficient tension for genre expectations"
+      question_generation:
+        minimum: 7.0
+        description: "Chapter creates compelling questions/mysteries"
+
+  # Structural Integrity
+  structural_integrity:
+    minimum_score: 8.0
+    target_score: 8.5
+    maximum_score: 10.0
+    weight: 0.15
+    sub_metrics:
+      revelation_cascade_check:
+        minimum: 8.0
+        description: "Discoveries don't connect too linearly"
+      single_thread_verification:
+        minimum: 8.0
+        description: "Multiple competing/intersecting issues exist"
+      pacing_asymmetry_prevention:
+        minimum: 8.0
+        description: "Major confrontations before 80% story completion"
+      clean_win_limitation:
+        minimum: 8.0
+        description: "Characters achieve maximum 60% of possible victories"
+        max_victory_percentage: 60
+
+# Enhanced System Compliance Metrics
+enhanced_system_compliance:
+  minimum_score: 8.0
+  target_score: 8.5
+  weight: 0.15
+  requirements:
+    word_count_verification:
+      minimum: 8.0
+      target_range_words: [3600, 4000]
+      acceptable_variance: 200
+      description: "Chapter meets calculated target length"
+    
+    character_development_compliance:
+      minimum: 8.0
+      description: "All characters follow established requirement sheets and voice distinctions"
+    
+    plot_advancement_requirements:
+      minimum: 8.0
+      minimum_plot_points: 2
+      description: "Minimum 2 significant plot points achieved, no forbidden filler elements"
+    
+    research_accuracy_verification:
+      minimum: 8.0
+      description: "All technical/professional elements match expert-verified standards"
+    
+    theme_repetition_compliance:
+      minimum: 8.0
+      max_primary_themes: 5
+      max_secondary_themes: 3
+      description: "Within established limits for theme repetition"
+
+# Series Balance Guidelines
+series_balance:
+  minimum_score: 8.0
+  target_score: 8.5
+  weight: 0.05
+  requirements:
+    individual_story_priority:
+      minimum: 8.0
+      description: "Chapter serves current story resolution, not future book setup"
+    
+    series_integration_limits:
+      minimum: 8.0
+      max_series_content_percentage: 5
+      description: "Series elements comprise <5% of chapter content maximum"
+    
+    standalone_satisfaction:
+      minimum: 8.0
+      description: "Chapter contributes to complete individual story experience"
+
+# Brutal Assessment Thresholds
+brutal_assessment:
+  minimum_score: 8.5
+  target_score: 9.0
+  maximum_score: 10.0
+  weight: 0.25
+  description: "Publication-standard reality check"
+  
+  scoring_scale:
+    publication_ready: [90, 100]
+    professional_quality: [85, 89]
+    solid_foundation: [80, 84]
+    major_revision_required: [75, 79]
+    serious_problems: [70, 74]
+    not_ready: [0, 69]
+  
+  categories:
+    structural_integrity:
+      weight: 0.25
+      max_points: 25
+      sub_categories:
+        word_count_performance:
+          max_points: 5
+          thresholds:
+            - {variance: "2%", points: 5}
+            - {variance: "5%", points: 4}
+            - {variance: "10%", points: 3}
+            - {variance: "20%", points: 2}
+            - {variance: "30%", points: 1}
+            - {variance: ">30%", points: 0}
+        
+        plot_advancement_consistency:
+          max_points: 10
+          minimum_advancement_percentage: 90
+        
+        series_balance:
+          max_points: 5
+          max_series_contamination_percentage: 5
+
+    character_development:
+      weight: 0.20
+      max_points: 20
+      sub_categories:
+        protagonist_development: {max_points: 8, minimum_score: 6}
+        supporting_character_quality: {max_points: 8, minimum_score: 6}
+        voice_distinction: {max_points: 4, minimum_score: 3}
+
+    technical_authenticity:
+      weight: 0.15
+      max_points: 15
+      sub_categories:
+        research_accuracy: {max_points: 8, minimum_score: 6}
+        professional_representation: {max_points: 4, minimum_score: 3}
+        setting_authenticity: {max_points: 3, minimum_score: 2}
+
+    prose_quality:
+      weight: 0.15
+      max_points: 15
+      sub_categories:
+        language_mastery: {max_points: 8, minimum_score: 6}
+        theme_integration: {max_points: 4, minimum_score: 3}
+        narrative_flow: {max_points: 3, minimum_score: 2}
+
+    market_viability:
+      weight: 0.15
+      max_points: 15
+      sub_categories:
+        reader_engagement: {max_points: 8, minimum_score: 6}
+        genre_expectations: {max_points: 4, minimum_score: 3}
+        commercial_potential: {max_points: 3, minimum_score: 2}
+
+    execution_quality:
+      weight: 0.10
+      max_points: 10
+      sub_categories:
+        consistency_maintenance: {max_points: 5, minimum_score: 4}
+        professional_polish: {max_points: 5, minimum_score: 4}
+
+# Readability Sentinel
+readability_requirements:
+  flesch_kincaid_grade:
+    target_range: [8, 11]
+    description: "Reading level appropriate for target audience"
+  
+  technical_term_density:
+    maximum_percentage: 5
+    description: "Percentage of domain-specific technical terms"
+  
+  long_sentence_ratio:
+    maximum_percentage: 12
+    sentence_length_threshold: 30
+    description: "Percentage of sentences ≥ 30 words"
+  
+  pass_requirement: "Must pass at least 2 of 3 checks"
+
+# Critical Failure Triggers
+critical_failures:
+  automatic_failures:
+    - condition: "em_dash_usage"
+      description: "EM-DASH USAGE (—) - Automatic failure"
+      penalty: "automatic_0_execution_quality"
+    
+    - condition: "word_count_variance_over_30_percent"
+      description: "Word count more than 30% off target"
+      penalty: "structural_integrity_failure"
+    
+    - condition: "no_plot_advancement"
+      description: "Chapter contains no meaningful plot advancement"
+      penalty: "story_function_failure"
+    
+    - condition: "all_cardboard_characters"
+      description: "All supporting characters are cardboard"
+      penalty: "character_development_failure"
+    
+    - condition: "no_research_verification"
+      description: "Technical content without expert verification"
+      penalty: "technical_authenticity_failure"
+    
+    - condition: "series_contamination_over_10_percent"
+      description: "Series setup exceeds 10% of content"
+      penalty: "series_balance_failure"
+
+# Pattern Tracking Thresholds
+pattern_tracking:
+  metaphor_repetition:
+    warning_threshold: 3
+    failure_threshold: 5
+    lookback_chapters: 5
+  
+  sentence_pattern_frequency:
+    warning_threshold: 5
+    failure_threshold: 10
+  
+  paragraph_pattern_frequency:
+    warning_threshold: 3
+    failure_threshold: 5
+  
+  dialogue_tag_variety:
+    minimum_unique_tags: 8
+    maximum_single_tag_percentage: 30
+
+# Content Composition Requirements
+content_composition:
+  dialogue_percentage:
+    minimum: 30
+    target: 40
+    maximum: 70
+  
+  action_percentage:
+    minimum: 20
+    target: 35
+    maximum: 50
+  
+  internal_monologue_percentage:
+    minimum: 15
+    target: 25
+    maximum: 40
+  
+  description_percentage:
+    minimum: 10
+    target: 20
+    maximum: 30
+
+# Quality Gate Processing Order
+processing_order:
+  - "prose_quality"
+  - "character_authenticity" 
+  - "story_function"
+  - "emotional_impact"
+  - "pattern_freshness"
+  - "reader_engagement"
+  - "structural_integrity"
+  - "enhanced_system_compliance"
+  - "series_balance"
+  - "brutal_assessment"
+  - "readability_requirements"
+
+# Success Thresholds
+success_criteria:
+  minimum_passing_score: 8.0
+  target_excellence_score: 8.5
+  publication_ready_score: 9.0
+  
+  brutal_assessment_minimum: 8.5
+  brutal_assessment_target: 9.0
+  
+  pattern_freshness_minimum: 7.0
+  reader_engagement_minimum: 7.0
+  
+  all_other_categories_minimum: 8.0 

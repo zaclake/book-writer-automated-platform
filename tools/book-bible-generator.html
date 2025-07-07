@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Bible Generator</title>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .form-container { padding: 40px; }
+        .form-group { margin-bottom: 25px; }
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #34495e;
+        }
+        .required { color: #e74c3c; }
+        input[type="text"], textarea, select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #ecf0f1;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        textarea { min-height: 120px; resize: vertical; }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: white;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(39, 174, 96, 0.3);
+        }
+        .section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 1px solid #ecf0f1;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        .section h2 { color: #2c3e50; margin-bottom: 20px; }
+        .hint { font-size: 0.9rem; color: #7f8c8d; margin-top: 5px; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 Book Bible Generator</h1>
+            <p>Create your story blueprint for automated novel writing</p>
+        </div>
+        <div class="form-container">
+            <form id="bookBibleForm">
+                <div class="section">
+                    <h2>📖 Basic Story Information</h2>
+                    <div class="form-group">
+                        <label>Book Title <span class="required">*</span></label>
+                        <input type="text" id="title" required placeholder="e.g., The Memory Thief">
+                    </div>
+                    <div class="form-group">
+                        <label>Primary Genre <span class="required">*</span></label>
+                        <select id="genre" required>
+                            <option value="">Select a genre...</option>
+                            <option value="Science Fiction">Science Fiction</option>
+                            <option value="Fantasy">Fantasy</option>
+                            <option value="Thriller">Thriller</option>
+                            <option value="Mystery">Mystery</option>
+                            <option value="Romance">Romance</option>
+                            <option value="Literary Fiction">Literary Fiction</option>
+                            <option value="Historical Fiction">Historical Fiction</option>
+                            <option value="Horror">Horror</option>
+                            <option value="Young Adult">Young Adult</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Logline (One Sentence Summary) <span class="required">*</span></label>
+                        <textarea id="logline" required placeholder="e.g., A memory extraction specialist discovers she's been stealing her own forgotten past."></textarea>
+                        <div class="hint">Keep it to one compelling sentence that makes someone want to read more.</div>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>✨ Inspiration & References</h2>
+                    <div class="form-group">
+                        <label>Primary Inspiration <span class="required">*</span></label>
+                        <input type="text" id="primaryInspiration" required placeholder="e.g., Ready Player One, John Grisham's The Firm">
+                        <div class="hint">Be specific! "John Grisham's The Firm" is better than just "John Grisham"</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Writing Style Reference</label>
+                        <input type="text" id="styleReference" placeholder="e.g., Gillian Flynn's sharp prose">
+                    </div>
+                    <div class="form-group">
+                        <label>Pacing Reference</label>
+                        <input type="text" id="pacingReference" placeholder="e.g., Michael Crichton thrillers">
+                    </div>
+                    <div class="form-group">
+                        <label>Additional Inspirations</label>
+                        <textarea id="additionalInspirations" placeholder="Any other books, movies, shows that inspire this story..."></textarea>
+                        <div class="hint">Include anything: "Game of Thrones politics", "John Wick action", "The West Wing dialogue"</div>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>👤 Main Characters</h2>
+                    <div class="form-group">
+                        <label>Protagonist Name <span class="required">*</span></label>
+                        <input type="text" id="protagonistName" required placeholder="e.g., Maya Chen">
+                    </div>
+                    <div class="form-group">
+                        <label>Protagonist Age</label>
+                        <input type="text" id="protagonistAge" placeholder="e.g., 32 or early thirties">
+                    </div>
+                    <div class="form-group">
+                        <label>Protagonist Goal <span class="required">*</span></label>
+                        <textarea id="protagonistGoal" required placeholder="What does your main character want to achieve?"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Character Flaw/Internal Conflict</label>
+                        <textarea id="protagonistFlaw" placeholder="What weakness creates problems for your character?"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Antagonist/Opposition</label>
+                        <input type="text" id="antagonist" placeholder="Who or what opposes the protagonist?">
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>🌍 Story World</h2>
+                    <div class="form-group">
+                        <label>Setting</label>
+                        <input type="text" id="setting" placeholder="When and where does your story take place?">
+                    </div>
+                    <div class="form-group">
+                        <label>World Type</label>
+                        <select id="worldType">
+                            <option value="">Select world type...</option>
+                            <option value="Real World">Real World (contemporary)</option>
+                            <option value="Historical">Historical</option>
+                            <option value="Near Future">Near Future</option>
+                            <option value="Fantasy">Fantasy</option>
+                            <option value="Science Fiction">Science Fiction</option>
+                            <option value="Urban Fantasy">Urban Fantasy</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Basic Plot</label>
+                        <textarea id="plot" placeholder="What happens in your story? Hit the main points..."></textarea>
+                        <div class="hint">High-level overview. The AI will develop the details.</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Core Theme</label>
+                        <textarea id="theme" placeholder="What is your story really about? The deeper meaning..."></textarea>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>✍️ Writing Preferences</h2>
+                    <div class="form-group">
+                        <label>Point of View</label>
+                        <select id="pov">
+                            <option value="">Select POV...</option>
+                            <option value="First Person">First Person (I, me)</option>
+                            <option value="Third Person Limited">Third Person Limited</option>
+                            <option value="Third Person Omniscient">Third Person Omniscient</option>
+                            <option value="Multiple POV">Multiple POV</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Tense</label>
+                        <select id="tense">
+                            <option value="">Select tense...</option>
+                            <option value="Past Tense">Past Tense</option>
+                            <option value="Present Tense">Present Tense</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Chapter Length</label>
+                        <input type="text" id="chapterLength" placeholder="e.g., 2,500-3,500 words">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Email Address <span class="required">*</span></label>
+                    <input type="email" id="email" value="zaclake1@gmail.com" required>
+                    <div class="hint">We'll send your completed book bible to this address</div>
+                </div>
+                
+                <button type="submit" class="btn">📚 Generate Book Bible</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // EmailJS Configuration
+        const EMAILJS_CONFIG = {
+            SERVICE_ID: 'service_m81uz9d',     // Your EmailJS Service ID
+            TEMPLATE_ID: 'template_lrx0jp4',   // Your EmailJS Template ID
+            PUBLIC_KEY: 'abt9G069rhtHEenkc'    // Your EmailJS Public Key
+        };
+
+        // Initialize EmailJS
+        (function() {
+            emailjs.init(EMAILJS_CONFIG.PUBLIC_KEY);
+        })();
+
+        document.getElementById('bookBibleForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Show loading state
+            const submitBtn = document.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '🔄 Generating & Sending...';
+            submitBtn.disabled = true;
+            
+            // Collect form data
+            const formData = {
+                title: document.getElementById('title').value,
+                genre: document.getElementById('genre').value,
+                logline: document.getElementById('logline').value,
+                primaryInspiration: document.getElementById('primaryInspiration').value,
+                styleReference: document.getElementById('styleReference').value,
+                pacingReference: document.getElementById('pacingReference').value,
+                additionalInspirations: document.getElementById('additionalInspirations').value,
+                protagonistName: document.getElementById('protagonistName').value,
+                protagonistAge: document.getElementById('protagonistAge').value,
+                protagonistGoal: document.getElementById('protagonistGoal').value,
+                protagonistFlaw: document.getElementById('protagonistFlaw').value,
+                antagonist: document.getElementById('antagonist').value,
+                setting: document.getElementById('setting').value,
+                worldType: document.getElementById('worldType').value,
+                plot: document.getElementById('plot').value,
+                theme: document.getElementById('theme').value,
+                pov: document.getElementById('pov').value,
+                tense: document.getElementById('tense').value,
+                chapterLength: document.getElementById('chapterLength').value,
+                email: document.getElementById('email').value
+            };
+            
+            // Generate markdown
+            let markdown = generateBookBible(formData);
+            
+            // Send email if EmailJS is configured
+            if (EMAILJS_CONFIG.SERVICE_ID !== 'YOUR_SERVICE_ID') {
+                const emailParams = {
+                    to_email: formData.email,
+                    book_title: formData.title || 'Untitled Book',
+                    book_bible_content: markdown,
+                    from_name: 'Book Bible Generator'
+                };
+                
+                emailjs.send(EMAILJS_CONFIG.SERVICE_ID, EMAILJS_CONFIG.TEMPLATE_ID, emailParams)
+                    .then(function(response) {
+                        console.log('Email sent successfully!', response.status, response.text);
+                        
+                        // Also create downloadable file as backup
+                        createDownload(formData, markdown);
+                        
+                        // Success message
+                        submitBtn.innerHTML = '✅ Sent to Email!';
+                        setTimeout(() => {
+                            submitBtn.innerHTML = originalText;
+                            submitBtn.disabled = false;
+                        }, 3000);
+                        
+                        alert(`✅ Book Bible sent to ${formData.email}!\n\nAlso downloaded as backup file. Check your email and downloads folder.`);
+                    })
+                    .catch(function(error) {
+                        console.log('Email failed to send:', error);
+                        
+                        // Fallback to download only
+                        createDownload(formData, markdown);
+                        
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                        
+                        alert('⚠️ Email sending failed, but your Book Bible has been downloaded instead. Check your downloads folder.');
+                    });
+            } else {
+                // EmailJS not configured, just download
+                createDownload(formData, markdown);
+                
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+                
+                alert('📥 Book Bible downloaded! (Email not configured - see setup instructions)');
+            }
+        });
+        
+        function createDownload(formData, markdown) {
+            const blob = new Blob([markdown], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const filename = (formData.title || 'book-bible').toLowerCase().replace(/[^a-z0-9]/g, '-') + '.md';
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        function generateBookBible(data) {
+            let markdown = `# ${data.title || 'Untitled Book'} - Book Bible\n\n`;
+            markdown += `*Generated by Automated Novel Writing System*\n\n`;
+            markdown += `---\n\n`;
+            
+            // Core Story Foundation
+            markdown += `## 📖 **CORE STORY FOUNDATION**\n\n`;
+            markdown += `### Basic Information\n`;
+            markdown += `- **Title:** ${data.title}\n`;
+            markdown += `- **Genre:** ${data.genre}\n`;
+            if (data.logline) markdown += `- **Logline:** ${data.logline}\n`;
+            
+            markdown += `\n### Inspiration/Reference Works\n`;
+            markdown += `- **Primary Inspiration:** ${data.primaryInspiration}\n`;
+            if (data.styleReference) markdown += `- **Writing Style Reference:** ${data.styleReference}\n`;
+            if (data.pacingReference) markdown += `- **Pacing Reference:** ${data.pacingReference}\n`;
+            if (data.additionalInspirations) {
+                markdown += `\n**Additional Inspirations:**\n${data.additionalInspirations}\n`;
+            }
+            
+            // Narrative Structure
+            if (data.pov || data.tense || data.chapterLength) {
+                markdown += `\n---\n\n## 🎭 **NARRATIVE STRUCTURE**\n\n`;
+                markdown += `### Writing Style\n`;
+                if (data.pov) markdown += `- **POV:** ${data.pov}\n`;
+                if (data.tense) markdown += `- **Tense:** ${data.tense}\n`;
+                if (data.chapterLength) markdown += `- **Chapter Length:** ${data.chapterLength}\n`;
+            }
+            
+            // Character Development
+            markdown += `\n---\n\n## 👥 **CHARACTER DEVELOPMENT**\n\n`;
+            markdown += `### Protagonist\n`;
+            markdown += `**Character Name:** ${data.protagonistName}\n`;
+            if (data.protagonistAge) markdown += `- **Age:** ${data.protagonistAge}\n`;
+            markdown += `- **External Goal:** ${data.protagonistGoal}\n`;
+            if (data.protagonistFlaw) markdown += `- **Fatal Flaw:** ${data.protagonistFlaw}\n`;
+            
+            if (data.antagonist) {
+                markdown += `\n### Antagonist\n`;
+                markdown += `**Character Name:** ${data.antagonist}\n`;
+            }
+            
+            // World Building
+            if (data.setting || data.worldType || data.plot || data.theme) {
+                markdown += `\n---\n\n## 🌍 **WORLD BUILDING**\n\n`;
+                if (data.setting || data.worldType) {
+                    markdown += `### Setting Foundation\n`;
+                    if (data.setting) markdown += `- **Setting:** ${data.setting}\n`;
+                    if (data.worldType) markdown += `- **World Type:** ${data.worldType}\n`;
+                    markdown += `\n`;
+                }
+                if (data.theme) {
+                    markdown += `### Story Essence\n`;
+                    markdown += `- **Core Theme:** ${data.theme}\n\n`;
+                }
+                if (data.plot) {
+                    markdown += `### Plot Outline\n`;
+                    markdown += `${data.plot}\n\n`;
+                }
+            }
+            
+            // Special Instructions
+            markdown += `---\n\n## 📝 **SPECIAL INSTRUCTIONS**\n\n`;
+            markdown += `### Creative Direction Areas\n`;
+            markdown += `*Areas where AI has creative freedom (fill in as needed):*\n`;
+            markdown += `- [ ] Character backstory development\n`;
+            markdown += `- [ ] World-building details\n`;
+            markdown += `- [ ] Minor character development\n`;
+            markdown += `- [ ] Subplot development\n`;
+            markdown += `- [ ] Dialogue style refinement\n`;
+            markdown += `- [ ] Scene setting details\n`;
+            
+            markdown += `\n---\n\n*Generated on ${new Date().toLocaleDateString()}*\n`;
+            markdown += `*Email: ${data.email}*`;
+            
+            return markdown;
+        }
+    </script>
+</body>
+</html>

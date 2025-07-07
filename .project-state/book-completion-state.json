@@ -1,0 +1,118 @@
+{
+  "metadata": {
+    "created": "2025-01-15T10:00:00Z",
+    "last_updated": "2025-01-15T10:00:00Z",
+    "schema_version": "1.0",
+    "auto_completion_enabled": true
+  },
+  "book_completion_job": {
+    "job_id": null,
+    "status": "not_started",
+    "start_time": null,
+    "estimated_completion_time": null,
+    "pause_time": null,
+    "resume_time": null,
+    "completion_time": null,
+    "current_chapter": 0,
+    "total_chapters_planned": 0,
+    "chapters_completed": 0,
+    "user_initiated": false,
+    "auto_pause_on_failure": true,
+    "max_retry_attempts": 3,
+    "context_improvement_enabled": true
+  },
+  "chapter_generation_queue": {
+    "pending_chapters": [],
+    "current_chapter": null,
+    "completed_chapters": [],
+    "failed_chapters": [],
+    "skipped_chapters": []
+  },
+  "quality_gate_configuration": {
+    "enabled": true,
+    "minimum_pass_score": 80,
+    "brutal_assessment_threshold": 75,
+    "engagement_score_threshold": 7.0,
+    "word_count_tolerance": 0.15,
+    "auto_retry_on_failure": true,
+    "max_retries_per_chapter": 3,
+    "quality_improvement_iterations": 2
+  },
+  "sequential_chapter_tracking": {
+    "chapter_dependencies": {},
+    "context_continuity": {
+      "character_states": {},
+      "plot_threads": {},
+      "world_state": {},
+      "timeline_position": {}
+    },
+    "chapter_flow": [],
+    "completion_triggers": {
+      "word_count_target_reached": false,
+      "plot_resolution_achieved": false,
+      "character_arcs_completed": false,
+      "manual_completion_requested": false
+    }
+  },
+  "progress_tracking": {
+    "overall_completion_percentage": 0.0,
+    "current_phase": "not_started",
+    "chapters_progress": {},
+    "word_count_progression": {},
+    "quality_scores_progression": {},
+    "estimated_time_remaining": null,
+    "velocity_metrics": {
+      "avg_chapter_generation_time": null,
+      "avg_quality_assessment_time": null,
+      "avg_retry_time": null,
+      "success_rate": 1.0
+    }
+  },
+  "failure_recovery": {
+    "recovery_enabled": true,
+    "checkpoint_frequency": "after_each_chapter",
+    "last_successful_checkpoint": null,
+    "recovery_attempts": [],
+    "context_restoration_points": {},
+    "rollback_capability": true
+  },
+  "user_control": {
+    "pause_requested": false,
+    "resume_requested": false,
+    "stop_requested": false,
+    "manual_intervention_required": false,
+    "user_review_required": false,
+    "notification_preferences": {
+      "chapter_completion": true,
+      "quality_failures": true,
+      "book_completion": true,
+      "error_alerts": true
+    }
+  },
+  "context_management": {
+    "previous_chapters_summary": "",
+    "character_development_continuity": {},
+    "plot_advancement_tracking": {},
+    "theme_consistency": {},
+    "world_building_continuity": {},
+    "research_integration": {}
+  },
+  "completion_criteria": {
+    "target_word_count": 80000,
+    "minimum_word_count": 70000,
+    "maximum_word_count": 90000,
+    "target_chapter_count": 20,
+    "minimum_chapter_count": 18,
+    "maximum_chapter_count": 25,
+    "plot_resolution_required": true,
+    "character_arc_completion_required": true,
+    "quality_threshold_maintained": true
+  },
+  "auto_completion_log": {
+    "session_logs": [],
+    "chapter_generation_logs": [],
+    "quality_assessment_logs": [],
+    "error_logs": [],
+    "context_management_logs": []
+  }
+} 

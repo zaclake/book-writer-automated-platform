@@ -1,0 +1,64 @@
+{
+  "chapter_997": {
+    "chapter_number": 997,
+    "total_word_count": 173,
+    "series_setup_word_count": 54,
+    "series_content_percentage": 31.213872832369944,
+    "individual_story_percentage": 68.78612716763006,
+    "compliance_score": 0.0,
+    "series_elements": [
+      {
+        "type": "future_conflict_setup",
+        "content": "This was just the beginning of Sarah's journey. In future books, she would face",
+        "line_number": 2,
+        "word_count": 14,
+        "purpose": "conflict_seeding",
+        "enhancement_score": 5.0
+      },
+      {
+        "type": "future_character_setup",
+        "content": "she was about to encounter would become central to the entire series.",
+        "line_number": 4,
+        "word_count": 12,
+        "purpose": "character_development_setup",
+        "enhancement_score": 5.0
+      },
+      {
+        "type": "future_character_setup",
+        "content": "Little did she know that this case would introduce her to characters who would",
+        "line_number": 6,
+        "word_count": 14,
+        "purpose": "character_development_setup",
+        "enhancement_score": 7.0
+      },
+      {
+        "type": "future_conflict_setup",
+        "content": "uncover a conspiracy spanning multiple books. This was only the tip of the iceberg.",
+        "line_number": 11,
+        "word_count": 14,
+        "purpose": "conflict_seeding",
+        "enhancement_score": 5.0
+      }
+    ],
+    "standalone_satisfaction_score": 8.0,
+    "recommendations": [
+      "\ud83d\udea8 CRITICAL: Series content exceeds 5% limit (31.2%) - remove or integrate better"
+    ],
+    "passes_guidelines": false
+  },
+  "chapter_998": {
+    "chapter_number": 998,
+    "total_word_count": 174,
+    "series_setup_word_count": 0,
+    "series_content_percentage": 0.0,
+    "individual_story_percentage": 100.0,
+    "compliance_score": 10.0,
+    "series_elements": [],
+    "standalone_satisfaction_score": 8.0,
+    "recommendations": [
+      "\u2705 Excellent series balance - individual story prioritized appropriately",
+      "\u2139\ufe0f No series setup detected - pure standalone focus maintained"
+    ],
+    "passes_guidelines": true
+  }
+}

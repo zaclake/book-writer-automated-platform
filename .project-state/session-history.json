@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "created": "2025-07-07T10:27:07.129789",
+    "last_updated": "2025-07-07T10:27:07.129790",
+    "total_sessions": 0,
+    "total_writing_time": 0
+  },
+  "sessions": [],
+  "project_stats": {
+    "most_productive_session": null,
+    "average_session_length": 0,
+    "average_words_per_session": 0,
+    "quality_trend": "stable",
+    "last_backup": null
+  },
+  "system_usage": {
+    "patterns_detected": 0,
+    "quality_checks_run": 0,
+    "brutal_assessments": 0,
+    "continuous_audits": 0,
+    "research_verifications": 0
+  },
+  "project_health": {
+    "pattern_freshness_score": 10.0,
+    "quality_consistency": 10.0,
+    "plot_advancement_rate": 0.0,
+    "character_development_rate": 0.0,
+    "overall_health_score": 10.0
+  }
+}

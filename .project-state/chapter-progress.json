@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "created": "2025-07-07T10:27:07.129717",
+    "last_updated": "2025-07-07T10:27:07.129718",
+    "total_chapters_planned": 0,
+    "chapters_completed": 0,
+    "current_word_count": 0,
+    "target_word_count": 0,
+    "auto_completion_enabled": false,
+    "book_completion_job_id": null
+  },
+  "chapter_status": {},
+  "milestone_tracking": {
+    "plot_points": {},
+    "character_arcs": {},
+    "theme_development": {},
+    "world_building": {},
+    "research_requirements": {}
+  },
+  "word_count_progression": {},
+  "quality_gate_results": {},
+  "revision_history": {},
+  "completion_dates": {},
+  "writing_velocity": {
+    "words_per_session": [],
+    "chapters_per_week": [],
+    "quality_scores_over_time": []
+  },
+  "next_actions": [],
+  "blocked_items": [],
+  "auto_completion_integration": {
+    "last_auto_completed_chapter": 0,
+    "auto_completion_failures": [],
+    "manual_interventions": [],
+    "quality_gate_overrides": []
+  }
+}

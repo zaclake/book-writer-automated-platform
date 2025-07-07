@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "created": "2025-07-07T10:27:07.129612",
+    "last_updated": "2025-07-07T10:27:07.129613",
+    "project_quality_target": 8.5,
+    "chapter_count": 0
+  },
+  "quality_thresholds": {
+    "prose_quality": {
+      "minimum": 8.0,
+      "target": 8.5
+    },
+    "character_authenticity": {
+      "minimum": 8.0,
+      "target": 8.5
+    },
+    "story_function": {
+      "minimum": 8.0,
+      "target": 8.5
+    },
+    "emotional_impact": {
+      "minimum": 8.0,
+      "target": 8.5
+    },
+    "pattern_freshness": {
+      "minimum": 7.0,
+      "target": 8.0
+    },
+    "reader_engagement": {
+      "minimum": 7.0,
+      "target": 8.0
+    },
+    "structural_integrity": {
+      "minimum": 8.0,
+      "target": 8.5
+    },
+    "brutal_assessment": {
+      "minimum": 8.5,
+      "target": 9.0
+    }
+  },
+  "character_voice_baselines": {},
+  "style_consistency_metrics": {
+    "sentence_length_variance": {
+      "min": 5,
+      "max": 50,
+      "avg_target": 18
+    },
+    "paragraph_length_variance": {
+      "min": 1,
+      "max": 8,
+      "avg_target": 4
+    },
+    "dialogue_to_narrative_ratio": {
+      "min": 0.3,
+      "max": 0.7,
+      "target": 0.4
+    },
+    "description_density": {
+      "min": 0.15,
+      "max": 0.35,
+      "target": 0.25
+    }
+  },
+  "chapter_quality_history": {},
+  "quality_improvement_trends": {},
+  "baseline_calibration": {
+    "last_calibrated": "2025-07-07T10:27:07.129615",
+    "calibration_source": "Enhanced Writing System v2.0",
+    "brutal_assessment_correlation": 0.95
+  }
+}

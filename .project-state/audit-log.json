@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "created": "2025-07-07T09:47:29.356767",
+    "last_updated": "2025-07-07T09:47:29.382038",
+    "total_audits": 1
+  },
+  "audits": [
+    {
+      "timestamp": "2025-07-07T09:47:29.382017",
+      "results": {
+        "pattern_analysis": {
+          "audit_type": "pattern_analysis",
+          "timestamp": "2025-07-07T09:47:29.381358",
+          "status": "completed",
+          "score": 10.0,
+          "issues_found": 0,
+          "recommendations": [],
+          "details": {
+            "chapters_tracked": 0,
+            "patterns_tracked": 0,
+            "freshness_score": 10.0
+          }
+        },
+        "brutal_assessment": {
+          "audit_type": "brutal_assessment",
+          "timestamp": "2025-07-07T09:47:29.381575",
+          "status": "no_chapters",
+          "score": 0.0,
+          "issues_found": 0,
+          "recommendations": [
+            "No chapters found to assess"
+          ],
+          "details": {}
+        },
+        "quality_consistency": {
+          "audit_type": "quality_consistency",
+          "timestamp": "2025-07-07T09:47:29.381647",
+          "status": "insufficient_data",
+          "score": 7.0,
+          "issues_found": 0,
+          "recommendations": [
+            "Need more chapters for consistency analysis"
+          ],
+          "details": {
+            "chapters_analyzed": 0
+          }
+        },
+        "project_progress": {
+          "audit_type": "project_progress",
+          "timestamp": "2025-07-07T09:47:29.381689",
+          "status": "completed",
+          "score": 0.0,
+          "issues_found": 0,
+          "recommendations": [],
+          "details": {
+            "chapters_completed": 0,
+            "total_planned": 0,
+            "completion_rate": 0.0,
+            "word_count_progress": 0.0
+          }
+        },
+        "risk_assessment": {
+          "audit_type": "risk_assessment",
+          "timestamp": "2025-07-07T09:47:29.381815",
+          "status": "completed",
+          "score": 9.0,
+          "issues_found": 1,
+          "recommendations": [
+            "Backup older than 7 days"
+          ],
+          "details": {
+            "risk_level": "low",
+            "risk_factors": 1
+          }
+        }
+      }
+    }
+  ],
+  "health_history": []
+}

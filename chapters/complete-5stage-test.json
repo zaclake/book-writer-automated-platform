@@ -1,0 +1,31 @@
+{
+  "stage": 5,
+  "model": "gpt-4o",
+  "timestamp": "2025-07-07T11:16:21.090314",
+  "tokens_used": {
+    "prompt": 1333,
+    "completion": 1097,
+    "total": 2430
+  },
+  "cost_breakdown": {
+    "input_cost": 0.006665,
+    "output_cost": 0.016454999999999997,
+    "total_cost": 0.023119999999999998
+  },
+  "stage_config": {
+    "max_tokens": 6000,
+    "temperature": 0.3,
+    "output_format": "final_integrated_chapter",
+    "quality_gates": [
+      "Character consistency verified against established patterns",
+      "World rules never violated or contradicted",
+      "Timeline accuracy confirmed",
+      "Tone matches overall story atmosphere",
+      "Thematic connections established",
+      "Setup/payoff ratios properly balanced",
+      "Foreshadowing subtly integrated",
+      "Pattern database fully updated",
+      "Series balance maintained (if applicable)"
+    ]
+  }
+}

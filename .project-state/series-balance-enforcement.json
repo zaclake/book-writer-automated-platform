@@ -1,0 +1,61 @@
+[
+  {
+    "chapter_number": 997,
+    "series_content_percentage": 31.213872832369944,
+    "individual_story_percentage": 68.78612716763006,
+    "compliance_score": 0.0,
+    "standalone_satisfaction_score": 8.0,
+    "passes_enforcement": false,
+    "enforcement_level": "BLOCK",
+    "violations": [
+      {
+        "type": "series_content_excess",
+        "severity": "critical",
+        "current_value": 31.213872832369944,
+        "limit": 5.0,
+        "excess": 26.213872832369944,
+        "description": "Series content at 31.2% exceeds 5.0% limit"
+      },
+      {
+        "type": "compliance_score_low",
+        "severity": "major",
+        "current_value": 0.0,
+        "minimum": 7.0,
+        "deficit": 7.0,
+        "description": "Compliance score 0.0/10 below required 7.0/10"
+      }
+    ],
+    "enforcement_actions": [
+      "\u274c BLOCK CHAPTER: Critical series balance violation",
+      "\ud83d\udea8 Immediate revision required before acceptance",
+      "\ud83d\udcc9 Reduce series content from 31.2% to below 5.0%",
+      "\ud83d\udd04 Re-run enforcement check after revision",
+      "\ud83d\udca1 \ud83d\udea8 CRITICAL: Series content exceeds 5% limit (31.2%) - remove or integrate better"
+    ],
+    "blocking_issues": [
+      "Series content at 31.2% far exceeds 5.0% limit",
+      "Compliance score 0.0/10 below required 7.0/10",
+      "Chapter fails series balance guidelines compliance"
+    ],
+    "timestamp": "2025-07-07T10:22:35.065653"
+  },
+  {
+    "chapter_number": 998,
+    "series_content_percentage": 0.0,
+    "individual_story_percentage": 100.0,
+    "compliance_score": 10.0,
+    "standalone_satisfaction_score": 8.0,
+    "passes_enforcement": true,
+    "enforcement_level": "PASS",
+    "violations": [],
+    "enforcement_actions": [
+      "\u2705 PASS: Series balance guidelines met",
+      "\ud83d\udcca Series content: 0.0% (within 5.0% limit)",
+      "\ud83d\udcd6 Standalone satisfaction: 8.0/10",
+      "\ud83d\udca1 \u2705 Excellent series balance - individual story prioritized appropriately",
+      "\ud83d\udca1 \u2139\ufe0f No series setup detected - pure standalone focus maintained"
+    ],
+    "blocking_issues": [],
+    "timestamp": "2025-07-07T10:22:35.066605"
+  }
+]

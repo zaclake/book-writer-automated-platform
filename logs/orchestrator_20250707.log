@@ -1,0 +1,49 @@
+2025-07-07 11:11:28,269 - llm_orchestrator - INFO - Starting chapter 1 generation (stage: complete)
+2025-07-07 11:11:28,270 - llm_orchestrator - INFO - Target words: 1000, Model: gpt-4o
+2025-07-07 11:11:28,270 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:12:07,796 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:12:07,796 - llm_orchestrator - INFO - Generation completed in 39.53s
+2025-07-07 11:12:07,796 - llm_orchestrator - INFO - Tokens used: 1414, Cost: $0.0187
+2025-07-07 11:12:07,796 - llm_orchestrator - INFO - Word count: 939 (target: 1000)
+2025-07-07 11:12:07,798 - llm_orchestrator - INFO - Chapter saved to chapters/api-test-chapter.md
+2025-07-07 11:12:07,798 - llm_orchestrator - INFO - Metadata saved to chapters/api-test-chapter.json
+2025-07-07 11:12:25,738 - llm_orchestrator - INFO - Starting 5-stage generation for Chapter 2
+2025-07-07 11:12:25,738 - llm_orchestrator - INFO - Stage 1: Strategic Planning
+2025-07-07 11:12:25,738 - llm_orchestrator - ERROR - Stage 1 execution failed: Template variable not provided: 'previous_chapter_summary'
+2025-07-07 11:12:25,738 - llm_orchestrator - ERROR - Stage 1 failed, aborting 5-stage process
+2025-07-07 11:12:52,756 - llm_orchestrator - INFO - Starting 5-stage generation for Chapter 2
+2025-07-07 11:12:52,756 - llm_orchestrator - INFO - Stage 1: Strategic Planning
+2025-07-07 11:12:52,756 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:13:14,730 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:13:14,731 - llm_orchestrator - INFO - Stage 2: First Draft Generation
+2025-07-07 11:13:14,731 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:13:37,007 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:13:37,008 - llm_orchestrator - INFO - Stage 3: Craft Excellence Review
+2025-07-07 11:13:37,008 - llm_orchestrator - ERROR - Stage 3 execution failed: Template variable not provided: 'pattern_database_context'
+2025-07-07 11:13:37,008 - llm_orchestrator - ERROR - Stage 3 failed, aborting 5-stage process
+2025-07-07 11:14:10,943 - llm_orchestrator - INFO - Starting 5-stage generation for Chapter 3
+2025-07-07 11:14:10,943 - llm_orchestrator - INFO - Stage 1: Strategic Planning
+2025-07-07 11:14:10,943 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:14:34,445 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:14:34,445 - llm_orchestrator - INFO - Stage 2: First Draft Generation
+2025-07-07 11:14:34,446 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:14:57,245 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:14:57,246 - llm_orchestrator - INFO - Stage 3: Craft Excellence Review
+2025-07-07 11:14:57,246 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:15:42,413 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:15:42,413 - llm_orchestrator - INFO - Stage 4: Skipped for MVP (would analyze stage 3 results)
+2025-07-07 11:15:42,413 - llm_orchestrator - INFO - Stage 5: Final Integration
+2025-07-07 11:15:42,414 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:16:21,090 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:16:21,090 - llm_orchestrator - INFO - 5-stage generation completed
+2025-07-07 11:16:21,091 - llm_orchestrator - INFO - Chapter saved to chapters/complete-5stage-test.md
+2025-07-07 11:16:21,091 - llm_orchestrator - INFO - Metadata saved to chapters/complete-5stage-test.json
+2025-07-07 11:17:24,678 - llm_orchestrator - INFO - Starting chapter 4 generation (stage: complete)
+2025-07-07 11:17:24,678 - llm_orchestrator - INFO - Target words: 800, Model: gpt-4o
+2025-07-07 11:17:24,678 - llm_orchestrator - INFO - Making API call (attempt 1/4)
+2025-07-07 11:18:04,696 - llm_orchestrator - INFO - API call successful on attempt 1
+2025-07-07 11:18:04,697 - llm_orchestrator - INFO - Generation completed in 40.02s
+2025-07-07 11:18:04,697 - llm_orchestrator - INFO - Tokens used: 1547, Cost: $0.0208
+2025-07-07 11:18:04,697 - llm_orchestrator - INFO - Word count: 1007 (target: 800)
+2025-07-07 11:18:04,698 - llm_orchestrator - INFO - Chapter saved to chapters/chapter-04.md
+2025-07-07 11:18:04,698 - llm_orchestrator - INFO - Metadata saved to chapters/chapter-04.json

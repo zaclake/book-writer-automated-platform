@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "created": "2025-07-07T10:27:07.129489",
+    "last_updated": "2025-07-07T10:27:07.129490",
+    "chapter_count": 0,
+    "total_patterns": 0
+  },
+  "physical_descriptions": {
+    "characters": {},
+    "settings": {},
+    "objects": {},
+    "sensory": {
+      "visual": [],
+      "auditory": [],
+      "tactile": [],
+      "olfactory": [],
+      "gustatory": []
+    }
+  },
+  "language_patterns": {
+    "metaphors": [],
+    "similes": [],
+    "adjective_combinations": [],
+    "sentence_structures": [],
+    "paragraph_structures": [],
+    "dialogue_tags": [],
+    "transitions": []
+  },
+  "emotional_expressions": {
+    "character_reactions": {},
+    "internal_monologue": {},
+    "conflict_expressions": [],
+    "resolution_techniques": []
+  },
+  "action_sequences": {
+    "movement_descriptions": [],
+    "pacing_patterns": [],
+    "choreography": [],
+    "tension_building": []
+  },
+  "chapter_summaries": {},
+  "repetition_flags": []
+}

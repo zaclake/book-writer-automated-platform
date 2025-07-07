@@ -1,0 +1,4 @@
+2025-07-07T10:10:06.130946 - phase1_pattern_load_error: 'total_patterns'
+2025-07-07T10:10:06.131102 - stage3_freshness_check_error: 'PatternDatabase' object has no attribute 'check_chapter_freshness'
+2025-07-07T10:10:06.131342 - stage4_pattern_refinement_error: 'PatternDatabase' object has no attribute 'get_freshness_refinement_suggestions'
+2025-07-07T10:10:06.131399 - stage5_pattern_update_error: 'PatternDatabase' object has no attribute 'analyze_chapter'

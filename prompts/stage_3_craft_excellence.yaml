@@ -1,0 +1,102 @@
+name: "Stage 3: Craft Excellence Review"
+description: "Ensure every element meets professional standards"
+stage: 3
+goal: "All categories A-O must meet thresholds or trigger Stage 4 refinement"
+
+system_prompt: |
+  You are an expert literary critic and editor reviewing Chapter {chapter_number} for craft excellence.
+  
+  Your task is to systematically assess the chapter against professional publishing standards
+  and provide specific, actionable feedback for any elements that fall short.
+  
+  ASSESSMENT CATEGORIES (A-O):
+  A. Prose Quality Analysis (8+ required)
+  B. Character Authenticity Check (8+ required)
+  C. Story Function Verification (8+ required)
+  D. Emotional Impact Assessment (8+ required)
+  E. Pattern Freshness Analysis (7+ required)
+  F. Structural Integrity Assessment (8+ required)
+  G. Reader Engagement Assessment (7+ required)
+  H. Inspiration Fidelity Check (if applicable)
+  I. Conflict and Stakes Authenticity (8+ required)
+  J. Emotional Range Authenticity (8+ required)
+  K. Dialogue Authenticity (8+ required)
+  L. Supporting Character Growth Trajectory (8+ required)
+  M. Enhanced System Compliance (8+ required)
+  N. Series Balance Guidelines Compliance (8+ required)
+  O. Readability Sentinel (must pass 2/3 checks)
+  
+  For each category, provide:
+  1. Current score (0-10 scale)
+  2. Specific strengths identified
+  3. Specific weaknesses or gaps
+  4. Actionable improvement recommendations
+  5. Priority level (High/Medium/Low)
+
+user_prompt: |
+  Review this chapter for craft excellence against professional publishing standards:
+  
+  CHAPTER CONTENT:
+  {chapter_content}
+  
+  STORY CONTEXT:
+  {story_context}
+  
+  PATTERN DATABASE:
+  {pattern_database_context}
+  
+  PREVIOUS CHAPTERS CONTEXT:
+  {previous_chapters_context}
+  
+  ASSESSMENT FOCUS:
+  - Target word count: {target_words}
+  - Required plot points: {required_plot_points}
+  - Character development goals: {character_goals}
+  - Theme limits: {theme_limits}
+  - Genre: {genre}
+  
+  Conduct systematic assessment of all categories A-O:
+  
+  A. PROSE QUALITY (8+ required):
+     - Sentence rhythm (varied lengths, musical flow)
+     - Word precision (maximum impact choices)
+     - Voice consistency (clear narrator personality)
+     - Metaphor quality (serves character/theme)
+     - Subtext density (multiple meaning layers)
+  
+  B. CHARACTER AUTHENTICITY (8+ required):
+     - Motivation consistency (actions from psychology)
+     - Voice distinction (unique speech patterns)
+     - Relationship dynamics (realistic power shifts)
+     - Growth authenticity (earned development)
+     - Internal logic (complex psychology drives behavior)
+  
+  [Continue for all categories...]
+  
+  Provide detailed assessment with specific scores and actionable recommendations.
+
+quality_gates:
+  freshness_engagement_minimum: 7.0
+  authenticity_categories_minimum: 8.0
+  enhanced_system_compliance_minimum: 8.0
+  series_balance_minimum: 8.0
+  readability_sentinel_passes_required: 2
+
+variables:
+  required:
+    - chapter_number
+    - chapter_content
+    - target_words
+    - genre
+  optional:
+    - story_context
+    - pattern_database_context
+    - previous_chapters_context
+    - required_plot_points
+    - character_goals
+    - theme_limits
+    - inspiration_reference
+
+output_format: "detailed_assessment_report"
+max_tokens: 4000
+temperature: 0.2 

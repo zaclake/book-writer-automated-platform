@@ -1,0 +1,49 @@
+{
+  "chapter_998": {
+    "chapter_number": 998,
+    "hook_strength": "strong",
+    "momentum_maintenance": "medium",
+    "ending_propulsion": "strong",
+    "conflict_density": "strong",
+    "dialogue_exposition_ratio": 0.104,
+    "question_generation_rate": 2,
+    "surprise_factor": "weak",
+    "engagement_score": 7.7,
+    "risk_flags": [
+      "Too much exposition - chapter may feel like info dump"
+    ],
+    "genre_compliance": "poor",
+    "recommendations": [
+      "\ud83d\udcac Add dialogue: Convert exposition to character interaction",
+      "\u2753 Create questions: Add mystery elements or unanswered complications",
+      "\ud83c\udfaa Add surprises: Include unexpected but logical developments"
+    ],
+    "timestamp": "2025-07-07T10:19:56.532024"
+  },
+  "chapter_999": {
+    "chapter_number": 999,
+    "hook_strength": "medium",
+    "momentum_maintenance": "medium",
+    "ending_propulsion": "medium",
+    "conflict_density": "weak",
+    "dialogue_exposition_ratio": 0.0,
+    "question_generation_rate": 0,
+    "surprise_factor": "weak",
+    "engagement_score": 4.9,
+    "risk_flags": [
+      "Chapter may not maintain reader interest",
+      "Chapter lacks tension to drive reading",
+      "Too much exposition - chapter may feel like info dump",
+      "Story events may be too predictable"
+    ],
+    "genre_compliance": "poor",
+    "recommendations": [
+      "\u2694\ufe0f Increase conflict: Add tension, obstacles, or character disagreements",
+      "\ud83d\udcac Add dialogue: Convert exposition to character interaction",
+      "\u2753 Create questions: Add mystery elements or unanswered complications",
+      "\ud83c\udfaa Add surprises: Include unexpected but logical developments",
+      "\ud83d\udd25 Thriller requirement: Increase tension and danger throughout"
+    ],
+    "timestamp": "2025-07-07T10:19:56.532773"
+  }
+}

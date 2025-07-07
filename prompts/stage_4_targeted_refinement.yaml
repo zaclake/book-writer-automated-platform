@@ -1,0 +1,129 @@
+name: "Stage 4: Targeted Refinement"
+description: "Address specific weaknesses until excellence achieved"
+stage: 4
+goal: "Iterative improvement until all scores reach required thresholds"
+
+system_prompt: |
+  You are an expert editor making targeted improvements to Chapter {chapter_number}.
+  
+  Based on the craft excellence assessment, you must address specific weaknesses identified
+  in the review while maintaining the chapter's strengths and overall integrity.
+  
+  REFINEMENT APPROACH:
+  - Focus only on areas scoring below required thresholds
+  - Make surgical improvements without disrupting working elements
+  - Maintain character voice and story consistency
+  - Preserve successful scenes and dialogue
+  - Enhance weak areas to meet professional standards
+  
+  REFINEMENT CATEGORIES:
+  {refinement_categories}
+  
+  For each category requiring improvement:
+  1. Identify specific problems from assessment
+  2. Apply targeted fixes while preserving strengths
+  3. Verify improvements don't create new issues
+  4. Maintain overall chapter coherence
+  
+  Output the complete revised chapter with all improvements integrated.
+
+user_prompt: |
+  Refine Chapter {chapter_number} based on this craft excellence assessment:
+  
+  ORIGINAL CHAPTER:
+  {original_chapter}
+  
+  ASSESSMENT RESULTS:
+  {assessment_results}
+  
+  AREAS REQUIRING IMPROVEMENT:
+  {improvement_areas}
+  
+  SPECIFIC REFINEMENT INSTRUCTIONS:
+  
+  {category_specific_instructions}
+  
+  PRESERVATION REQUIREMENTS:
+  - Maintain these successful elements: {preserve_elements}
+  - Keep word count within: {target_words} ± 200 words
+  - Preserve character voice consistency
+  - Maintain plot advancement achievements
+  - Keep successful dialogue and scenes intact
+  
+  Apply targeted refinements to address each identified weakness while preserving
+  the chapter's strengths. Focus on surgical improvements rather than wholesale changes.
+  
+  Output the complete refined chapter.
+
+refinement_templates:
+  prose_quality_lt_8: |
+    PROSE QUALITY REFINEMENT:
+    - Sentence surgery: Rebuild weak sentences for rhythm and precision
+    - Word substitution: Replace generic terms with specific, evocative choices
+    - Voice enhancement: Strengthen narrator personality through syntax
+    - Metaphor refinement: Deepen imagery connection to character/theme
+    - Subtext layering: Add meaning beneath surface content
+  
+  character_authenticity_lt_8: |
+    CHARACTER AUTHENTICITY REFINEMENT:
+    - Motivation deepening: Explore psychological complexity driving behavior
+    - Voice distinction: Sharpen unique speech patterns for each character
+    - Relationship enrichment: Add history and power dynamics to interactions
+    - Growth calibration: Ensure character development feels realistic
+    - Logic tightening: Verify all actions spring from established psychology
+  
+  story_function_lt_8: |
+    STORY FUNCTION REFINEMENT:
+    - Plot strengthening: Enhance meaningful story advancement
+    - Information repositioning: Time reveals for optimal emotional impact
+    - Conflict amplification: Increase tension while maintaining believability
+    - Pacing adjustment: Modify rhythm to serve story needs better
+    - Structure optimization: Perfect chapter's role in larger architecture
+  
+  emotional_impact_lt_8: |
+    EMOTIONAL IMPACT REFINEMENT:
+    - Feeling intensification: Deepen reader's emotional experience
+    - Stakes elevation: Make conflicts more personally meaningful
+    - Tension calibration: Maintain unease without reader fatigue
+    - Surprise enhancement: Increase authenticity of unexpected developments
+    - Momentum amplification: Strengthen forward propulsion
+  
+  pattern_freshness_lt_7: |
+    PATTERN FRESHNESS REFINEMENT:
+    - Description renovation: Rewrite repeated elements with fresh approaches
+    - Language substitution: Replace overused phrases while maintaining voice
+    - Perspective shifting: Change viewpoint on familiar elements
+    - Metaphor evolution: Develop new imagery serving character/theme
+    - Syntax rotation: Vary sentence structure patterns for better rhythm
+  
+  reader_engagement_lt_7: |
+    READER ENGAGEMENT REFINEMENT:
+    - Hook strengthening: Enhance opening with immediate conflict/intrigue
+    - Momentum injection: Add questions, complications, tension to flat sections
+    - Ending amplification: Create stronger forward propulsion or revelation
+    - Conflict layering: Add personal stakes to plot events
+    - Dialogue conversion: Transform exposition into character interaction
+
+quality_gates:
+  - "All categories reach required thresholds after refinement"
+  - "Chapter coherence maintained throughout revisions"
+  - "Character voice consistency preserved"
+  - "Plot advancement achievements retained"
+  - "Word count within acceptable range"
+  - "No new problems introduced"
+
+variables:
+  required:
+    - chapter_number
+    - original_chapter
+    - assessment_results
+    - improvement_areas
+    - target_words
+  optional:
+    - refinement_categories
+    - category_specific_instructions
+    - preserve_elements
+
+output_format: "complete_refined_chapter"
+max_tokens: 6000
+temperature: 0.5 

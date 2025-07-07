@@ -1,0 +1,28 @@
+[
+  {
+    "timestamp": "2025-07-07T10:24:36.770624",
+    "files_processed": 113,
+    "total_fixes": 114,
+    "fixes_by_type": {
+      "reorganization_map": 113,
+      "readme_specific": 1
+    },
+    "files_with_fixes": [
+      "chapter-generation-protocol.md",
+      "WRITING-SYSTEM-REVIEW-GUIDE.md",
+      "user-manual.md",
+      "README.md",
+      "project-management-commands.md",
+      "analysis/system-improvements-summary.md",
+      "analysis/system-implementation-checklist.md",
+      "docs/emailjs-setup-guide.md",
+      "docs/setup-book-project.md",
+      "system/project-management-implementation-summary.md",
+      "system/project-management-implementation-prompt.md",
+      "system/project-manager.md",
+      "system/enhanced-writing-system-implementation-guide.md",
+      "notes/initialization-summary.md"
+    ],
+    "error_count": 0
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "model": "gpt-4o",
+  "chapter_number": 4,
+  "generation_time": 40.01859712600708,
+  "timestamp": "2025-07-07T11:18:04.697175",
+  "stage": "complete",
+  "tokens_used": {
+    "prompt": 245,
+    "completion": 1302,
+    "total": 1547
+  },
+  "cost_breakdown": {
+    "input_cost": 0.001225,
+    "output_cost": 0.01953,
+    "total_cost": 0.020755
+  },
+  "word_count": 1007,
+  "target_words": 800,
+  "retry_attempts": 0
+}

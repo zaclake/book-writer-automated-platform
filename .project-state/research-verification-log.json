@@ -1,0 +1,15 @@
+[
+  {
+    "timestamp": "2025-07-07T10:17:16.425372",
+    "chapter_number": 999,
+    "research_elements_detected": 4,
+    "verification_requirements": 13,
+    "complexity_score": 13,
+    "categories": [
+      "technical_procedures",
+      "professional_roles",
+      "legal_elements",
+      "medical_forensic"
+    ]
+  }
+]

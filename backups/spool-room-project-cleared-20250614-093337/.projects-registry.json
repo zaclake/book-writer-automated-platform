@@ -1,0 +1,19 @@
+{
+  "workspaceCreated": "2025-06-13T21:40:51Z",
+  "lastUpdated": "2025-06-13T21:48:08Z",
+  "activeProject": "the-spool-room",
+  "projects": [
+    {
+      "id": "the-spool-room",
+      "name": "The Spool Room",
+      "path": "./the-spool-room/",
+      "status": "Ready",
+      "created": "2025-06-13T21:40:51Z",
+      "lastAccessed": "2025-06-13T21:48:08Z",
+      "chaptersCount": 0,
+      "wordCount": 0,
+      "qualityAverage": null
+    }
+  ],
+  "archivedProjects": []
+}

@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Writing System - Progress Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header .subtitle {
+            color: #7f8c8d;
+            font-size: 1.2rem;
+            font-weight: 300;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .status-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+            border-left: 5px solid #3498db;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .status-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12);
+        }
+
+        .status-card.excellent {
+            border-left-color: #27ae60;
+        }
+
+        .status-card.good {
+            border-left-color: #f39c12;
+        }
+
+        .status-card.warning {
+            border-left-color: #e74c3c;
+        }
+
+        .status-card.critical {
+            border-left-color: #8e44ad;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .card-icon {
+            font-size: 2rem;
+            margin-right: 15px;
+        }
+
+        .card-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .card-metric {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .card-metric.excellent {
+            color: #27ae60;
+        }
+
+        .card-metric.good {
+            color: #f39c12;
+        }
+
+        .card-metric.warning {
+            color: #e74c3c;
+        }
+
+        .card-metric.critical {
+            color: #8e44ad;
+        }
+
+        .card-description {
+            color: #7f8c8d;
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
+
+        .progress-section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-weight: 600;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 10px;
+        }
+
+        .progress-bar {
+            background: #ecf0f1;
+            border-radius: 10px;
+            height: 20px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.8s ease;
+        }
+
+        .progress-fill.excellent {
+            background: linear-gradient(45deg, #27ae60, #2ecc71);
+        }
+
+        .progress-fill.good {
+            background: linear-gradient(45deg, #f39c12, #f1c40f);
+        }
+
+        .progress-fill.warning {
+            background: linear-gradient(45deg, #e74c3c, #e67e22);
+        }
+
+        .progress-fill.critical {
+            background: linear-gradient(45deg, #8e44ad, #9b59b6);
+        }
+
+        .chapters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .chapter-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            border: 2px solid #ecf0f1;
+            transition: all 0.3s ease;
+        }
+
+        .chapter-card:hover {
+            border-color: #3498db;
+            transform: scale(1.02);
+        }
+
+        .chapter-card.complete {
+            border-color: #27ae60;
+            background: linear-gradient(135deg, #d5f4e6, #ffffff);
+        }
+
+        .chapter-card.in-progress {
+            border-color: #f39c12;
+            background: linear-gradient(135deg, #fef9e7, #ffffff);
+        }
+
+        .chapter-card.not-started {
+            border-color: #bdc3c7;
+            background: linear-gradient(135deg, #f8f9fa, #ffffff);
+        }
+
+        .chapter-number {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .chapter-status {
+            font-size: 0.9rem;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-weight: 500;
+        }
+
+        .chapter-status.complete {
+            background: #27ae60;
+            color: white;
+        }
+
+        .chapter-status.in-progress {
+            background: #f39c12;
+            color: white;
+        }
+
+        .chapter-status.not-started {
+            background: #bdc3c7;
+            color: white;
+        }
+
+        .alerts-section {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+
+        .alerts-title {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .alert-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .refresh-button {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .refresh-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #7f8c8d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #95a5a6;
+            font-size: 0.9rem;
+            margin-top: 30px;
+            font-style: italic;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                padding: 20px;
+                margin: 10px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .chapters-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>📚 Enhanced Writing System</h1>
+            <div class="subtitle">Project Progress Dashboard</div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <div>Loading project data...</div>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Project Health Overview -->
+            <div class="status-grid" id="healthOverview">
+                <!-- Cards will be dynamically generated -->
+            </div>
+
+            <!-- Active Alerts -->
+            <div id="alertsSection" class="alerts-section" style="display: none;">
+                <div class="alerts-title">🚨 Active Alerts</div>
+                <div id="alertsList"></div>
+            </div>
+
+            <!-- Chapter Progress -->
+            <div class="progress-section">
+                <h2 class="section-title">📖 Chapter Progress</h2>
+                <div id="chapterProgress">
+                    <div class="progress-bar">
+                        <div id="overallProgressBar" class="progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div id="progressText" style="text-align: center; margin-top: 10px;"></div>
+                </div>
+                <div class="chapters-grid" id="chaptersGrid">
+                    <!-- Chapter cards will be dynamically generated -->
+                </div>
+            </div>
+
+            <!-- Quality Metrics -->
+            <div class="progress-section">
+                <h2 class="section-title">🎯 Quality Metrics</h2>
+                <div class="status-grid" id="qualityMetrics">
+                    <!-- Quality cards will be dynamically generated -->
+                </div>
+            </div>
+        </div>
+
+        <div class="last-updated" id="lastUpdated"></div>
+    </div>
+
+    <button class="refresh-button" onclick="loadDashboardData()" title="Refresh Data">
+        🔄
+    </button>
+
+    <script>
+        // Dashboard state
+        let dashboardData = {
+            projectHealth: 0,
+            chapters: [],
+            qualityMetrics: {},
+            alerts: [],
+            lastUpdate: null
+        };
+
+        // Mock data for demonstration (replace with actual file reading in production)
+        const mockData = {
+            projectState: {
+                "health_score": 7.2,
+                "total_chapters": 10,
+                "completed_chapters": 6,
+                "in_progress_chapters": 2,
+                "word_count": 45000,
+                "target_word_count": 80000,
+                "last_audit": "2024-01-15T10:30:00Z"
+            },
+            patterns: {
+                "total_patterns": 234,
+                "freshness_score": 8.1,
+                "repetition_warnings": 3
+            },
+            qualityGates: {
+                "brutal_assessment_average": 7.8,
+                "compliance_rate": 0.85,
+                "em_dash_violations": 0,
+                "series_balance_violations": 1
+            },
+            research: {
+                "citations_count": 15,
+                "verification_rate": 0.73,
+                "research_gaps": 4
+            }
+        };
+
+        function loadDashboardData() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+
+            // Simulate loading delay
+            setTimeout(() => {
+                // In a real implementation, this would read from actual JSON files
+                // For now, we'll use mock data
+                dashboardData = processProjectData(mockData);
+                renderDashboard();
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                
+                updateLastUpdated();
+            }, 1500);
+        }
+
+        function processProjectData(data) {
+            const processed = {
+                projectHealth: data.projectState.health_score || 0,
+                totalChapters: data.projectState.total_chapters || 0,
+                completedChapters: data.projectState.completed_chapters || 0,
+                inProgressChapters: data.projectState.in_progress_chapters || 0,
+                wordCount: data.projectState.word_count || 0,
+                targetWordCount: data.projectState.target_word_count || 100000,
+                patterns: data.patterns || {},
+                qualityGates: data.qualityGates || {},
+                research: data.research || {},
+                alerts: []
+            };
+
+            // Generate alerts based on data
+            if (processed.qualityGates.em_dash_violations > 0) {
+                processed.alerts.push(`${processed.qualityGates.em_dash_violations} em-dash violations detected`);
+            }
+            if (processed.qualityGates.series_balance_violations > 0) {
+                processed.alerts.push(`${processed.qualityGates.series_balance_violations} series balance violations`);
+            }
+            if (processed.research.verification_rate < 0.8) {
+                processed.alerts.push(`Research verification rate low: ${(processed.research.verification_rate * 100).toFixed(1)}%`);
+            }
+            if (processed.patterns.repetition_warnings > 5) {
+                processed.alerts.push(`High repetition warnings: ${processed.patterns.repetition_warnings}`);
+            }
+
+            return processed;
+        }
+
+        function renderDashboard() {
+            renderHealthOverview();
+            renderChapterProgress();
+            renderQualityMetrics();
+            renderAlerts();
+        }
+
+        function renderHealthOverview() {
+            const container = document.getElementById('healthOverview');
+            const health = dashboardData.projectHealth;
+            const wordProgress = (dashboardData.wordCount / dashboardData.targetWordCount) * 100;
+            const chapterProgress = (dashboardData.completedChapters / dashboardData.totalChapters) * 100;
+
+            const cards = [
+                {
+                    icon: '🎯',
+                    title: 'Project Health',
+                    metric: health.toFixed(1),
+                    description: 'Overall project quality score',
+                    status: getHealthStatus(health),
+                    suffix: '/10'
+                },
+                {
+                    icon: '📊',
+                    title: 'Word Progress',
+                    metric: wordProgress.toFixed(1),
+                    description: `${dashboardData.wordCount.toLocaleString()} / ${dashboardData.targetWordCount.toLocaleString()} words`,
+                    status: getProgressStatus(wordProgress),
+                    suffix: '%'
+                },
+                {
+                    icon: '📝',
+                    title: 'Chapter Progress',
+                    metric: chapterProgress.toFixed(1),
+                    description: `${dashboardData.completedChapters} of ${dashboardData.totalChapters} chapters complete`,
+                    status: getProgressStatus(chapterProgress),
+                    suffix: '%'
+                },
+                {
+                    icon: '🔍',
+                    title: 'Pattern Freshness',
+                    metric: (dashboardData.patterns.freshness_score || 0).toFixed(1),
+                    description: 'Writing pattern diversity score',
+                    status: getHealthStatus(dashboardData.patterns.freshness_score || 0),
+                    suffix: '/10'
+                }
+            ];
+
+            container.innerHTML = cards.map(card => `
+                <div class="status-card ${card.status}">
+                    <div class="card-header">
+                        <div class="card-icon">${card.icon}</div>
+                        <div class="card-title">${card.title}</div>
+                    </div>
+                    <div class="card-metric ${card.status}">${card.metric}${card.suffix}</div>
+                    <div class="card-description">${card.description}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderChapterProgress() {
+            const progressBar = document.getElementById('overallProgressBar');
+            const progressText = document.getElementById('progressText');
+            const chaptersGrid = document.getElementById('chaptersGrid');
+
+            const chapterProgress = (dashboardData.completedChapters / dashboardData.totalChapters) * 100;
+            const progressStatus = getProgressStatus(chapterProgress);
+
+            progressBar.style.width = `${chapterProgress}%`;
+            progressBar.className = `progress-fill ${progressStatus}`;
+            progressText.textContent = `${dashboardData.completedChapters} of ${dashboardData.totalChapters} chapters complete (${chapterProgress.toFixed(1)}%)`;
+
+            // Generate chapter cards
+            const chapters = [];
+            for (let i = 1; i <= dashboardData.totalChapters; i++) {
+                let status = 'not-started';
+                if (i <= dashboardData.completedChapters) {
+                    status = 'complete';
+                } else if (i <= dashboardData.completedChapters + dashboardData.inProgressChapters) {
+                    status = 'in-progress';
+                }
+
+                chapters.push({
+                    number: i,
+                    status: status,
+                    statusText: status.replace('-', ' ').toUpperCase()
+                });
+            }
+
+            chaptersGrid.innerHTML = chapters.map(chapter => `
+                <div class="chapter-card ${chapter.status}">
+                    <div class="chapter-number">Ch. ${chapter.number}</div>
+                    <div class="chapter-status ${chapter.status}">${chapter.statusText}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderQualityMetrics() {
+            const container = document.getElementById('qualityMetrics');
+            const quality = dashboardData.qualityGates;
+            const research = dashboardData.research;
+
+            const metrics = [
+                {
+                    icon: '⚡',
+                    title: 'Brutal Assessment',
+                    metric: (quality.brutal_assessment_average || 0).toFixed(1),
+                    description: 'Average quality assessment score',
+                    status: getHealthStatus(quality.brutal_assessment_average || 0),
+                    suffix: '/10'
+                },
+                {
+                    icon: '✅',
+                    title: 'Compliance Rate',
+                    metric: ((quality.compliance_rate || 0) * 100).toFixed(1),
+                    description: 'Quality gates compliance percentage',
+                    status: getProgressStatus((quality.compliance_rate || 0) * 100),
+                    suffix: '%'
+                },
+                {
+                    icon: '📚',
+                    title: 'Research Citations',
+                    metric: research.citations_count || 0,
+                    description: 'Total research citations documented',
+                    status: research.citations_count > 10 ? 'excellent' : research.citations_count > 5 ? 'good' : 'warning',
+                    suffix: ''
+                },
+                {
+                    icon: '🔬',
+                    title: 'Verification Rate',
+                    metric: ((research.verification_rate || 0) * 100).toFixed(1),
+                    description: 'Research verification completion rate',
+                    status: getProgressStatus((research.verification_rate || 0) * 100),
+                    suffix: '%'
+                }
+            ];
+
+            container.innerHTML = metrics.map(metric => `
+                <div class="status-card ${metric.status}">
+                    <div class="card-header">
+                        <div class="card-icon">${metric.icon}</div>
+                        <div class="card-title">${metric.title}</div>
+                    </div>
+                    <div class="card-metric ${metric.status}">${metric.metric}${metric.suffix}</div>
+                    <div class="card-description">${metric.description}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderAlerts() {
+            const alertsSection = document.getElementById('alertsSection');
+            const alertsList = document.getElementById('alertsList');
+
+            if (dashboardData.alerts.length === 0) {
+                alertsSection.style.display = 'none';
+                return;
+            }
+
+            alertsSection.style.display = 'block';
+            alertsList.innerHTML = dashboardData.alerts.map(alert => `
+                <div class="alert-item">${alert}</div>
+            `).join('');
+        }
+
+        function getHealthStatus(score) {
+            if (score >= 8.5) return 'excellent';
+            if (score >= 7.0) return 'good';
+            if (score >= 5.0) return 'warning';
+            return 'critical';
+        }
+
+        function getProgressStatus(percentage) {
+            if (percentage >= 90) return 'excellent';
+            if (percentage >= 70) return 'good';
+            if (percentage >= 40) return 'warning';
+            return 'critical';
+        }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            document.getElementById('lastUpdated').textContent = 
+                `Last updated: ${now.toLocaleDateString()} at ${now.toLocaleTimeString()}`;
+        }
+
+        // Auto-refresh every 5 minutes
+        setInterval(loadDashboardData, 5 * 60 * 1000);
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', loadDashboardData);
+    </script>
+</body>
+</html> 

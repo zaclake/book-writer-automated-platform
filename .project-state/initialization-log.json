@@ -1,0 +1,20 @@
+[
+  {
+    "timestamp": "2025-07-07T10:27:07.128401",
+    "initialization_status": "verification_only",
+    "post_clearing_recovery": false,
+    "files_created_count": 0,
+    "files_updated_count": 0,
+    "error_count": 0,
+    "success": true
+  },
+  {
+    "timestamp": "2025-07-07T10:27:07.129365",
+    "initialization_status": "full_initialization",
+    "post_clearing_recovery": false,
+    "files_created_count": 4,
+    "files_updated_count": 0,
+    "error_count": 0,
+    "success": true
+  }
+]

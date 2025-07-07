@@ -1,0 +1,19 @@
+{
+  "model": "gpt-4o-simulated",
+  "chapter_number": 1,
+  "generation_time": 3.5,
+  "timestamp": "2025-07-07T11:18:26.724201",
+  "tokens_used": {
+    "prompt": 62,
+    "completion": 560,
+    "total": 622
+  },
+  "cost_breakdown": {
+    "input_cost": 0.0031135000000000004,
+    "output_cost": 0.009340500000000002,
+    "total_cost": 0.012454000000000002
+  },
+  "word_count": 479,
+  "target_words": 3800,
+  "phase": "spike_test_offline"
+}
