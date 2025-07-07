@@ -221,9 +221,20 @@ export function AutoCompleteBookManager({
     })
     
     eventSource.addEventListener('error', (event) => {
-      const data = JSON.parse(event.data)
-      setStatus(`❌ Stream error: ${data.message}`)
-      console.error('SSE error:', data)
+      const messageEvent = event as MessageEvent
+      if (messageEvent.data) {
+        try {
+          const data = JSON.parse(messageEvent.data)
+          setStatus(`❌ Stream error: ${data.message}`)
+          console.error('SSE error:', data)
+        } catch (e) {
+          setStatus('❌ Stream error: Connection failed')
+          console.error('SSE error:', event)
+        }
+      } else {
+        setStatus('❌ Stream error: Connection failed')
+        console.error('SSE error:', event)
+      }
     })
     
     eventSource.onerror = (event) => {
