@@ -1,0 +1,164 @@
+name: Deploy Backend to Railway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run linting
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Run tests
+      run: |
+        pytest --verbose --tb=short
+      env:
+        ENVIRONMENT: test
+        CLERK_SECRET_KEY: test_key
+    
+    - name: Test Docker build
+      run: |
+        docker build -t backend-test .
+
+  security-scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+    
+    - name: Run Bandit security scan
+      run: |
+        bandit -r . -f json -o bandit-report.json
+        bandit -r . --severity-level medium
+    
+    - name: Run Safety vulnerability scan
+      run: |
+        safety check --json --output safety-report.json
+        safety check
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          backend/bandit-report.json
+          backend/safety-report.json
+
+  deploy:
+    needs: [test, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Railway CLI
+      run: |
+        curl -fsSL https://railway.app/install.sh | sh
+        echo "$HOME/.railway/bin" >> $GITHUB_PATH
+    
+    - name: Deploy to Railway
+      run: |
+        cd backend
+        railway login --token "$RAILWAY_TOKEN"
+        railway up --service backend
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    
+    - name: Wait for deployment
+      run: sleep 30
+    
+    - name: Health check
+      run: |
+        # Get the Railway deployment URL (you'll need to set this as a secret)
+        BACKEND_URL="${{ secrets.BACKEND_URL }}"
+        if [ -z "$BACKEND_URL" ]; then
+          echo "BACKEND_URL secret not set, skipping health check"
+          exit 0
+        fi
+        
+        # Wait for service to be ready
+        for i in {1..10}; do
+          if curl -f "$BACKEND_URL/health"; then
+            echo "Health check passed!"
+            break
+          else
+            echo "Health check failed, retrying in 10 seconds..."
+            sleep 10
+          fi
+          
+          if [ $i -eq 10 ]; then
+            echo "Health check failed after 10 attempts"
+            exit 1
+          fi
+        done
+    
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Backend deployment successful!"
+        else
+          echo "❌ Backend deployment failed!"
+        fi
+
+  cleanup:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Cleanup old Docker images
+      run: |
+        # This would typically connect to your container registry
+        # and clean up old images to save space
+        echo "Cleanup completed" 

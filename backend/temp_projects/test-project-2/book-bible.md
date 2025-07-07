@@ -1,0 +1,1 @@
+Test book bible content for a science fiction novel
