@@ -3,7 +3,7 @@ import { useAuth } from '@clerk/nextjs'
 export function useAuthToken() {
   const { getToken, isLoaded, isSignedIn } = useAuth()
   
-  const getAuthHeaders = async () => {
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
     if (!isLoaded || !isSignedIn) {
       return {}
     }
