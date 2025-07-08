@@ -7,6 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "deploy": "./deploy.sh",
+    "deploy:frontend": "./deploy.sh --frontend-only",
+    "deploy:backend": "./deploy.sh --backend-only",
+    "deploy:quick": "./deploy.sh --skip-tests",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
