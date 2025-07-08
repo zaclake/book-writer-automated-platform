@@ -9,10 +9,10 @@ const isProtectedRoute = createRouteMatcher([
   '/api/quality(.*)',
 ])
 
-export default clerkMiddleware((auth, req) => {
+export default clerkMiddleware(async (auth, req) => {
   // For protected routes, check if user is authenticated
   if (isProtectedRoute(req)) {
-    const { userId } = auth()
+    const { userId } = await auth()
     
     if (!userId) {
       // For API routes, return 401 instead of redirecting
