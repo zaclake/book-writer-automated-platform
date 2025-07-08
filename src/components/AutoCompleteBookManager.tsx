@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { PlayIcon, PauseIcon, StopIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
+import { useAuthToken } from '@/lib/auth'
 
 interface AutoCompleteConfig {
   targetWordCount: number
@@ -55,6 +56,7 @@ export function AutoCompleteBookManager({
   onJobStarted, 
   onJobCompleted 
 }: AutoCompleteBookManagerProps) {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [currentJob, setCurrentJob] = useState<AutoCompleteJob | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
@@ -75,8 +77,10 @@ export function AutoCompleteBookManager({
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    // Check for existing job on mount
-    checkForExistingJob()
+    // Only check for existing job if user is authenticated
+    if (isLoaded && isSignedIn) {
+      checkForExistingJob()
+    }
     
     return () => {
       if (intervalRef.current) {
@@ -86,11 +90,14 @@ export function AutoCompleteBookManager({
         progressStream.close()
       }
     }
-  }, [])
+  }, [isLoaded, isSignedIn])
 
   const checkForExistingJob = async () => {
     try {
-      const response = await fetch('/api/auto-complete/jobs?limit=1&status=active')
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/auto-complete/jobs?limit=1&status=active', {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         if (data.jobs && data.jobs.length > 0) {
@@ -105,6 +112,11 @@ export function AutoCompleteBookManager({
   }
 
   const startAutoCompletion = async () => {
+    if (!isSignedIn) {
+      setStatus('❌ Please sign in to start auto-completion')
+      return
+    }
+
     if (currentJob && ['pending', 'running', 'generating'].includes(currentJob.status)) {
       setStatus('❌ A job is already running')
       return
@@ -114,10 +126,12 @@ export function AutoCompleteBookManager({
     setStatus('🚀 Starting auto-completion...')
 
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/auto-complete/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders
         },
         body: JSON.stringify({
           config: config,
@@ -253,7 +267,10 @@ export function AutoCompleteBookManager({
 
   const fetchJobStatus = async (jobId: string) => {
     try {
-      const response = await fetch(`/api/auto-complete/${jobId}/status`)
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch(`/api/auto-complete/${jobId}/status`, {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         setCurrentJob(data.job)
@@ -279,10 +296,12 @@ export function AutoCompleteBookManager({
     if (!currentJob) return
 
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch(`/api/auto-complete/${currentJob.job_id}/control`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders
         },
         body: JSON.stringify({ action })
       })
@@ -345,6 +364,38 @@ export function AutoCompleteBookManager({
       default:
         return '⏳'
     }
+  }
+
+  // If user is not authenticated, show sign-in prompt
+  if (!isLoaded) {
+    return (
+      <div className="card">
+        <div className="text-center py-8">
+          <div className="animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="card">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Auto-Complete Book
+          </h2>
+        </div>
+        <div className="text-center py-8">
+          <div className="text-gray-500 mb-4">Please sign in to use auto-completion</div>
+          <p className="text-sm text-gray-400">
+            Authentication is required to start and manage auto-completion jobs.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

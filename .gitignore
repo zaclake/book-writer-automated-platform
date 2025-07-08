@@ -1,1 +1,35 @@
+# Vercel
 .vercel
+
+# Dependencies
+node_modules/
+backend/test_env/
+backend/__pycache__/
+backend/tests/__pycache__/
+
+# Build outputs
+.next/
+dist/
+build/
+
+# Environment variables
+.env.local
+.env
+.env.production
+.env.development
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useAuthToken } from '@/lib/auth'
 import { ChapterGenerationForm } from '@/components/ChapterGenerationForm'
 import { ChapterList } from '@/components/ChapterList'
 import { QualityMetrics } from '@/components/QualityMetrics'
@@ -15,6 +16,7 @@ import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
 export const dynamic = 'force-dynamic'
 
 export default function Dashboard() {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [isGenerating, setIsGenerating] = useState(false)
   const [chapters, setChapters] = useState([])
   const [metrics, setMetrics] = useState(null)
@@ -22,13 +24,19 @@ export default function Dashboard() {
   const [projectInitialized, setProjectInitialized] = useState(false)
 
   useEffect(() => {
-    fetchChapters()
-    fetchMetrics()
-  }, [refreshTrigger])
+    // Only fetch data if user is authenticated
+    if (isLoaded && isSignedIn) {
+      fetchChapters()
+      fetchMetrics()
+    }
+  }, [refreshTrigger, isLoaded, isSignedIn])
 
   const fetchChapters = async () => {
     try {
-      const response = await fetch('/api/chapters')
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/chapters', {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         setChapters(data.chapters || [])
@@ -40,7 +48,10 @@ export default function Dashboard() {
 
   const fetchMetrics = async () => {
     try {
-      const response = await fetch('/api/metrics')
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/metrics', {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         setMetrics(data)
@@ -68,6 +79,57 @@ export default function Dashboard() {
   const handleAutoCompleteJobCompleted = (jobId: string, result: any) => {
     console.log('Auto-complete job completed:', jobId, result)
     setRefreshTrigger(prev => prev + 1)
+  }
+
+  // Show loading state while auth is initializing
+  if (!isLoaded) {
+    return (
+      <div className="px-4 py-6 sm:px-0">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Chapter Generation Dashboard
+          </h1>
+          <p className="mt-2 text-lg text-gray-600">
+            AI-powered book writing with automated quality assessment
+          </p>
+        </div>
+        <div className="text-center py-8">
+          <div className="animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show sign-in prompt if user is not authenticated
+  if (!isSignedIn) {
+    return (
+      <div className="px-4 py-6 sm:px-0">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Chapter Generation Dashboard
+          </h1>
+          <p className="mt-2 text-lg text-gray-600">
+            AI-powered book writing with automated quality assessment
+          </p>
+        </div>
+        <div className="text-center py-16">
+          <div className="max-w-md mx-auto">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              Please sign in to continue
+            </h2>
+            <p className="text-gray-600 mb-6">
+              You need to be authenticated to access the book writing dashboard and its features.
+            </p>
+            <p className="text-sm text-gray-500">
+              Click the "Sign In" button in the top right corner to get started.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

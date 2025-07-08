@@ -2,12 +2,14 @@
 
 import { useState, useRef } from 'react'
 import { DocumentTextIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { useAuthToken } from '@/lib/auth'
 
 interface BookBibleUploadProps {
   onProjectInitialized: () => void
 }
 
 export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [file, setFile] = useState<File | null>(null)
   const [content, setContent] = useState('')
   const [isUploading, setIsUploading] = useState(false)
@@ -63,16 +65,23 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
   }
 
   const handleUpload = async () => {
+    if (!isSignedIn) {
+      setStatus('❌ Please sign in to upload files')
+      return
+    }
+
     if (!file || !content) return
 
     setIsUploading(true)
     setStatus('📤 Uploading Book Bible...')
 
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/book-bible/upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders
         },
         body: JSON.stringify({
           filename: file.name,
@@ -97,21 +106,27 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
   }
 
   const handleInitializeProject = async () => {
+    if (!isSignedIn) {
+      setStatus('❌ Please sign in to initialize projects')
+      return
+    }
+
     if (!file || !content) return
 
     setIsInitializing(true)
     setStatus('🚀 Initializing project from Book Bible...')
 
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/book-bible/initialize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders
         },
         body: JSON.stringify({
-          filename: file.name,
-          content: content,
-          projectInfo: projectInfo
+          project_id: `project-${Date.now()}`, // Generate unique project ID
+          content: content
         })
       })
 
@@ -146,6 +161,36 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         setStatus('❌ Please select a Markdown (.md) file')
       }
     }
+  }
+
+  // If user is not authenticated, show sign-in prompt
+  if (!isLoaded) {
+    return (
+      <div className="card">
+        <div className="text-center py-8">
+          <div className="animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="card">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          Book Bible Upload
+        </h2>
+        <div className="text-center py-8">
+          <div className="text-gray-500 mb-4">Please sign in to upload your Book Bible</div>
+          <p className="text-sm text-gray-400">
+            Authentication is required to upload and initialize projects.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

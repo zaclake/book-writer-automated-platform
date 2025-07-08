@@ -76,6 +76,11 @@ class QualityAssessmentRequest(BaseModel):
     chapter_number: int = Field(..., ge=1, le=100)
     chapter_content: str = Field(..., min_length=100, max_length=50000)
 
+class BookBibleInitializeRequest(BaseModel):
+    """Request model for book bible initialization."""
+    project_id: str = Field(..., min_length=1, max_length=100, description="Unique project identifier")
+    content: str = Field(..., min_length=100, max_length=50000, description="Book bible markdown content")
+
 # Import Firestore client
 from firestore_client import firestore_client
 
@@ -608,6 +613,44 @@ async def assess_quality(
         
     except Exception as e:
         logger.error(f"Failed to assess quality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Book Bible initialization endpoint
+@app.post("/book-bible/initialize")
+@limiter.limit("10/minute")
+async def initialize_book_bible(
+    request: BookBibleInitializeRequest,
+    user: Dict = Depends(verify_token)
+):
+    """Persist the uploaded Book Bible markdown for a given project."""
+    try:
+        # Validate project directory
+        project_workspace = Path(f"./temp_projects/{request.project_id}")
+        project_workspace.mkdir(parents=True, exist_ok=True)
+
+        # Write book-bible.md
+        book_bible_path = project_workspace / "book-bible.md"
+        book_bible_path.write_text(request.content, encoding="utf-8")
+
+        logger.info(f"Book Bible saved for project {request.project_id} at {book_bible_path}")
+
+        # Persist minimal metadata
+        metadata_path = project_workspace / "metadata.json"
+        metadata = {
+            "project_id": request.project_id,
+            "book_bible_path": str(book_bible_path),
+            "uploaded_by": user.get("user_id"),
+            "uploaded_at": datetime.utcnow().isoformat()
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2))
+
+        return {
+            "success": True,
+            "project_id": request.project_id,
+            "message": "Book Bible uploaded and project initialized successfully."
+        }
+    except Exception as e:
+        logger.error(f"Failed to initialize Book Bible: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Background job execution

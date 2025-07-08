@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useAuthToken } from '@/lib/auth'
 import { CheckCircleIcon, ExclamationTriangleIcon, InformationCircleIcon, FolderIcon } from '@heroicons/react/24/outline'
 
 interface ProjectStatusData {
@@ -14,19 +15,28 @@ interface ProjectStatusData {
 }
 
 export function ProjectStatus() {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [status, setStatus] = useState<ProjectStatusData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchProjectStatus()
-  }, [])
+    // Only fetch if user is authenticated
+    if (isLoaded && isSignedIn) {
+      fetchProjectStatus()
+    }
+  }, [isLoaded, isSignedIn])
 
   const fetchProjectStatus = async () => {
+    if (!isSignedIn) return
+    
     setIsLoading(true)
     setError('')
     try {
-      const response = await fetch('/api/project/status')
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/project/status', {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         setStatus(data)
@@ -39,6 +49,37 @@ export function ProjectStatus() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show loading state while auth is initializing
+  if (!isLoaded) {
+    return (
+      <div className="card">
+        <div className="text-center py-8">
+          <div className="animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show sign-in prompt if user is not authenticated
+  if (!isSignedIn) {
+    return (
+      <div className="card">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          Project Status
+        </h2>
+        <div className="text-center py-8">
+          <div className="text-gray-500 mb-4">Please sign in to view project status</div>
+          <p className="text-sm text-gray-400">
+            Authentication is required to access project information.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   const getStatusIcon = (hasFeature: boolean) => {
