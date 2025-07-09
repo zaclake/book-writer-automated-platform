@@ -10,22 +10,21 @@ const isProtectedRoute = createRouteMatcher([
 ])
 
 export default clerkMiddleware(async (auth, req) => {
-  // For protected routes, check if user is authenticated
+  // Protect the specified routes
   if (isProtectedRoute(req)) {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      // For API routes, return 401 instead of redirecting
-      if (req.nextUrl.pathname.startsWith('/api/')) {
+    // Prefer Clerk's built-in protection helper for pages
+    if (!req.nextUrl.pathname.startsWith('/api/')) {
+      // Will redirect unauthenticated users to /sign-in
+      await auth.protect()
+    } else {
+      // For API routes, return 401 instead of Clerk's default 404
+      const { userId } = await auth()
+      if (!userId) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      
-      // For regular pages, redirect to sign-in
-      const signInUrl = new URL('/sign-in', req.url)
-      return NextResponse.redirect(signInUrl)
     }
   }
-  
+
   return NextResponse.next()
 })
 
