@@ -6,7 +6,7 @@ import { auth } from '@clerk/nextjs/server'
  */
 export async function POST(request: NextRequest) {
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     if (!backendBaseUrl) {
       return NextResponse.json(
         { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },

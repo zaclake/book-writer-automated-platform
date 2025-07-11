@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: NextRequest) {
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     if (!backendBaseUrl) {
       return NextResponse.json(
         { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },

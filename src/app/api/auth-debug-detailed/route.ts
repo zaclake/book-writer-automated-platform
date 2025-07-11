@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const envCheck = {
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
       CLERK_SECRET_KEY: !!process.env.CLERK_SECRET_KEY,
-      NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL,
+      NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL?.trim(),
     }
     
     console.log('Environment check:', envCheck)
