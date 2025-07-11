@@ -12,6 +12,10 @@ const isProtectedRoute = createRouteMatcher([
 
 const isDebugRoute = createRouteMatcher([
   '/api/debug(.*)',
+  '/api/auth-debug(.*)',
+  '/api/config-check(.*)',
+  '/api/auth-test(.*)',
+  '/api/client-auth-test(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
