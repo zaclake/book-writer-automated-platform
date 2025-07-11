@@ -9,7 +9,16 @@ const isProtectedRoute = createRouteMatcher([
   '/api/quality(.*)',
 ])
 
+const isDebugRoute = createRouteMatcher([
+  '/api/debug(.*)',
+])
+
 export default clerkMiddleware(async (auth, req) => {
+  // Allow debug routes to bypass authentication
+  if (isDebugRoute(req)) {
+    return NextResponse.next()
+  }
+
   // Protect the specified routes
   if (isProtectedRoute(req)) {
     // Prefer Clerk's built-in protection helper for pages
