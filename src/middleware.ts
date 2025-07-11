@@ -16,6 +16,7 @@ const isDebugRoute = createRouteMatcher([
   '/api/config-check(.*)',
   '/api/auth-test(.*)',
   '/api/client-auth-test(.*)',
+  '/api/test-backend(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
