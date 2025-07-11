@@ -219,6 +219,47 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     from auth_middleware import auth_middleware
     return auth_middleware.verify_token(credentials)
 
+# Debug endpoints
+@app.get("/debug/auth-config")
+async def debug_auth_config():
+    """Debug endpoint to check authentication configuration."""
+    clerk_publishable_key = os.getenv('CLERK_PUBLISHABLE_KEY')
+    clerk_secret_key = os.getenv('CLERK_SECRET_KEY')
+    
+    # Parse publishable key to construct JWKS URL
+    jwks_url = None
+    if clerk_publishable_key:
+        if clerk_publishable_key.startswith('pk_test_') or clerk_publishable_key.startswith('pk_live_'):
+            parts = clerk_publishable_key.split('_')
+            if len(parts) > 2:
+                instance_id = parts[2]
+                if clerk_publishable_key.startswith('pk_live_'):
+                    jwks_url = f"https://clerk.{instance_id}.com/.well-known/jwks.json"
+                else:
+                    jwks_url = f"https://clerk.{instance_id}.lcl.dev/.well-known/jwks.json"
+    
+    return {
+        "environment": os.getenv('ENVIRONMENT', 'production'),
+        "clerk_config": {
+            "has_publishable_key": bool(clerk_publishable_key),
+            "has_secret_key": bool(clerk_secret_key),
+            "publishable_key_prefix": clerk_publishable_key[:20] + "..." if clerk_publishable_key else None,
+            "jwks_url": jwks_url,
+            "development_mode": os.getenv('ENVIRONMENT') == 'development'
+        },
+        "cors_origins": os.getenv('CORS_ORIGINS', '').split(',') if os.getenv('CORS_ORIGINS') else [],
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.get("/debug/test-auth")
+async def test_auth_simple():
+    """Simple test endpoint that doesn't require authentication."""
+    return {
+        "message": "Backend is accessible",
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "ok"
+    }
+
 # Root endpoint
 @app.get("/")
 @limiter.limit("60/minute")
