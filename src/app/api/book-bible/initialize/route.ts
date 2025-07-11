@@ -16,19 +16,25 @@ export async function POST(request: NextRequest) {
 
     const targetUrl = `${backendBaseUrl}/book-bible/initialize`
 
-    // Get Clerk auth and JWT token
-    const { getToken } = await auth()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
     
+    // Get Clerk auth and JWT token with better error handling
     try {
+      const { getToken } = await auth()
       const token = await getToken()
       if (token) {
         headers['authorization'] = `Bearer ${token}`
+      } else {
+        // No token available - user not authenticated
+        return NextResponse.json(
+          { error: 'User not authenticated' },
+          { status: 401 }
+        )
       }
     } catch (error) {
-      console.error('Failed to get Clerk token:', error)
+      console.error('Failed to get Clerk authentication:', error)
       return NextResponse.json(
         { error: 'Authentication failed' },
         { status: 401 }
