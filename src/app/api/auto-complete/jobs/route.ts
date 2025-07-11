@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,11 +20,21 @@ export async function GET(request: NextRequest) {
     const queryString = request.nextUrl.searchParams.toString()
     const targetUrl = `${backendBaseUrl}/auto-complete/jobs${queryString ? `?${queryString}` : ''}`
 
-    // Forward auth header if present so the backend can authorize the request
+    // Get Clerk auth and JWT token
+    const { getToken } = auth()
     const headers: Record<string, string> = {}
-    const authHeader = request.headers.get('authorization')
-    if (authHeader) {
-      headers['authorization'] = authHeader
+    
+    try {
+      const token = await getToken()
+      if (token) {
+        headers['authorization'] = `Bearer ${token}`
+      }
+    } catch (error) {
+      console.error('Failed to get Clerk token:', error)
+      return NextResponse.json(
+        { error: 'Authentication failed' },
+        { status: 401 }
+      )
     }
 
     const backendResponse = await fetch(targetUrl, {

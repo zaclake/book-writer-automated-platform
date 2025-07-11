@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 
 /**
  * Proxy Book Bible initialization requests to the FastAPI backend.
@@ -15,12 +16,23 @@ export async function POST(request: NextRequest) {
 
     const targetUrl = `${backendBaseUrl}/book-bible/initialize`
 
+    // Get Clerk auth and JWT token
+    const { getToken } = auth()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-    const authHeader = request.headers.get('authorization')
-    if (authHeader) {
-      headers['authorization'] = authHeader
+    
+    try {
+      const token = await getToken()
+      if (token) {
+        headers['authorization'] = `Bearer ${token}`
+      }
+    } catch (error) {
+      console.error('Failed to get Clerk token:', error)
+      return NextResponse.json(
+        { error: 'Authentication failed' },
+        { status: 401 }
+      )
     }
 
     const body = await request.text()
