@@ -8,7 +8,7 @@ import os
 import logging
 import requests
 from typing import Dict, Optional
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 from jwt import PyJWKClient
@@ -45,7 +45,7 @@ class ClerkAuthMiddleware:
         if not self.clerk_publishable_key and not self.development_mode:
             logger.warning("CLERK_PUBLISHABLE_KEY not set - authentication will be disabled")
     
-    def verify_token(self, credentials: HTTPAuthorizationCredentials) -> Dict[str, str]:
+    def verify_token(self, credentials: Optional[HTTPAuthorizationCredentials]) -> Dict[str, str]:
         """
         Verify JWT token and extract user information.
         
@@ -58,16 +58,7 @@ class ClerkAuthMiddleware:
         Raises:
             HTTPException: If token is invalid or expired
         """
-        if not credentials:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authorization header required",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        token = credentials.credentials
-        
-        # Development mode bypass
+        # Development mode bypass - allow requests without credentials
         if self.development_mode:
             logger.info("Development mode: bypassing authentication")
             return {
@@ -76,6 +67,15 @@ class ClerkAuthMiddleware:
                 "first_name": "Dev",
                 "last_name": "User"
             }
+        
+        if not credentials:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        token = credentials.credentials
         
         if not self.jwks_client:
             raise HTTPException(
@@ -214,9 +214,9 @@ class ClerkAuthMiddleware:
 auth_middleware = ClerkAuthMiddleware()
 
 # Security scheme for FastAPI
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
-async def verify_token(credentials: HTTPAuthorizationCredentials = None) -> Dict[str, str]:
+async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict[str, str]:
     """
     FastAPI dependency for token verification.
     
@@ -228,7 +228,7 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = None) -> Dict
     """
     return auth_middleware.verify_token(credentials)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = None) -> Dict[str, str]:
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict[str, str]:
     """
     FastAPI dependency for getting current user.
     

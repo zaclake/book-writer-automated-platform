@@ -660,6 +660,7 @@ async def assess_quality(
 @app.post("/book-bible/initialize")
 @limiter.limit("10/minute")
 async def initialize_book_bible(
+    request_obj: Request,
     request: BookBibleInitializeRequest,
     user: Dict = Depends(verify_token)
 ):
