@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const targetUrl = `${backendBaseUrl}/auto-complete/jobs${queryString ? `?${queryString}` : ''}`
 
     // Get Clerk auth and JWT token
-    const { getToken } = auth()
+    const { getToken } = await auth()
     const headers: Record<string, string> = {}
     
     try {

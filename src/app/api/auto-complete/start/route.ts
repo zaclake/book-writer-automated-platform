@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const targetUrl = `${backendBaseUrl}/auto-complete/start`
 
     // Get Clerk auth and JWT token
-    const { getToken } = auth()
+    const { getToken } = await auth()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
