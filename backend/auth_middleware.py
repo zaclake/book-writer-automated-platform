@@ -85,7 +85,25 @@ class ClerkAuthMiddleware:
         
         try:
             # Get the signing key from JWKS
-            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            # Dynamically build JWKS client from token issuer (safer than relying on env var)
+            # First decode header & issuer claim without verification
+            unverified_payload = jwt.decode(token, options={"verify_signature": False})
+            issuer = unverified_payload.get("iss")
+            if issuer and issuer.startswith("https://"):
+                jwks_url_dynamic = f"{issuer}/.well-known/jwks.json"
+                try:
+                    # Cache per issuer to avoid repeated network calls
+                    if not hasattr(self, "_jwks_cache"):
+                        self._jwks_cache = {}
+                    if jwks_url_dynamic not in self._jwks_cache:
+                        self._jwks_cache[jwks_url_dynamic] = PyJWKClient(jwks_url_dynamic)
+                    dynamic_client = self._jwks_cache[jwks_url_dynamic]
+                    signing_key = dynamic_client.get_signing_key_from_jwt(token)
+                except Exception as e:
+                    logger.warning(f"Dynamic JWKS fetch failed: {e}; falling back to static client")
+                    signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            else:
+                signing_key = self.jwks_client.get_signing_key_from_jwt(token)
             
             # Decode JWT token using the public key
             payload = jwt.decode(
