@@ -84,6 +84,9 @@ class BookBibleInitializeRequest(BaseModel):
 # Import Firestore client
 from firestore_client import firestore_client
 
+# Import path utilities
+from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+
 # Global job update events for SSE optimization
 job_update_events: Dict[str, asyncio.Event] = {}
 
@@ -666,9 +669,9 @@ async def initialize_book_bible(
 ):
     """Persist the uploaded Book Bible markdown for a given project."""
     try:
-        # Validate project directory
-        project_workspace = Path(f"./temp_projects/{request.project_id}")
-        project_workspace.mkdir(parents=True, exist_ok=True)
+        # Get project workspace using new path utility
+        project_workspace = get_project_workspace(request.project_id)
+        ensure_project_structure(project_workspace)
 
         # Write book-bible.md
         book_bible_path = project_workspace / "book-bible.md"
@@ -708,8 +711,8 @@ async def run_auto_complete_job(job_id: str, request: AutoCompleteRequest):
             return
         
         # Create project workspace
-        project_workspace = Path(f"./temp_projects/{request.project_id}")
-        project_workspace.mkdir(parents=True, exist_ok=True)
+        project_workspace = get_project_workspace(request.project_id)
+        ensure_project_structure(project_workspace)
         
         # Initialize orchestrator and context manager
         orchestrator = AutoCompleteBookOrchestrator(str(project_workspace))
