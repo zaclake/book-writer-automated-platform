@@ -867,13 +867,13 @@ async def get_project_status(
                 "message": (
                     "Project fully initialized and ready for chapter generation"
                     if initialized
-                    else f"Project incomplete. Missing: {', '.join([
+                    else "Project incomplete. Missing: " + ", ".join([
                         item for item in [
-                            'book-bible.md' if not has_book_bible else None,
-                            'reference files' if not has_references else None,
-                            'project state' if not has_state else None
+                            "book-bible.md" if not has_book_bible else None,
+                            "reference files" if not has_references else None,
+                            "project state" if not has_state else None
                         ] if item
-                    ])}"
+                    ])
                 )
             }
             
