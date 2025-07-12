@@ -785,7 +785,7 @@ async def upload_book_bible(
 @app.get("/project/status")
 @limiter.limit("30/minute")
 async def get_project_status(
-    request_obj: Request,
+    request: Request,
     project_id: Optional[str] = None,
     user: Dict = Depends(verify_token)
 ):
