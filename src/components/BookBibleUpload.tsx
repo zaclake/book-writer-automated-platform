@@ -93,8 +93,13 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
       const data = await response.json()
 
       if (response.ok) {
-        setStatus('✅ Book Bible uploaded successfully!')
-        setIsUploading(false)
+        setStatus('📝 Generating reference files...')
+        // Give some time for reference generation
+        setTimeout(() => {
+          setStatus('✅ Book Bible uploaded successfully!')
+          setIsUploading(false)
+          onProjectInitialized() // Refresh project status
+        }, 2000)
       } else {
         setStatus(`❌ Upload failed: ${data.error}`)
         setIsUploading(false)
@@ -133,9 +138,13 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
       const data = await response.json()
 
       if (response.ok) {
-        setStatus('✅ Project initialized successfully!')
-        setIsInitializing(false)
-        onProjectInitialized()
+        setStatus('📝 Generating reference files...')
+        // Give some time for reference generation
+        setTimeout(() => {
+          setStatus('✅ Project initialized successfully!')
+          setIsInitializing(false)
+          onProjectInitialized() // Refresh project status
+        }, 2000)
       } else {
         setStatus(`❌ Initialization failed: ${data.error}`)
         setIsInitializing(false)

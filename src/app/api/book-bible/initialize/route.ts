@@ -8,13 +8,13 @@ export async function POST(request: NextRequest) {
   console.log('[book-bible/initialize] Request started')
   
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
-    console.log('[book-bible/initialize] Backend URL:', backendBaseUrl)
+    const backendBaseUrl = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL)?.trim()
+    console.log('[book-bible/initialize] Backend URL from env:', backendBaseUrl)
     
     if (!backendBaseUrl) {
-      console.error('[book-bible/initialize] Backend URL not configured')
+      console.error('[book-bible/initialize] Backend URL not configured - neither BACKEND_URL nor NEXT_PUBLIC_BACKEND_URL set')
       return NextResponse.json(
-        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (BACKEND_URL or NEXT_PUBLIC_BACKEND_URL missing)' },
         { status: 500 }
       )
     }

@@ -86,6 +86,7 @@ from firestore_client import firestore_client
 
 # Import path utilities
 from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+from utils.reference_parser import generate_reference_files
 
 # Global job update events for SSE optimization
 job_update_events: Dict[str, asyncio.Event] = {}
@@ -679,6 +680,15 @@ async def initialize_book_bible(
 
         logger.info(f"Book Bible saved for project {request.project_id} at {book_bible_path}")
 
+        # Generate reference files from book bible content
+        references_dir = project_workspace / "references"
+        try:
+            created_files = generate_reference_files(request.content, references_dir)
+            logger.info(f"Generated reference files for project {request.project_id}: {created_files}")
+        except Exception as e:
+            logger.error(f"Failed to generate reference files: {e}")
+            # Don't fail the whole request if reference generation fails
+
         # Persist minimal metadata
         metadata_path = project_workspace / "metadata.json"
         metadata = {
@@ -697,6 +707,180 @@ async def initialize_book_bible(
     except Exception as e:
         logger.error(f"Failed to initialize Book Bible: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Book Bible upload endpoint
+@app.post("/book-bible/upload")
+@limiter.limit("10/minute")
+async def upload_book_bible(
+    request_obj: Request,
+    request: Dict[str, Any],
+    user: Dict = Depends(verify_token)
+):
+    """Upload book bible file and create project."""
+    try:
+        # Extract data from request
+        filename = request.get("filename")
+        content = request.get("content")
+        project_info = request.get("projectInfo", {})
+        
+        if not filename or not content:
+            raise HTTPException(status_code=400, detail="Filename and content are required")
+        
+        # Validate that it's a markdown file
+        if not filename.endswith('.md'):
+            raise HTTPException(status_code=400, detail="File must be a Markdown (.md) file")
+        
+        # Generate unique project ID
+        project_id = f"project-{int(datetime.utcnow().timestamp() * 1000)}"
+        
+        # Get project workspace
+        project_workspace = get_project_workspace(project_id)
+        ensure_project_structure(project_workspace)
+        
+        # Write book-bible.md
+        book_bible_path = project_workspace / "book-bible.md"
+        book_bible_path.write_text(content, encoding="utf-8")
+        
+        logger.info(f"Book Bible uploaded for project {project_id} at {book_bible_path}")
+        
+        # Generate reference files from book bible content
+        references_dir = project_workspace / "references"
+        try:
+            created_files = generate_reference_files(content, references_dir)
+            logger.info(f"Generated reference files for project {project_id}: {created_files}")
+        except Exception as e:
+            logger.error(f"Failed to generate reference files: {e}")
+            # Don't fail the whole request if reference generation fails
+        
+        # Save project metadata
+        metadata_path = project_workspace / "metadata.json"
+        metadata = {
+            "project_id": project_id,
+            "title": project_info.get("title", "Untitled Project"),
+            "genre": project_info.get("genre", "Unknown"),
+            "logline": project_info.get("logline", ""),
+            "book_bible_path": str(book_bible_path),
+            "uploaded_by": user.get("user_id"),
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+            "book_bible_uploaded": True
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2))
+        
+        return {
+            "success": True,
+            "project_id": project_id,
+            "message": "Book Bible uploaded successfully",
+            "filename": filename,
+            "projectInfo": project_info
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to upload Book Bible: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Project status endpoint
+@app.get("/project/status")
+@limiter.limit("30/minute")
+async def get_project_status(
+    request_obj: Request,
+    project_id: Optional[str] = None,
+    user: Dict = Depends(verify_token)
+):
+    """Get project status and file information."""
+    try:
+        if not project_id:
+            # List all projects for the user
+            temp_projects_dir = temp_projects_root()
+            if temp_projects_dir.exists():
+                projects = []
+                for project_dir in temp_projects_dir.iterdir():
+                    if project_dir.is_dir():
+                        metadata_path = project_dir / "metadata.json"
+                        if metadata_path.exists():
+                            try:
+                                metadata = json.loads(metadata_path.read_text())
+                                projects.append({
+                                    "project_id": project_dir.name,
+                                    "title": metadata.get("title", "Untitled"),
+                                    "created_at": metadata.get("created_at"),
+                                    "updated_at": metadata.get("updated_at")
+                                })
+                            except Exception as e:
+                                logger.error(f"Failed to read metadata for {project_dir.name}: {e}")
+                return {
+                    "projects": projects,
+                    "total": len(projects)
+                }
+        else:
+            # Get specific project status
+            project_workspace = get_project_workspace(project_id)
+            if not project_workspace.exists():
+                return {
+                    "initialized": False,
+                    "hasBookBible": False,
+                    "hasReferences": False,
+                    "hasState": False,
+                    "referenceFiles": [],
+                    "metadata": None,
+                    "message": "Project not found"
+                }
+            
+            # Check for book bible
+            book_bible_path = project_workspace / "book-bible.md"
+            has_book_bible = book_bible_path.exists()
+            
+            # Check for reference files
+            references_dir = project_workspace / "references"
+            has_references = references_dir.exists()
+            reference_files = []
+            if has_references:
+                try:
+                    reference_files = [f.name for f in references_dir.iterdir() if f.suffix == '.md']
+                except Exception as e:
+                    logger.error(f"Failed to list reference files: {e}")
+            
+            # Check for project state
+            state_dir = project_workspace / ".project-state"
+            has_state = state_dir.exists()
+            
+            # Check for project metadata
+            metadata_path = project_workspace / "metadata.json"
+            metadata = None
+            if metadata_path.exists():
+                try:
+                    metadata = json.loads(metadata_path.read_text())
+                except Exception as e:
+                    logger.error(f"Failed to read metadata: {e}")
+            
+            initialized = has_book_bible and has_references and has_state
+            
+            return {
+                "initialized": initialized,
+                "hasBookBible": has_book_bible,
+                "hasReferences": has_references,
+                "hasState": has_state,
+                "referenceFiles": reference_files,
+                "metadata": metadata,
+                "message": (
+                    "Project fully initialized and ready for chapter generation"
+                    if initialized
+                    else f"Project incomplete. Missing: {', '.join([
+                        item for item in [
+                            'book-bible.md' if not has_book_bible else None,
+                            'reference files' if not has_references else None,
+                            'project state' if not has_state else None
+                        ] if item
+                    ])}"
+                )
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to get project status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Background job execution
 async def run_auto_complete_job(job_id: str, request: AutoCompleteRequest):
