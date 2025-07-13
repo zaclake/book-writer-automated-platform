@@ -670,6 +670,17 @@ async def initialize_book_bible(
 ):
     """Persist the uploaded Book Bible markdown for a given project."""
     try:
+        # Check if file operations are disabled (for read-only filesystems like Railway)
+        disable_file_ops = os.getenv('DISABLE_FILE_OPERATIONS', 'false').lower() == 'true'
+        
+        if disable_file_ops:
+            logger.info(f"File operations disabled - skipping file creation for project {request.project_id}")
+            return {
+                "success": True,
+                "project_id": request.project_id,
+                "message": "Book Bible processed successfully (file operations disabled)."
+            }
+        
         # Get project workspace using new path utility
         project_workspace = get_project_workspace(request.project_id)
         ensure_project_structure(project_workspace)
