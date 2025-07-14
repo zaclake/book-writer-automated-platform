@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+
+// Force dynamic rendering to prevent static generation issues
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 /**
  * Proxy Book Bible upload requests to the FastAPI backend.
@@ -8,13 +11,13 @@ export async function POST(request: NextRequest) {
   console.log('[book-bible/upload] Request started')
   
   try {
-    const backendBaseUrl = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL)?.trim()
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     console.log('[book-bible/upload] Backend URL from env:', backendBaseUrl)
     
     if (!backendBaseUrl) {
-      console.error('[book-bible/upload] Backend URL not configured - neither BACKEND_URL nor NEXT_PUBLIC_BACKEND_URL set')
+      console.error('[book-bible/upload] Backend URL not configured - NEXT_PUBLIC_BACKEND_URL not set')
       return NextResponse.json(
-        { error: 'Backend URL not configured (BACKEND_URL or NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
         { status: 500 }
       )
     }
@@ -29,18 +32,16 @@ export async function POST(request: NextRequest) {
     // Get Clerk auth and JWT token with better error handling
     console.log('[book-bible/upload] Getting authentication...')
     try {
-      const authResult = await auth()
-      console.log('[book-bible/upload] Auth result:', { userId: authResult?.userId })
-      
-      if (!authResult?.getToken) {
-        console.log('[book-bible/upload] No getToken function available')
+      const authHeader = request.headers.get('Authorization')
+      if (!authHeader) {
+        console.log('[book-bible/upload] No Authorization header found')
         return NextResponse.json(
-          { error: 'Authentication service unavailable' },
-          { status: 500 }
+          { error: 'Authentication token missing' },
+          { status: 401 }
         )
       }
       
-      const token = await authResult.getToken()
+      const token = authHeader.replace('Bearer ', '')
       console.log('[book-bible/upload] Token obtained:', { hasToken: !!token })
       
       if (token) {
@@ -63,32 +64,31 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the request body
-    const body = await request.json()
-    console.log('[book-bible/upload] Request body keys:', Object.keys(body))
-
-    // Make the request to the backend
-    console.log('[book-bible/upload] Making request to backend...')
+    console.log('[book-bible/upload] Streaming body to backend...')
+    const textBody = await request.text()
     const response = await fetch(targetUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: textBody
     })
 
     console.log('[book-bible/upload] Backend response status:', response.status)
-    
+    const contentType = response.headers.get('content-type') || ''
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('[book-bible/upload] Backend error:', errorText)
-      return NextResponse.json(
-        { error: `Backend error: ${errorText}` },
-        { status: response.status }
-      )
+      const errText = await response.text()
+      console.error('[book-bible/upload] Backend error:', errText)
+      return NextResponse.json({ error: errText }, { status: response.status })
     }
 
-    const data = await response.json()
-    console.log('[book-bible/upload] Success:', data)
-    
-    return NextResponse.json(data)
+    let payload: any
+    if (contentType.includes('application/json')) {
+      payload = await response.json()
+    } else {
+      payload = { message: await response.text() }
+    }
+
+    console.log('[book-bible/upload] Success:', payload)
+    return NextResponse.json(payload)
 
   } catch (error: any) {
     console.error('[book-bible/upload] Request failed:', error)

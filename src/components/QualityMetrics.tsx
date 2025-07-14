@@ -86,7 +86,7 @@ export function QualityMetrics({ metrics }: QualityMetricsProps) {
       )}
 
       {/* Quality Trend List */}
-      {metrics.quality_trend && metrics.quality_trend.length > 0 ? (
+      {metrics.quality_trend && Array.isArray(metrics.quality_trend) && metrics.quality_trend.length > 0 ? (
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3">Recent Quality Scores</h3>
           <div className="space-y-2 max-h-32 overflow-y-auto">

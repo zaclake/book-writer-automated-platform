@@ -1,63 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync, writeFileSync, statSync } from 'fs'
-import path from 'path'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// Helper to build the absolute file path for a project reference file
-function resolveFilePath(projectId: string | null, filename: string): string {
-  if (!projectId) {
-    throw new Error('Missing "project_id" query parameter')
-  }
-
-  const tempRoot = process.env.TEMP_PROJECTS_DIR?.trim() || '/tmp/book_writer/temp_projects'
-  return path.join(tempRoot, projectId, 'references', filename)
-}
-
+/**
+ * Proxy reference file requests to the FastAPI backend.
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: { filename: string } }
 ) {
+  console.log('[references/filename] GET request started')
+
   try {
     const filename = params.filename
-    const projectId = request.nextUrl.searchParams.get('project_id')
-    
-    // Validate filename
-    if (!filename.endsWith('.md')) {
+    console.log('[references/filename] Filename:', filename)
+
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    console.log('[references/filename] Backend URL from env:', backendBaseUrl)
+
+    if (!backendBaseUrl) {
+      console.error('[references/filename] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Invalid filename. Must be a .md file' },
-        { status: 400 }
+        { error: 'Backend URL not configured' },
+        { status: 500 }
       )
     }
 
-    const filePath = resolveFilePath(projectId, filename)
+    // Forward query parameters
+    const searchParams = request.nextUrl.searchParams
+    const queryString = searchParams.toString()
+    const targetUrl = `${backendBaseUrl}/references/${filename}${queryString ? `?${queryString}` : ''}`
+    console.log('[references/filename] Target URL:', targetUrl)
 
-    try {
-      const content = readFileSync(filePath, 'utf8')
-      const stats = statSync(filePath)
-
-      return NextResponse.json({
-        success: true,
-        name: filename,
-        content: content,
-        lastModified: stats.mtime.toISOString(),
-        size: stats.size
-      })
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return NextResponse.json(
-          { error: `Reference file '${filename}' not found` },
-          { status: 404 }
-        )
-      }
-      throw error
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
     }
 
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    console.log('[references/filename] Authorization header:', authHeader ? `${authHeader.substring(0, 30)}...` : 'MISSING')
+
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    // Make the request to the backend
+    console.log('[references/filename] Making request to backend...')
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
+    })
+
+    console.log('[references/filename] Backend response status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[references/filename] Backend error:', errorText)
+
+      return NextResponse.json(
+        { error: `Backend error: ${response.status} ${response.statusText}`, details: errorText },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    console.log('[references/filename] Backend response data keys:', Object.keys(data))
+
+    return NextResponse.json(data)
+
   } catch (error: any) {
-    console.error('Failed to get reference file:', error)
+    console.error('[references/filename] Unexpected error:', error)
     return NextResponse.json(
-      { error: `Failed to get reference file: ${error.message}` },
+      { error: 'Internal Server Error', details: error.message },
       { status: 500 }
     )
   }
@@ -67,59 +83,77 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { filename: string } }
 ) {
+  console.log('[references/filename] PUT request started')
+
   try {
     const filename = params.filename
-    const projectId = request.nextUrl.searchParams.get('project_id')
-    const { content } = await request.json()
-    
-    // Validate filename
-    if (!filename.endsWith('.md')) {
+    console.log('[references/filename] PUT Filename:', filename)
+
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    console.log('[references/filename] PUT Backend URL from env:', backendBaseUrl)
+
+    if (!backendBaseUrl) {
+      console.error('[references/filename] PUT Backend URL not configured')
       return NextResponse.json(
-        { error: 'Invalid filename. Must be a .md file' },
-        { status: 400 }
+        { error: 'Backend URL not configured' },
+        { status: 500 }
       )
     }
 
-    if (!content) {
-      return NextResponse.json(
-        { error: 'Content is required' },
-        { status: 400 }
-      )
+    // Get the request body
+    const body = await request.json()
+    console.log('[references/filename] PUT Request body keys:', Object.keys(body))
+
+    // Forward query parameters
+    const searchParams = request.nextUrl.searchParams
+    const queryString = searchParams.toString()
+    const targetUrl = `${backendBaseUrl}/references/${filename}${queryString ? `?${queryString}` : ''}`
+    console.log('[references/filename] PUT Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
     }
 
-    const filePath = resolveFilePath(projectId, filename)
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    console.log('[references/filename] PUT Authorization header:', authHeader ? `${authHeader.substring(0, 30)}...` : 'MISSING')
 
-    // Check if file exists
-    try {
-      statSync(filePath)
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return NextResponse.json(
-          { error: `Reference file '${filename}' not found` },
-          { status: 404 }
-        )
-      }
-      throw error
+    if (authHeader) {
+      headers['Authorization'] = authHeader
     }
 
-    // Write the updated content
-    writeFileSync(filePath, content, 'utf8')
+    console.log('[references/filename] PUT Final headers for backend:', Object.keys(headers))
 
-    // Get updated file stats
-    const stats = statSync(filePath)
-
-    return NextResponse.json({
-      success: true,
-      message: `Reference file '${filename}' updated successfully`,
-      name: filename,
-      lastModified: stats.mtime.toISOString(),
-      size: stats.size
+    // Make the request to the backend
+    console.log('[references/filename] PUT Making request to backend...')
+    const response = await fetch(targetUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(body),
     })
 
+    console.log('[references/filename] PUT Backend response status:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[references/filename] PUT Backend error:', errorText)
+
+      return NextResponse.json(
+        { error: `Backend error: ${response.status} ${response.statusText}`, details: errorText },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    console.log('[references/filename] PUT Backend response data keys:', Object.keys(data))
+
+    return NextResponse.json(data)
+
   } catch (error: any) {
-    console.error('Failed to update reference file:', error)
+    console.error('[references/filename] PUT Unexpected error:', error)
     return NextResponse.json(
-      { error: `Failed to update reference file: ${error.message}` },
+      { error: 'Internal Server Error', details: error.message },
       { status: 500 }
     )
   }

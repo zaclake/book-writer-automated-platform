@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAuthToken } from '@/lib/auth'
+import { useAuth } from '@clerk/nextjs'
 import { ChapterGenerationForm } from '@/components/ChapterGenerationForm'
 import { ChapterList } from '@/components/ChapterList'
 import { QualityMetrics } from '@/components/QualityMetrics'
@@ -12,24 +12,43 @@ import { ReferenceFileManager } from '@/components/ReferenceFileManager'
 import { ProjectStatus } from '@/components/ProjectStatus'
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
 
-// Force dynamic rendering to avoid static generation issues
-export const dynamic = 'force-dynamic'
-
 export default function Dashboard() {
-  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
+  const { getToken, isLoaded, isSignedIn } = useAuth()
   const [isGenerating, setIsGenerating] = useState(false)
   const [chapters, setChapters] = useState([])
   const [metrics, setMetrics] = useState(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [projectInitialized, setProjectInitialized] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
 
+  // Track when auth is ready
   useEffect(() => {
-    // Only fetch data if user is authenticated
-    if (isLoaded && isSignedIn) {
+    if (isLoaded) {
+      setAuthReady(true)
+    }
+  }, [isLoaded])
+
+  // Fetch data when auth is ready and user is signed in
+  useEffect(() => {
+    if (authReady && isSignedIn) {
       fetchChapters()
       fetchMetrics()
     }
-  }, [refreshTrigger, isLoaded, isSignedIn])
+  }, [refreshTrigger, authReady, isSignedIn])
+
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+    if (!isLoaded || !isSignedIn) {
+      return {}
+    }
+    
+    try {
+      const token = await getToken()
+      return token ? { Authorization: `Bearer ${token}` } : {}
+    } catch (error) {
+      console.error('Failed to get auth token:', error)
+      return {}
+    }
+  }
 
   const fetchChapters = async () => {
     try {
@@ -82,7 +101,7 @@ export default function Dashboard() {
   }
 
   // Show loading state while auth is initializing
-  if (!isLoaded) {
+  if (!authReady) {
     return (
       <div className="px-4 py-6 sm:px-0">
         <div className="mb-8">
@@ -98,6 +117,7 @@ export default function Dashboard() {
             <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
             <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
           </div>
+          <p className="mt-4 text-sm text-gray-500">Loading authentication...</p>
         </div>
       </div>
     )

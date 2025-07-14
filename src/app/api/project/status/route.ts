@@ -8,13 +8,13 @@ export async function GET(request: NextRequest) {
   console.log('[project/status] Request started')
   
   try {
-    const backendBaseUrl = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL)?.trim()
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     console.log('[project/status] Backend URL from env:', backendBaseUrl)
     
     if (!backendBaseUrl) {
-      console.error('[project/status] Backend URL not configured - neither BACKEND_URL nor NEXT_PUBLIC_BACKEND_URL set')
+      console.error('[project/status] Backend URL not configured - NEXT_PUBLIC_BACKEND_URL not set')
       return NextResponse.json(
-        { error: 'Backend URL not configured (BACKEND_URL or NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
         { status: 500 }
       )
     }

@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 
-export const dynamic = 'force-dynamic'
-
 /**
- * Proxy the request to the FastAPI backend `/auto-complete/jobs` endpoint.
+ * Proxy auto-complete jobs requests to the FastAPI backend.
  * The backend base URL is provided via the `NEXT_PUBLIC_BACKEND_URL` env var.
  */
 export async function GET(request: NextRequest) {
@@ -17,12 +15,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const queryString = request.nextUrl.searchParams.toString()
-    const targetUrl = `${backendBaseUrl}/auto-complete/jobs${queryString ? `?${queryString}` : ''}`
+    const targetUrl = `${backendBaseUrl}/auto-complete/jobs`
 
     // Get Clerk auth and JWT token
     const { getToken } = await auth()
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
     
     try {
       const token = await getToken()
@@ -37,10 +36,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const backendResponse = await fetch(targetUrl, {
+    // Forward query parameters
+    const url = new URL(request.url)
+    const queryParams = url.searchParams.toString()
+    const fullTargetUrl = queryParams ? `${targetUrl}?${queryParams}` : targetUrl
+
+    const backendResponse = await fetch(fullTargetUrl, {
       method: 'GET',
       headers,
-      // Disable Next.js caching for dynamic data
       cache: 'no-store'
     })
 

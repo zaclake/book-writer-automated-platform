@@ -1,0 +1,32 @@
+# Ignore frontend files to force Railway to deploy backend only
+package.json
+package-lock.json
+next.config.js
+tailwind.config.js
+postcss.config.js
+tsconfig.json
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Ignore frontend directories
+src/
+public/
+.next/
+node_modules/
+
+# Ignore other non-backend files
+*.md
+docs/
+tools/
+frameworks/
+analysis/
+system/
+prompts/
+templates/
+chapters/
+references/
+backups/
+logs/
+env.example
+vercel.json
+deploy.sh 

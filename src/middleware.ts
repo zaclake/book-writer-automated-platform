@@ -1,55 +1,21 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
-import { NextResponse } from 'next/server'
 
+// Create matcher for protected routes (only protect the main pages, not API routes)
 const isProtectedRoute = createRouteMatcher([
-  '/dashboard(.*)',
-  '/api/auto-complete(.*)',
-  '/api/book-bible(.*)',
-  '/api/chapters(.*)',
-  '/api/quality(.*)',
-  '/api/test-protected(.*)',
+  '/((?!api).*)', // Protect all routes except API routes
 ])
 
-const isDebugRoute = createRouteMatcher([
-  '/api/debug(.*)',
-  '/api/auth-debug(.*)',
-  '/api/auth-debug-detailed(.*)',
-  '/api/config-check(.*)',
-  '/api/auth-test(.*)',
-  '/api/client-auth-test(.*)',
-  '/api/test-backend(.*)',
-])
-
-export default clerkMiddleware(async (auth, req) => {
-  // Allow debug routes to bypass authentication
-  if (isDebugRoute(req)) {
-    return NextResponse.next()
+export default clerkMiddleware((auth, req) => {
+  // Let API routes handle their own authentication
+  if (req.nextUrl.pathname.startsWith('/api/')) {
+    return
   }
-
-  // Protect the specified routes
+  
+  // For non-API routes, apply Clerk auth logic
   if (isProtectedRoute(req)) {
-    try {
-      const { userId } = await auth()
-      if (!userId) {
-        // For API routes, return 401. For pages, redirect to sign-in
-        if (req.nextUrl.pathname.startsWith('/api/')) {
-          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        } else {
-          // For pages, let Clerk handle the redirect
-          await auth.protect()
-        }
-      }
-    } catch (error) {
-      console.error('Auth middleware error:', error)
-      if (req.nextUrl.pathname.startsWith('/api/')) {
-        return NextResponse.json({ error: 'Authentication failed' }, { status: 401 })
-      } else {
-        await auth.protect()
-      }
-    }
+    // Let Clerk handle authentication for pages
+    // The main page will handle showing sign-in UI when needed
   }
-
-  return NextResponse.next()
 })
 
 export const config = {

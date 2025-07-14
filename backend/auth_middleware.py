@@ -26,7 +26,8 @@ class ClerkAuthMiddleware:
     
     def __init__(self):
         self.clerk_secret_key = os.getenv('CLERK_SECRET_KEY')
-        self.clerk_publishable_key = os.getenv('CLERK_PUBLISHABLE_KEY')
+        # Hardcoded fallback for publishable key (safe to expose)
+        self.clerk_publishable_key = os.getenv('CLERK_PUBLISHABLE_KEY') or 'pk_live_Y2xlcmsud3JpdGVyYmxvb20uY29tJA'
         self.clerk_jwt_issuer = os.getenv('CLERK_JWT_ISSUER')
         self.development_mode = os.getenv('ENVIRONMENT') == 'development'
         
@@ -43,7 +44,10 @@ class ClerkAuthMiddleware:
                 logger.info(f"Initialized JWKS client with URL: {jwks_url}")
         
         if not self.clerk_publishable_key and not self.development_mode:
-            logger.warning("CLERK_PUBLISHABLE_KEY not set - authentication will be disabled")
+            logger.critical("CRITICAL: Backend started without CLERK_PUBLISHABLE_KEY - all authenticated routes will fail with 500")
+            logger.critical("Please set CLERK_PUBLISHABLE_KEY environment variable or set ENVIRONMENT=development")
+        elif not self.clerk_publishable_key:
+            logger.warning("CLERK_PUBLISHABLE_KEY not set - authentication will be disabled in development mode")
     
     def verify_token(self, credentials: Optional[HTTPAuthorizationCredentials]) -> Dict[str, str]:
         """
@@ -78,9 +82,10 @@ class ClerkAuthMiddleware:
         token = credentials.credentials
         
         if not self.jwks_client:
+            logger.error("JWKS client not available - CLERK_PUBLISHABLE_KEY missing or invalid")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Authentication service not properly configured"
+                detail="Authentication service not properly configured: CLERK_PUBLISHABLE_KEY missing or invalid"
             )
         
         try:

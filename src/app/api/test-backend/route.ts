@@ -3,35 +3,47 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function GET(request: NextRequest) {
   try {
     const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    
     if (!backendBaseUrl) {
       return NextResponse.json(
-        { error: 'Backend URL not configured' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
         { status: 500 }
       )
     }
 
-    // Test basic connectivity to backend
-    const response = await fetch(`${backendBaseUrl}/health`, {
+    const testUrl = `${backendBaseUrl}/status`
+    
+    const response = await fetch(testUrl, {
       method: 'GET',
-      cache: 'no-store'
+      headers: {
+        'Content-Type': 'application/json'
+      }
     })
+
+    if (!response.ok) {
+      return NextResponse.json(
+        { 
+          error: `Backend test failed: ${response.status} ${response.statusText}`,
+          backend_url: backendBaseUrl
+        },
+        { status: response.status }
+      )
+    }
 
     const data = await response.json()
     
     return NextResponse.json({
-      message: 'Backend connection test',
-      backendUrl: backendBaseUrl,
-      backendHealthy: response.ok,
-      backendResponse: data,
-      timestamp: new Date().toISOString()
+      success: true,
+      message: 'Backend connection successful',
+      backend_url: backendBaseUrl,
+      backend_response: data
     })
+    
   } catch (error: any) {
-    console.error('[test-backend] Error:', error)
     return NextResponse.json(
       { 
-        error: 'Backend connection failed',
-        details: error.message || 'Unknown error',
-        timestamp: new Date().toISOString()
+        error: `Backend test error: ${error.message}`,
+        backend_url: process.env.NEXT_PUBLIC_BACKEND_URL
       },
       { status: 500 }
     )

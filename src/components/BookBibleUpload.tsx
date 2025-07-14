@@ -111,34 +111,64 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
   }
 
   const handleInitializeProject = async () => {
+    console.log('=== INITIALIZE PROJECT DEBUG START ===')
+    console.log('isSignedIn:', isSignedIn)
+    console.log('isLoaded:', isLoaded)
+    
     if (!isSignedIn) {
       setStatus('❌ Please sign in to initialize projects')
+      console.log('ERROR: User not signed in')
       return
     }
 
-    if (!file || !content) return
+    if (!file || !content) {
+      console.log('ERROR: No file or content')
+      return
+    }
 
     setIsInitializing(true)
     setStatus('🚀 Initializing project from Book Bible...')
 
     try {
+      console.log('Getting auth headers...')
       const authHeaders = await getAuthHeaders()
+      console.log('Auth headers received:', authHeaders)
+      console.log('Has Authorization header:', !!authHeaders.Authorization)
+      
+      const requestBody = {
+        project_id: `project-${Date.now()}`, // Generate unique project ID
+        content: content
+      }
+      console.log('Request body prepared:', { project_id: requestBody.project_id, contentLength: content.length })
+      
+      const requestHeaders = {
+        'Content-Type': 'application/json',
+        ...authHeaders
+      }
+      console.log('Final request headers:', Object.keys(requestHeaders))
+      
+      console.log('Making fetch request to /api/book-bible/initialize')
       const response = await fetch('/api/book-bible/initialize', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders
-        },
-        body: JSON.stringify({
-          project_id: `project-${Date.now()}`, // Generate unique project ID
-          content: content
-        })
+        headers: requestHeaders,
+        body: JSON.stringify(requestBody)
       })
 
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+      
       const data = await response.json()
+      console.log('Response data:', data)
 
       if (response.ok) {
         setStatus('📝 Generating reference files...')
+        
+        // Store project_id for project status component
+        if (data.project_id) {
+          localStorage.setItem('lastProjectId', data.project_id)
+          console.log('Stored project_id in localStorage:', data.project_id)
+        }
+        
         // Give some time for reference generation
         setTimeout(() => {
           setStatus('✅ Project initialized successfully!')
@@ -150,9 +180,11 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         setIsInitializing(false)
       }
     } catch (error) {
+      console.error('=== INITIALIZATION ERROR ===', error)
       setStatus(`❌ Initialization error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setIsInitializing(false)
     }
+    console.log('=== INITIALIZE PROJECT DEBUG END ===')
   }
 
   const handleDragOver = (e: React.DragEvent) => {

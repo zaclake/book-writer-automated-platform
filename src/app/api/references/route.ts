@@ -1,70 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readdirSync, statSync } from 'fs'
-import path from 'path'
 
 // Force dynamic rendering/runtime so we can access the filesystem at request time
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
- * Determine the absolute path to the references directory for the given project.
- * Falls back to the same TEMP_PROJECTS_DIR convention used by the FastAPI backend.
+ * Proxy reference files list requests to the FastAPI backend.
  */
-function getReferencesDir(projectId: string | null): string {
-  if (!projectId) {
-    throw new Error('Missing "project_id" query parameter')
-  }
-
-  // Mirror logic in backend/utils/paths.py – default to /tmp/book_writer/temp_projects
-  const tempRoot = process.env.TEMP_PROJECTS_DIR?.trim() || '/tmp/book_writer/temp_projects'
-  return path.join(tempRoot, projectId, 'references')
-}
-
 export async function GET(request: NextRequest) {
+  console.log('[references] Request started')
+
   try {
-    const projectId = request.nextUrl.searchParams.get('project_id')
-    const referencesDir = getReferencesDir(projectId)
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    console.log('[references] Backend URL from env:', backendBaseUrl)
 
-    // Check if references directory exists
-    try {
-      statSync(referencesDir)
-    } catch {
-      return NextResponse.json({
-        success: true,
-        files: []
-      })
+    if (!backendBaseUrl) {
+      console.error('[references] Backend URL not configured - NEXT_PUBLIC_BACKEND_URL not set')
+      return NextResponse.json(
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
+        { status: 500 }
+      )
     }
 
-    // Get all reference files
-    const files = readdirSync(referencesDir)
-    const referenceFiles = files.filter(file => file.endsWith('.md'))
+    // Forward query parameters
+    const searchParams = request.nextUrl.searchParams
+    const queryString = searchParams.toString()
+    const targetUrl = `${backendBaseUrl}/references${queryString ? `?${queryString}` : ''}`
+    console.log('[references] Target URL:', targetUrl)
 
-    const fileList = []
-
-    for (const file of referenceFiles) {
-      const filePath = path.join(referencesDir, file)
-      const stats = statSync(filePath)
-      
-      fileList.push({
-        name: file,
-        lastModified: stats.mtime.toISOString(),
-        size: stats.size
-      })
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
     }
 
-    // Sort by name
-    fileList.sort((a, b) => a.name.localeCompare(b.name))
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    console.log('[references] Authorization header:', authHeader ? `${authHeader.substring(0, 30)}...` : 'MISSING')
 
-    return NextResponse.json({
-      success: true,
-      files: fileList,
-      total: fileList.length
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    console.log('[references] Final headers for backend:', Object.keys(headers))
+
+    // Make the request to the backend
+    console.log('[references] Making request to backend...')
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
     })
 
+    console.log('[references] Backend response status:', response.status)
+    console.log('[references] Backend response headers:')
+    response.headers.forEach((value, key) => {
+      console.log(`  ${key}: ${value}`)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[references] Backend error:', errorText)
+
+      return NextResponse.json(
+        { error: `Backend error: ${response.status} ${response.statusText}`, details: errorText },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    console.log('[references] Backend response data keys:', Object.keys(data))
+
+    return NextResponse.json(data)
+
   } catch (error: any) {
-    console.error('Failed to list reference files:', error)
+    console.error('[references] Unexpected error:', error)
     return NextResponse.json(
-      { error: `Failed to list reference files: ${error.message}` },
+      { error: 'Internal Server Error', details: error.message },
       { status: 500 }
     )
   }

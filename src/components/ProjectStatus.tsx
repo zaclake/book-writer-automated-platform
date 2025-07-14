@@ -32,22 +32,48 @@ export function ProjectStatus() {
     
     setIsLoading(true)
     setError('')
+    
+    console.log('=== PROJECT STATUS DEBUG START ===')
+    console.log('isSignedIn:', isSignedIn)
+    console.log('isLoaded:', isLoaded)
+    
     try {
+      console.log('Getting auth headers...')
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/project/status', {
+      console.log('Auth headers received:', Object.keys(authHeaders))
+      console.log('Has Authorization header:', !!authHeaders.Authorization)
+      
+      // Try to get project_id from localStorage (from successful book bible upload)
+      const lastProjectId = localStorage.getItem('lastProjectId')
+      console.log('Last project ID from localStorage:', lastProjectId)
+      
+      const statusUrl = lastProjectId 
+        ? `/api/project/status?project_id=${lastProjectId}`
+        : '/api/project/status'
+      
+      console.log('Making status request to:', statusUrl)
+      
+      const response = await fetch(statusUrl, {
         headers: authHeaders
       })
+      console.log('ProjectStatus - response status:', response.status)
+      console.log('ProjectStatus - response headers:', Object.fromEntries(response.headers.entries()))
+      
       if (response.ok) {
         const data = await response.json()
+        console.log('ProjectStatus - status data:', data)
         setStatus(data)
       } else {
         const errorData = await response.json()
+        console.log('ProjectStatus - error data:', errorData)
         setError(errorData.error || 'Failed to fetch project status')
       }
     } catch (error) {
+      console.error('ProjectStatus - network error:', error)
       setError('Network error fetching project status')
     } finally {
       setIsLoading(false)
+      console.log('=== PROJECT STATUS DEBUG END ===')
     }
   }
 
@@ -175,7 +201,7 @@ export function ProjectStatus() {
                 <span className={`text-xs px-2 py-1 rounded-full ${
                   status.hasReferences ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                 }`}>
-                  {status.hasReferences ? `${status.referenceFiles.length} files` : 'Missing'}
+                  {status.hasReferences ? `${status.referenceFiles?.length || 0} files` : 'Missing'}
                 </span>
               </div>
 
@@ -194,7 +220,7 @@ export function ProjectStatus() {
           </div>
 
           {/* Reference Files List */}
-          {status.referenceFiles.length > 0 && (
+          {status.referenceFiles && Array.isArray(status.referenceFiles) && status.referenceFiles.length > 0 && (
             <div className="pt-4 border-t">
               <h3 className="text-sm font-medium text-gray-900 mb-2">Reference Files</h3>
               <div className="space-y-1">

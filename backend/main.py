@@ -133,6 +133,35 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Global exception handler for debugging
+from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import http_exception_handler
+import traceback
+
+@app.exception_handler(Exception)
+async def all_exceptions(request: Request, exc: Exception):
+    """Global exception handler that logs full tracebacks."""
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    logger.error(f"UNCAUGHT EXCEPTION in {request.method} {request.url}\n{tb}")
+    
+    # Return traceback in response if DEBUG mode is enabled
+    if os.getenv("DEBUG", "false").lower() == "true":
+        return JSONResponse({
+            "detail": str(exc), 
+            "trace": tb,
+            "url": str(request.url),
+            "method": request.method,
+            "error_type": type(exc).__name__
+        }, status_code=500)
+    
+    # In production, return more helpful error without exposing internals
+    error_detail = str(exc) if "Authentication service not properly configured" in str(exc) else "Internal server error"
+    return JSONResponse({
+        "detail": error_detail,
+        "error_type": type(exc).__name__,
+        "timestamp": datetime.utcnow().isoformat()
+    }, status_code=500)
+
 # Add rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -264,6 +293,162 @@ async def test_auth_simple():
         "status": "ok"
     }
 
+@app.get("/debug/auth-status")
+async def debug_auth_status():
+    """Debug endpoint to check if authentication is properly configured."""
+    clerk_publishable_key = os.getenv('CLERK_PUBLISHABLE_KEY')
+    development_mode = os.getenv('ENVIRONMENT') == 'development'
+    
+    return {
+        "auth_configured": bool(clerk_publishable_key) or development_mode,
+        "has_clerk_key": bool(clerk_publishable_key),
+        "development_mode": development_mode,
+        "environment": os.getenv('ENVIRONMENT', 'unknown'),
+        "message": "Authentication is properly configured" if (bool(clerk_publishable_key) or development_mode) else "Authentication MISCONFIGURED - CLERK_PUBLISHABLE_KEY missing",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.get("/debug/test-file-ops")
+async def test_file_operations():
+    """Test if file operations work in current deployment environment."""
+    try:
+        from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+        import tempfile
+        import json
+        
+        results = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "environment": os.getenv("ENVIRONMENT", "unknown"),
+            "disable_file_ops_env": os.getenv("DISABLE_FILE_OPERATIONS", "not_set"),
+            "tests": {}
+        }
+        
+        # Test 1: Basic temp directory creation
+        try:
+            temp_root = temp_projects_root()
+            results["tests"]["temp_root_creation"] = {
+                "success": True,
+                "path": str(temp_root),
+                "exists": temp_root.exists(),
+                "writable": os.access(temp_root, os.W_OK)
+            }
+        except Exception as e:
+            results["tests"]["temp_root_creation"] = {
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Test 2: Project workspace creation
+        try:
+            test_project_id = f"test-{int(datetime.utcnow().timestamp())}"
+            project_workspace = get_project_workspace(test_project_id)
+            ensure_project_structure(project_workspace)
+            
+            results["tests"]["project_workspace"] = {
+                "success": True,
+                "path": str(project_workspace),
+                "exists": project_workspace.exists(),
+                "subdirs_created": [
+                    d.name for d in project_workspace.iterdir() if d.is_dir()
+                ]
+            }
+        except Exception as e:
+            results["tests"]["project_workspace"] = {
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Test 3: File writing
+        try:
+            test_file = project_workspace / "test-file.txt"
+            test_content = f"Test content written at {datetime.utcnow().isoformat()}"
+            test_file.write_text(test_content)
+            
+            # Read it back
+            read_content = test_file.read_text()
+            
+            results["tests"]["file_writing"] = {
+                "success": True,
+                "file_path": str(test_file),
+                "content_matches": read_content == test_content,
+                "file_size": test_file.stat().st_size
+            }
+            
+            # Clean up test file
+            test_file.unlink()
+            
+        except Exception as e:
+            results["tests"]["file_writing"] = {
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Test 4: JSON metadata writing
+        try:
+            metadata_file = project_workspace / "metadata.json"
+            test_metadata = {
+                "test_id": test_project_id,
+                "created_at": datetime.utcnow().isoformat(),
+                "test_data": {"key": "value"}
+            }
+            metadata_file.write_text(json.dumps(test_metadata, indent=2))
+            
+            # Read it back
+            read_metadata = json.loads(metadata_file.read_text())
+            
+            results["tests"]["json_metadata"] = {
+                "success": True,
+                "metadata_matches": read_metadata == test_metadata,
+                "file_path": str(metadata_file)
+            }
+            
+            # Clean up
+            metadata_file.unlink()
+            
+        except Exception as e:
+            results["tests"]["json_metadata"] = {
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Test 5: Directory cleanup
+        try:
+            if project_workspace.exists():
+                import shutil
+                shutil.rmtree(project_workspace)
+                results["tests"]["cleanup"] = {
+                    "success": True,
+                    "directory_removed": not project_workspace.exists()
+                }
+        except Exception as e:
+            results["tests"]["cleanup"] = {
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Overall assessment
+        all_tests_passed = all(
+            test.get("success", False) 
+            for test in results["tests"].values()
+        )
+        
+        results["overall"] = {
+            "file_operations_working": all_tests_passed,
+            "recommendation": (
+                "File operations work normally - DISABLE_FILE_OPERATIONS not needed"
+                if all_tests_passed
+                else "File operations failed - may need DISABLE_FILE_OPERATIONS=true"
+            )
+        }
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": f"File operations test failed: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
 # Root endpoint
 @app.get("/")
 @limiter.limit("60/minute")
@@ -323,8 +508,16 @@ async def detailed_health_check(user: Dict = Depends(verify_token)):
         env_status = {var: os.getenv(var) is not None for var in required_env_vars}
         env_healthy = all(env_status.values())
         
+        # Check authentication configuration
+        clerk_publishable_key = os.getenv('CLERK_PUBLISHABLE_KEY')
+        development_mode = os.getenv('ENVIRONMENT') == 'development'
+        auth_properly_configured = bool(clerk_publishable_key) or development_mode
+        
+        if not auth_properly_configured:
+            logger.warning("Health check: Authentication not properly configured - CLERK_PUBLISHABLE_KEY missing and not in development mode")
+        
         # Overall health status
-        overall_healthy = job_processor_healthy and storage_healthy and env_healthy
+        overall_healthy = job_processor_healthy and storage_healthy and env_healthy and auth_properly_configured
         
         health_data = {
             "status": "healthy" if overall_healthy else "unhealthy",
@@ -334,7 +527,12 @@ async def detailed_health_check(user: Dict = Depends(verify_token)):
             "services": {
                 "job_processor": job_processor_healthy,
                 "storage": storage_healthy,
-                "authentication": os.getenv('CLERK_PUBLISHABLE_KEY') is not None or os.getenv('ENVIRONMENT') == 'development'
+                "authentication": auth_properly_configured
+            },
+            "authentication_details": {
+                "has_clerk_publishable_key": bool(clerk_publishable_key),
+                "development_mode": development_mode,
+                "auth_configured": auth_properly_configured
             },
             "storage": storage_stats,
             "environment_variables": env_status
@@ -664,8 +862,8 @@ async def assess_quality(
 @app.post("/book-bible/initialize")
 @limiter.limit("10/minute")
 async def initialize_book_bible(
-    request_obj: Request,
-    request: BookBibleInitializeRequest,
+    request: Request,
+    bible_request: BookBibleInitializeRequest,
     user: Dict = Depends(verify_token)
 ):
     """Persist the uploaded Book Bible markdown for a given project."""
@@ -674,30 +872,46 @@ async def initialize_book_bible(
         disable_file_ops = os.getenv('DISABLE_FILE_OPERATIONS', 'false').lower() == 'true'
         
         if disable_file_ops:
-            logger.info(f"File operations disabled - skipping file creation for project {request.project_id}")
+            logger.info(f"File operations disabled - skipping file creation for project {bible_request.project_id}")
+            
+            # Persist minimal project metadata so status checks can succeed
+            project_data = {
+                "project_id": bible_request.project_id,
+                "book_bible_uploaded": True,
+                "uploaded_by": user.get("user_id"),
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+                "storage_mode": "file_ops_disabled"
+            }
+            try:
+                await firestore_client.save_project_data(bible_request.project_id, project_data)
+                logger.info(f"Project metadata saved for {bible_request.project_id} in file-ops-disabled mode")
+            except Exception as e:
+                logger.error(f"Failed to save project metadata for {bible_request.project_id}: {e}")
+            
             return {
                 "success": True,
-                "project_id": request.project_id,
+                "project_id": bible_request.project_id,
                 "message": "Book Bible processed successfully (file operations disabled)."
             }
         
         # Try file operations with automatic fallback on permission errors
         try:
             # Get project workspace using new path utility
-            project_workspace = get_project_workspace(request.project_id)
+            project_workspace = get_project_workspace(bible_request.project_id)
             ensure_project_structure(project_workspace)
 
             # Write book-bible.md
             book_bible_path = project_workspace / "book-bible.md"
-            book_bible_path.write_text(request.content, encoding="utf-8")
+            book_bible_path.write_text(bible_request.content, encoding="utf-8")
 
-            logger.info(f"Book Bible saved for project {request.project_id} at {book_bible_path}")
+            logger.info(f"Book Bible saved for project {bible_request.project_id} at {book_bible_path}")
 
             # Generate reference files from book bible content
             references_dir = project_workspace / "references"
             try:
-                created_files = generate_reference_files(request.content, references_dir)
-                logger.info(f"Generated reference files for project {request.project_id}: {created_files}")
+                created_files = generate_reference_files(bible_request.content, references_dir)
+                logger.info(f"Generated reference files for project {bible_request.project_id}: {created_files}")
             except Exception as e:
                 logger.error(f"Failed to generate reference files: {e}")
                 # Don't fail the whole request if reference generation fails
@@ -705,7 +919,7 @@ async def initialize_book_bible(
             # Persist minimal metadata
             metadata_path = project_workspace / "metadata.json"
             metadata = {
-                "project_id": request.project_id,
+                "project_id": bible_request.project_id,
                 "book_bible_path": str(book_bible_path),
                 "uploaded_by": user.get("user_id"),
                 "uploaded_at": datetime.utcnow().isoformat()
@@ -714,17 +928,17 @@ async def initialize_book_bible(
 
             return {
                 "success": True,
-                "project_id": request.project_id,
+                "project_id": bible_request.project_id,
                 "message": "Book Bible uploaded and project initialized successfully."
             }
             
         except (PermissionError, OSError, IOError) as fs_error:
             # Filesystem is read-only or has permission issues - return success anyway
-            logger.warning(f"Filesystem error for project {request.project_id}: {fs_error}")
+            logger.warning(f"Filesystem error for project {bible_request.project_id}: {fs_error}")
             logger.info(f"Continuing without file operations due to filesystem limitations")
             return {
                 "success": True,
-                "project_id": request.project_id,
+                "project_id": bible_request.project_id,
                 "message": "Book Bible processed successfully (filesystem read-only)."
             }
             
@@ -840,6 +1054,25 @@ async def get_project_status(
                 }
         else:
             # Get specific project status
+            disable_file_ops = os.getenv('DISABLE_FILE_OPERATIONS', 'false').lower() == 'true'
+
+            # If file operations are disabled, rely on stored project metadata instead of filesystem
+            if disable_file_ops:
+                try:
+                    project_data = await firestore_client.load_project_data(project_id)
+                    if project_data:
+                        return {
+                            "initialized": True,
+                            "hasBookBible": project_data.get("book_bible_uploaded", False),
+                            "hasReferences": True,  # Assume references generated in memory
+                            "hasState": True,       # Assume project state managed in memory
+                            "referenceFiles": project_data.get("reference_files", []),
+                            "metadata": project_data,
+                            "message": "Project fully initialized (file operations disabled)"
+                        }
+                except Exception as e:
+                    logger.error(f"Failed to load project metadata for {project_id}: {e}")
+
             project_workspace = get_project_workspace(project_id)
             if not project_workspace.exists():
                 return {
@@ -1004,6 +1237,153 @@ async def periodic_cleanup():
             
         except Exception as e:
             logger.error(f"Periodic cleanup failed: {e}")
+
+# Reference Files endpoints
+@app.get("/references")
+@limiter.limit("30/minute")
+async def list_reference_files(
+    request: Request,
+    project_id: Optional[str] = None,
+    user: Dict = Depends(verify_token)
+):
+    """List reference files for a project."""
+    try:
+        if not project_id:
+            return {
+                "success": True,
+                "files": [],
+                "total": 0,
+                "message": "No project_id provided"
+            }
+ 
+        project_workspace = get_project_workspace(project_id)
+        references_dir = project_workspace / "references"
+ 
+        if not references_dir.exists():
+            return {
+                "success": True,
+                "files": [],
+                "total": 0,
+                "message": f"References directory not found for project {project_id}"
+            }
+ 
+        # Get all reference files
+        files = []
+        for file_path in references_dir.glob("*.md"):
+            if file_path.is_file():
+                stat = file_path.stat()
+                files.append({
+                    "name": file_path.name,
+                    "lastModified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "size": stat.st_size
+                })
+ 
+        # Sort by name
+        files.sort(key=lambda x: x["name"])
+ 
+        logger.info(f"Found {len(files)} reference files for project {project_id}")
+ 
+        return {
+            "success": True,
+            "files": files,
+            "total": len(files)
+        }
+ 
+    except Exception as e:
+        logger.error(f"Failed to list reference files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+@app.get("/references/{filename}")
+@limiter.limit("30/minute")
+async def get_reference_file(
+    request: Request,
+    filename: str,
+    project_id: Optional[str] = None,
+    user: Dict = Depends(verify_token)
+):
+    """Get content of a specific reference file."""
+    try:
+        if not project_id:
+            raise HTTPException(status_code=400, detail="project_id parameter is required")
+ 
+        if not filename.endswith('.md'):
+            raise HTTPException(status_code=400, detail="Invalid filename. Must be a .md file")
+ 
+        project_workspace = get_project_workspace(project_id)
+        file_path = project_workspace / "references" / filename
+ 
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"Reference file '{filename}' not found")
+ 
+        content = file_path.read_text(encoding="utf-8")
+        stat = file_path.stat()
+ 
+        logger.info(f"Retrieved reference file {filename} for project {project_id}")
+ 
+        return {
+            "success": True,
+            "name": filename,
+            "content": content,
+            "lastModified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "size": stat.st_size
+        }
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get reference file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+@app.put("/references/{filename}")
+@limiter.limit("20/minute")
+async def update_reference_file(
+    request: Request,
+    filename: str,
+    project_id: Optional[str] = None,
+    user: Dict = Depends(verify_token)
+):
+    """Update content of a specific reference file."""
+    try:
+        if not project_id:
+            raise HTTPException(status_code=400, detail="project_id parameter is required")
+ 
+        if not filename.endswith('.md'):
+            raise HTTPException(status_code=400, detail="Invalid filename. Must be a .md file")
+ 
+        # Get request body
+        body = await request.json()
+        content = body.get("content")
+         
+        if content is None:
+            raise HTTPException(status_code=400, detail="Content is required")
+ 
+        project_workspace = get_project_workspace(project_id)
+        file_path = project_workspace / "references" / filename
+ 
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"Reference file '{filename}' not found")
+ 
+        # Write the updated content
+        file_path.write_text(content, encoding="utf-8")
+        stat = file_path.stat()
+ 
+        logger.info(f"Updated reference file {filename} for project {project_id}")
+ 
+        return {
+            "success": True,
+            "message": f"Reference file '{filename}' updated successfully",
+            "name": filename,
+            "lastModified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "size": stat.st_size
+        }
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update reference file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

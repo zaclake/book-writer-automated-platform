@@ -11,6 +11,11 @@ export function SystemStatus() {
     system_load?: 'low' | 'medium' | 'high'
     errors_24h?: number
   }>({})
+  const [error, setError] = useState('')
+  const [lastChecked, setLastChecked] = useState<string>('')
+  const [backendUrl, setBackendUrl] = useState('')
+  const [fileOpsTest, setFileOpsTest] = useState<any>(null)
+  const [isTestingFileOps, setIsTestingFileOps] = useState(false)
 
   useEffect(() => {
     checkSystemStatus()
@@ -38,6 +43,25 @@ export function SystemStatus() {
     } catch (error) {
       setStatus('error')
       console.error('Failed to check system status:', error)
+    }
+  }
+
+  const testFileOperations = async () => {
+    setIsTestingFileOps(true)
+    setFileOpsTest(null)
+    try {
+      const response = await fetch('/api/debug/file-ops-test')
+      if (response.ok) {
+        const data = await response.json()
+        setFileOpsTest(data)
+      } else {
+        const errorData = await response.json()
+        setFileOpsTest({ error: errorData.error })
+      }
+    } catch (error) {
+      setFileOpsTest({ error: 'Network error testing file operations' })
+    } finally {
+      setIsTestingFileOps(false)
     }
   }
 
@@ -178,8 +202,49 @@ export function SystemStatus() {
           >
             {status === 'checking' ? 'Checking...' : 'Refresh Status'}
           </button>
+          
+          <button
+            onClick={testFileOperations}
+            disabled={isTestingFileOps}
+            className="w-full btn-secondary mt-2"
+          >
+            {isTestingFileOps ? 'Testing...' : 'Test File Operations'}
+          </button>
         </div>
       </div>
+
+      {/* File Operations Test Results */}
+      {fileOpsTest && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <h3 className="text-sm font-medium text-gray-900 mb-2">File Operations Test</h3>
+          {fileOpsTest.error ? (
+            <div className="text-red-600 text-sm">{fileOpsTest.error}</div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <div>
+                <strong>Environment:</strong> {fileOpsTest.environment}
+              </div>
+              <div>
+                <strong>DISABLE_FILE_OPERATIONS:</strong> {fileOpsTest.disable_file_ops_env}
+              </div>
+              <div>
+                <strong>Recommendation:</strong> {fileOpsTest.overall?.recommendation}
+              </div>
+              <div className="mt-2">
+                <strong>Test Results:</strong>
+                <ul className="ml-4 mt-1">
+                  {Object.entries(fileOpsTest.tests || {}).map(([test, result]: [string, any]) => (
+                    <li key={test} className={result.success ? 'text-green-600' : 'text-red-600'}>
+                      {test}: {result.success ? '✅ Pass' : '❌ Fail'}
+                      {result.error && ` (${result.error})`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 } 

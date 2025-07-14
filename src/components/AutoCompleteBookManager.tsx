@@ -100,7 +100,7 @@ export function AutoCompleteBookManager({
       })
       if (response.ok) {
         const data = await response.json()
-        if (data.jobs && data.jobs.length > 0) {
+        if (data.jobs && Array.isArray(data.jobs) && data.jobs.length > 0) {
           const job = data.jobs[0]
           setCurrentJob(job)
           startProgressTracking(job.job_id)
