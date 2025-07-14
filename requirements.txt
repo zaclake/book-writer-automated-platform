@@ -1,0 +1,26 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+python-jose[cryptography]==3.3.0
+PyJWT==2.8.0
+cryptography==45.0.5
+requests==2.31.0
+slowapi==0.1.9
+passlib[bcrypt]==1.7.4
+python-dateutil==2.8.2
+asyncio==3.4.3
+pathlib==1.0.1
+
+# Optional dependencies for production
+gunicorn==21.2.0
+redis==5.0.1
+celery==5.3.4
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+black==23.11.0
+flake8==6.1.0 
