@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useAuthToken } from '@/lib/auth'
 import { DocumentTextIcon, PencilIcon, EyeIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 
 interface ReferenceFile {
@@ -10,6 +11,7 @@ interface ReferenceFile {
 }
 
 export function ReferenceFileManager() {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [files, setFiles] = useState<ReferenceFile[]>([])
   const [selectedFile, setSelectedFile] = useState<ReferenceFile | null>(null)
   const [isEditing, setIsEditing] = useState(false)
@@ -18,8 +20,11 @@ export function ReferenceFileManager() {
   const [status, setStatus] = useState('')
 
   useEffect(() => {
-    fetchReferenceFiles()
-  }, [])
+    // Only fetch if user is authenticated
+    if (isLoaded && isSignedIn) {
+      fetchReferenceFiles()
+    }
+  }, [isLoaded, isSignedIn])
 
   const getProjectId = () => {
     if (typeof window === 'undefined') return null
@@ -27,6 +32,8 @@ export function ReferenceFileManager() {
   }
 
   const fetchReferenceFiles = async () => {
+    if (!isSignedIn) return
+    
     setIsLoading(true)
     try {
       const projectId = getProjectId()
@@ -36,7 +43,10 @@ export function ReferenceFileManager() {
         setIsLoading(false)
         return
       }
-      const response = await fetch(`/api/references?project_id=${projectId}`)
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch(`/api/references?project_id=${projectId}`, {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         setFiles(data.files || [])
@@ -58,7 +68,10 @@ export function ReferenceFileManager() {
         setIsLoading(false)
         return
       }
-      const response = await fetch(`/api/references/${fileName}?project_id=${projectId}`)
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch(`/api/references/${fileName}?project_id=${projectId}`, {
+        headers: authHeaders
+      })
       if (response.ok) {
         const data = await response.json()
         setSelectedFile(data)
@@ -84,10 +97,12 @@ export function ReferenceFileManager() {
         setIsLoading(false)
         return
       }
+      const authHeaders = await getAuthHeaders()
       const response = await fetch(`/api/references/${selectedFile.name}?project_id=${projectId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders
         },
         body: JSON.stringify({
           content: editContent
@@ -131,6 +146,31 @@ export function ReferenceFileManager() {
         Reference Files
       </h2>
 
+      {/* Show loading state while auth is initializing */}
+      {!isLoaded && (
+        <div className="card">
+          <div className="text-center py-8">
+            <div className="animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+            </div>
+          </div>
+        </div>
+      )}
+ 
+      {/* Show sign-in prompt if user is not authenticated */}
+      {isLoaded && !isSignedIn && (
+        <div className="text-center py-8">
+          <div className="text-gray-500 mb-4">Please sign in to view reference files</div>
+          <p className="text-sm text-gray-400">
+            Authentication is required to access reference files.
+          </p>
+        </div>
+      )}
+ 
+      {/* Show content only if user is authenticated */}
+      {isLoaded && isSignedIn && (
+        <>
       {isLoading && (
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
@@ -243,6 +283,8 @@ export function ReferenceFileManager() {
           <p className="text-sm text-gray-700">{status}</p>
         </div>
       )}
+         </>
+       )}
     </div>
   )
 } 
