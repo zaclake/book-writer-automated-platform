@@ -39,6 +39,8 @@ export function ReferenceFileManager() {
       const response = await fetch(`/api/references?project_id=${projectId}`)
       if (response.ok) {
         const data = await response.json()
+        console.log('Reference files API response:', data)
+        console.log('Files array:', data.files)
         setFiles(data.files || [])
       }
     } catch (error) {
@@ -151,6 +153,7 @@ export function ReferenceFileManager() {
           <div className="grid grid-cols-1 gap-2">
             {referenceFileTypes.map((fileType) => {
               const file = files.find(f => f.name === fileType.name)
+              console.log(`File ${fileType.name}:`, file, 'Available:', !!file)
               return (
                 <button
                   key={fileType.name}
