@@ -53,6 +53,13 @@ class ReferenceContentGenerator:
         """
         prompt_file = self.prompts_dir / f"{reference_type}-prompt.yaml"
         
+        # Debug: Log directory contents
+        logger.info(f"Prompts directory: {self.prompts_dir}")
+        logger.info(f"Prompts directory exists: {self.prompts_dir.exists()}")
+        if self.prompts_dir.exists():
+            logger.info(f"Files in prompts directory: {list(self.prompts_dir.iterdir())}")
+        logger.info(f"Looking for prompt file: {prompt_file}")
+        
         if not prompt_file.exists():
             raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
         
