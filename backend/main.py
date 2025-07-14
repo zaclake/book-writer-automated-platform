@@ -88,6 +88,9 @@ from firestore_client import firestore_client
 from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
 from utils.reference_parser import generate_reference_files
 
+# Import reference content generator
+from utils.reference_content_generator import ReferenceContentGenerator
+
 # Global job update events for SSE optimization
 job_update_events: Dict[str, asyncio.Event] = {}
 
@@ -911,7 +914,39 @@ async def initialize_book_bible(
             references_dir = project_workspace / "references"
             try:
                 created_files = generate_reference_files(bible_request.content, references_dir)
-                logger.info(f"Generated reference files for project {bible_request.project_id}: {created_files}")
+                logger.info(f"Generated reference file structure for project {bible_request.project_id}: {created_files}")
+                
+                # Generate AI-powered content for reference files
+                content_generator = ReferenceContentGenerator()
+                if content_generator.is_available():
+                    try:
+                        logger.info(f"Generating AI-powered content for reference files in project {bible_request.project_id}")
+                        generation_results = content_generator.generate_all_references(
+                            book_bible_content=bible_request.content,
+                            references_dir=references_dir
+                        )
+                        
+                        successful_generations = [
+                            ref for ref, result in generation_results.items() 
+                            if result.get("success", False)
+                        ]
+                        failed_generations = [
+                            ref for ref, result in generation_results.items() 
+                            if not result.get("success", False)
+                        ]
+                        
+                        logger.info(f"AI content generation completed for project {bible_request.project_id}: "
+                                  f"{len(successful_generations)} successful, {len(failed_generations)} failed")
+                        
+                        if failed_generations:
+                            logger.warning(f"Failed to generate AI content for: {failed_generations}")
+                            
+                    except Exception as ai_error:
+                        logger.warning(f"AI content generation failed for project {bible_request.project_id}: {ai_error}")
+                        # Continue with basic reference files if AI generation fails
+                else:
+                    logger.info(f"OpenAI API not configured - using template reference files for project {bible_request.project_id}")
+                
             except Exception as e:
                 logger.error(f"Failed to generate reference files: {e}")
                 # Don't fail the whole request if reference generation fails
@@ -986,7 +1021,39 @@ async def upload_book_bible(
         references_dir = project_workspace / "references"
         try:
             created_files = generate_reference_files(content, references_dir)
-            logger.info(f"Generated reference files for project {project_id}: {created_files}")
+            logger.info(f"Generated reference file structure for project {project_id}: {created_files}")
+            
+            # Generate AI-powered content for reference files
+            content_generator = ReferenceContentGenerator()
+            if content_generator.is_available():
+                try:
+                    logger.info(f"Generating AI-powered content for reference files in project {project_id}")
+                    generation_results = content_generator.generate_all_references(
+                        book_bible_content=content,
+                        references_dir=references_dir
+                    )
+                    
+                    successful_generations = [
+                        ref for ref, result in generation_results.items() 
+                        if result.get("success", False)
+                    ]
+                    failed_generations = [
+                        ref for ref, result in generation_results.items() 
+                        if not result.get("success", False)
+                    ]
+                    
+                    logger.info(f"AI content generation completed for project {project_id}: "
+                              f"{len(successful_generations)} successful, {len(failed_generations)} failed")
+                    
+                    if failed_generations:
+                        logger.warning(f"Failed to generate AI content for: {failed_generations}")
+                        
+                except Exception as ai_error:
+                    logger.warning(f"AI content generation failed for project {project_id}: {ai_error}")
+                    # Continue with basic reference files if AI generation fails
+            else:
+                logger.info(f"OpenAI API not configured - using template reference files for project {project_id}")
+                
         except Exception as e:
             logger.error(f"Failed to generate reference files: {e}")
             # Don't fail the whole request if reference generation fails
@@ -1384,6 +1451,167 @@ async def update_reference_file(
     except Exception as e:
         logger.error(f"Failed to update reference file {filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class ReferenceGenerationRequest(BaseModel):
+    """Request model for reference content generation."""
+    project_id: str = Field(..., min_length=1, max_length=100, description="Project identifier")
+    reference_types: Optional[List[str]] = Field(default=None, description="List of reference types to generate")
+
+class ReferenceRegenerateRequest(BaseModel):
+    """Request model for single reference regeneration."""
+    project_id: str = Field(..., min_length=1, max_length=100, description="Project identifier")
+
+@app.post("/references/generate")
+@limiter.limit("5/minute")
+async def generate_reference_content(
+    request: Request,
+    generation_request: ReferenceGenerationRequest,
+    user: Dict = Depends(verify_token)
+):
+    """Generate AI-powered content for reference files based on book bible."""
+    try:
+        # Get project workspace and check for book bible
+        project_workspace = get_project_workspace(generation_request.project_id)
+        book_bible_path = project_workspace / "book-bible.md"
+        
+        if not book_bible_path.exists():
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Book bible not found for project {generation_request.project_id}"
+            )
+        
+        # Read book bible content
+        book_bible_content = book_bible_path.read_text(encoding='utf-8')
+        
+        # Initialize content generator
+        generator = ReferenceContentGenerator()
+        
+        if not generator.is_available():
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI API key not configured. Cannot generate reference content."
+            )
+        
+        # Get references directory
+        references_dir = project_workspace / "references"
+        references_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate content for all requested types
+        reference_types = generation_request.reference_types or ['characters', 'outline', 'world-building', 'style-guide', 'plot-timeline']
+        
+        logger.info(f"Generating reference content for project {generation_request.project_id}, types: {reference_types}")
+        
+        results = generator.generate_all_references(
+            book_bible_content=book_bible_content,
+            references_dir=references_dir,
+            reference_types=reference_types
+        )
+        
+        # Count successes and failures
+        successful = [ref for ref, result in results.items() if result.get("success", False)]
+        failed = [ref for ref, result in results.items() if not result.get("success", False)]
+        
+        response_data = {
+            "success": len(failed) == 0,
+            "project_id": generation_request.project_id,
+            "generated_files": len(successful),
+            "failed_files": len(failed),
+            "results": results,
+            "message": (
+                f"Successfully generated {len(successful)} reference files"
+                if len(failed) == 0
+                else f"Generated {len(successful)} files, {len(failed)} failed"
+            )
+        }
+        
+        logger.info(f"Reference generation completed for project {generation_request.project_id}: {len(successful)} success, {len(failed)} failed")
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate reference content: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/references/{filename}/regenerate")
+@limiter.limit("10/minute")
+async def regenerate_reference_file(
+    request: Request,
+    filename: str,
+    regenerate_request: ReferenceRegenerateRequest,
+    user: Dict = Depends(verify_token)
+):
+    """Regenerate content for a specific reference file."""
+    try:
+        if not filename.endswith('.md'):
+            raise HTTPException(status_code=400, detail="Invalid filename. Must be a .md file")
+        
+        # Map filename to reference type
+        filename_to_type = {
+            'characters.md': 'characters',
+            'outline.md': 'outline',
+            'world-building.md': 'world-building',
+            'style-guide.md': 'style-guide',
+            'plot-timeline.md': 'plot-timeline'
+        }
+        
+        reference_type = filename_to_type.get(filename)
+        if not reference_type:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot regenerate {filename}. Supported files: {list(filename_to_type.keys())}"
+            )
+        
+        # Get project workspace and check for book bible
+        project_workspace = get_project_workspace(regenerate_request.project_id)
+        book_bible_path = project_workspace / "book-bible.md"
+        
+        if not book_bible_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Book bible not found for project {regenerate_request.project_id}"
+            )
+        
+        # Read book bible content
+        book_bible_content = book_bible_path.read_text(encoding='utf-8')
+        
+        # Initialize content generator
+        generator = ReferenceContentGenerator()
+        
+        if not generator.is_available():
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI API key not configured. Cannot regenerate reference content."
+            )
+        
+        # Get references directory
+        references_dir = project_workspace / "references"
+        references_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Regenerating {filename} for project {regenerate_request.project_id}")
+        
+        # Regenerate the specific reference file
+        result = generator.regenerate_reference(
+            reference_type=reference_type,
+            book_bible_content=book_bible_content,
+            references_dir=references_dir
+        )
+        
+        if result["success"]:
+            logger.info(f"Successfully regenerated {filename} for project {regenerate_request.project_id}")
+        else:
+            logger.error(f"Failed to regenerate {filename}: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate reference file {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn
