@@ -24,7 +24,26 @@ class ReferenceContentGenerator:
             prompts_dir: Directory containing YAML prompt files (defaults to prompts/reference-generation)
         """
         self.client = None
-        self.prompts_dir = prompts_dir or Path(__file__).parent.parent / "prompts" / "reference-generation"
+        # Use absolute path for Railway deployment
+        if prompts_dir:
+            self.prompts_dir = prompts_dir
+        else:
+            # Try multiple possible locations
+            possible_paths = [
+                Path(__file__).parent.parent / "prompts" / "reference-generation",  # Current approach
+                Path("/app/prompts/reference-generation"),  # Direct absolute path
+                Path("/app/backend/prompts/reference-generation"),  # In case backend dir is included
+            ]
+            
+            self.prompts_dir = None
+            for path in possible_paths:
+                if path.exists():
+                    self.prompts_dir = path
+                    break
+            
+            if self.prompts_dir is None:
+                # Default to the first path and let it fail with proper error
+                self.prompts_dir = possible_paths[0]
         
         # Initialize OpenAI client if API key is available
         api_key = os.getenv('OPENAI_API_KEY')
