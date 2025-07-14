@@ -295,7 +295,7 @@ class ReferenceContentGenerator:
             return {
                 "success": False,
                 "error": str(e),
-                "message": f"Regeneration failed for {reference_type}"
+                "message": f"Regeneration failed for {reference_type}: {e}"
             }
 
 
