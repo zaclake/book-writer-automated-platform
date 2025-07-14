@@ -32,6 +32,7 @@ class ReferenceContentGenerator:
             possible_paths = [
                 Path(__file__).parent.parent / "prompts" / "reference-generation",  # Current approach
                 Path("/app/prompts/reference-generation"),  # Direct absolute path
+                Path("/app/reference-generation"),  # ACTUAL location on Railway
                 Path("/app/backend/prompts/reference-generation"),  # In case backend dir is included
             ]
             
