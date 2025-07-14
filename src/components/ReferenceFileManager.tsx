@@ -21,10 +21,22 @@ export function ReferenceFileManager() {
     fetchReferenceFiles()
   }, [])
 
+  const getProjectId = () => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('lastProjectId')
+  }
+
   const fetchReferenceFiles = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/references')
+      const projectId = getProjectId()
+      if (!projectId) {
+        setFiles([])
+        setStatus('⚠️ No project selected - upload or select a Book Bible first')
+        setIsLoading(false)
+        return
+      }
+      const response = await fetch(`/api/references?project_id=${projectId}`)
       if (response.ok) {
         const data = await response.json()
         setFiles(data.files || [])
@@ -40,7 +52,13 @@ export function ReferenceFileManager() {
   const handleFileSelect = async (fileName: string) => {
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/references/${fileName}`)
+      const projectId = getProjectId()
+      if (!projectId) {
+        setStatus('⚠️ No project selected')
+        setIsLoading(false)
+        return
+      }
+      const response = await fetch(`/api/references/${fileName}?project_id=${projectId}`)
       if (response.ok) {
         const data = await response.json()
         setSelectedFile(data)
@@ -60,7 +78,13 @@ export function ReferenceFileManager() {
 
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/references/${selectedFile.name}`, {
+      const projectId = getProjectId()
+      if (!projectId) {
+        setStatus('⚠️ No project selected')
+        setIsLoading(false)
+        return
+      }
+      const response = await fetch(`/api/references/${selectedFile.name}?project_id=${projectId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
