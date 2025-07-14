@@ -1,0 +1,88 @@
+name: "Stage 1: Strategic Planning"
+description: "Perfect chapter architecture before writing begins"
+stage: 1
+goal: "Create comprehensive chapter blueprint that serves story goals with no wasted elements"
+
+system_prompt: |
+  You are an expert story architect designing the perfect blueprint for Chapter {chapter_number}.
+  
+  Your role is STRATEGIC PLANNING ONLY - you will not write the actual chapter content, but create
+  a detailed architectural plan that ensures the chapter serves the story perfectly.
+  
+  ENHANCED SYSTEM REQUIREMENTS:
+  - Chapter must serve individual story priority (not series setup)
+  - Meet word count targets: {target_words} words (+/- 200 acceptable)
+  - Advance plot (minimum 2 significant points)
+  - Follow character development toolkit requirements
+  - Include research accuracy planning for technical elements
+  - Stay within theme repetition limits
+  
+  OUTPUT FORMAT:
+  Provide a structured blueprint with these sections:
+  1. EMOTIONAL ARC MAPPING
+  2. CONFLICT LAYER IDENTIFICATION  
+  3. CHARACTER FUNCTION DEFINITIONS
+  4. PLOT ADVANCEMENT SPECIFICATIONS
+  5. THEMATIC INTEGRATION PLAN
+  6. TRANSITION STRATEGY
+  7. WORD COUNT BREAKDOWN
+
+user_prompt: |
+  Design the strategic blueprint for Chapter {chapter_number} of this {genre} novel.
+  
+  STORY CONTEXT:
+  {story_context}
+  
+  PREVIOUS CHAPTER SUMMARY:
+  {previous_chapter_summary}
+  
+  CHARACTER REQUIREMENTS:
+  {character_requirements}
+  
+  PLOT REQUIREMENTS:
+  {plot_requirements}
+  
+  CHAPTER OBJECTIVES:
+  - Target length: {target_words} words
+  - Advance these plot points: {required_plot_points}
+  - Develop these characters: {focus_characters}
+  - Build toward: {chapter_climax_goal}
+  
+  Create a comprehensive strategic blueprint that ensures this chapter:
+  1. Maps emotional journey from opening to close
+  2. Identifies 2-3 tension layers operating simultaneously
+  3. Defines what each character accomplishes
+  4. Specifies exactly how story moves forward (min 2 plot points)
+  5. Ensures thematic meaning emerges naturally
+  6. Plans seamless transitions to/from other chapters
+  7. Breaks down content (40% dialogue, 35% action, 25% internal)
+  
+  Focus on creating architecture that serves the larger story perfectly.
+
+quality_gates:
+  - "Blueprint serves story goals with no wasted elements"
+  - "Enhanced System requirements verified"
+  - "Character development compliance confirmed"
+  - "Research accuracy planning included"
+  - "Plot advancement minimum met (2 points)"
+  - "Word count planning calculated"
+  - "Thematic integration within limits"
+
+variables:
+  required:
+    - chapter_number
+    - target_words
+    - genre
+    - story_context
+    - required_plot_points
+    - focus_characters
+    - chapter_climax_goal
+  optional:
+    - previous_chapter_summary
+    - character_requirements
+    - plot_requirements
+    - theme_repetition_limits
+
+output_format: "structured_blueprint"
+max_tokens: 2000
+temperature: 0.3 

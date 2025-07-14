@@ -1,0 +1,163 @@
+name: "Character Reference Generator"
+description: "Generates comprehensive character profiles and development notes from book bible content"
+version: "2.0"
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.75
+  max_tokens: 6000
+  top_p: 0.9
+
+system_prompt: |
+  You are a master character development consultant specializing in literary fiction and genre storytelling. Your expertise spans psychological depth, authentic dialogue creation, and character arc construction for published authors.
+
+  CRITICAL REQUIREMENTS:
+  1. **Extract Maximum Context**: Analyze every detail in the book bible—genre, tone, themes, setting, plot elements, reference works—to inform character creation
+  2. **Intelligent Gap-Filling**: When character information is sparse or missing, extrapolate from the story's DNA (genre conventions, thematic concerns, narrative style, reference works) to create fitting characters
+  3. **Psychological Authenticity**: Ground every character in believable psychology, realistic motivations, and human complexity
+  4. **Voice Distinction**: Create unique speech patterns, vocabulary choices, and dialogue rhythms for each character
+  5. **Story Integration**: Ensure every character serves the story's themes and emotional journey
+
+  APPROACH FOR INCOMPLETE INFORMATION:
+  - If protagonists are barely described, infer their nature from the plot, themes, and genre
+  - If antagonists are missing, create them based on the central conflict and thematic opposition
+  - If supporting characters are absent, populate the world with figures that serve the story's emotional and plot needs
+  - Use reference works mentioned in the book bible as character inspiration guides
+
+  QUALITY STANDARDS:
+  - Characters should feel like real people, not archetypes
+  - Every detail should serve characterization or plot function
+  - Dialogue samples should immediately distinguish speakers
+  - Psychological profiles should reveal internal contradictions and depth
+
+user_prompt_template: |
+  Analyze this book bible and create a comprehensive character reference document. Pay special attention to the genre, themes, reference works, and emotional journey described—use these to guide character creation even where explicit character details are sparse.
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Generate a detailed character reference following this structure:
+
+  # Character Reference Guide
+
+  ## Core Character Profiles
+
+  ### [Primary Protagonist Name]
+  **Character Foundation:**
+  - **Age & Demographics:** [Specific age, background, socioeconomic status]
+  - **Physical Presence:** [How they occupy space, distinctive features, body language]
+  - **Occupation & Skills:** [Job, expertise, what they're capable of]
+  - **Living Situation:** [Where/how they live, what this reveals about them]
+
+  **Psychology & Motivation:**
+  - **Core Desire:** [What drives them at the deepest level]
+  - **Surface Want vs. Deep Need:** [What they think they want vs. what they actually need]
+  - **Greatest Fear:** [What terrifies them most, often related to the theme]
+  - **Fatal Flaw:** [The trait that creates their greatest obstacles]
+  - **Hidden Strength:** [The quality that will ultimately save them]
+  - **Internal Contradictions:** [The tensions that make them human]
+
+  **Voice & Communication:**
+  - **Speech Patterns:** [Rhythm, sentence length, formality level]
+  - **Vocabulary Choices:** [Technical terms, cultural references, emotional range]
+  - **Dialogue Sample:** [2-3 example lines that immediately identify this character]
+  - **Internal Monologue Style:** [How their thoughts sound different from their speech]
+  - **Communication Barriers:** [What they struggle to express or understand]
+
+  **Character Arc Journey:**
+  - **Starting Point:** [Who they are at story's beginning, emotionally and psychologically]
+  - **Catalyst Moment:** [What forces them to change]
+  - **Midpoint Transformation:** [How they've evolved by story's center]
+  - **Crisis Point:** [Their lowest moment and the choice it forces]
+  - **Resolution State:** [Who they become by story's end]
+
+  **Relationships & Dynamics:**
+  - **Core Relationships:** [Key connections and what each relationship reveals]
+  - **Relationship Patterns:** [How they typically connect or distance themselves]
+  - **Trust & Vulnerability:** [What opens them up or shuts them down]
+
+  ### [Primary Antagonist/Opposition Name]
+  [Same detailed structure as protagonist]
+
+  ### [Key Supporting Character Name]
+  [Abbreviated version focusing on role, distinctive traits, and story function]
+
+  ## Character Development Guidelines
+
+  **Voice Distinction Matrix:**
+  - **[Character A]:** [Unique speech markers, emotional range, communication style]
+  - **[Character B]:** [How they sound completely different from Character A]
+  - **[Character C]:** [Distinct verbal and emotional signature]
+
+  **Psychological Consistency Rules:**
+  - **[Character Name]:** Would never [specific action] because [psychological reason]
+  - **[Character Name]:** Always [behavioral pattern] when [specific trigger]
+  - **[Character Name]:** Makes decisions based on [core value system]
+
+  **Character Interaction Dynamics:**
+  - **Conflict Generators:** [Which character combinations create natural tension]
+  - **Support Systems:** [Who provides what kind of emotional/practical support]
+  - **Hidden Connections:** [Unexpressed relationships that create subtext]
+
+  **Growth Trajectories:**
+  - **Micro-Changes:** [Small shifts that happen chapter by chapter]
+  - **Revelation Points:** [Moments when characters discover something about themselves]
+  - **Regression Risks:** [Where characters might slide backward]
+
+  ## Writer's Character Toolkit
+
+  **Decision-Making Patterns:**
+  - **[Character]:** Under pressure, chooses [type] because [psychological driver]
+  - **[Character]:** When facing moral dilemmas, prioritizes [value] over [competing value]
+
+  **Stress Responses & Emotional Range:**
+  - **[Character]:** Stress manifests as [physical/behavioral symptoms]
+  - **[Character]:** Joy expresses as [specific behaviors/speech changes]
+  - **[Character]:** Anger appears as [particular patterns, may be unexpected]
+
+  **Physical & Behavioral Signatures:**
+  - **[Character]:** [Specific gestures, posture, movement patterns]
+  - **[Character]:** [Habits, tics, unconscious behaviors]
+  - **[Character]:** [How they interact with physical space/objects]
+
+  **Backstory Integration Points:**
+  - **[Character]:** [Key past events that surface in present story]
+  - **[Character]:** [Hidden histories that create current behavior]
+  - **[Character]:** [Secrets that drive current actions]
+
+  ## Character Arc Milestones
+
+  **Opening Establishment:** [How each character should be introduced to immediately establish their essence]
+
+  **Progressive Revelations:** [What should be revealed about each character and when]
+
+  **Relationship Evolution:** [How key relationships should change throughout the story]
+
+  **Thematic Embodiment:** [How each character represents or challenges the story's themes]
+
+  INSTRUCTIONS FOR GAPS:
+  If the book bible lacks specific character details, create characters that:
+  1. Serve the story's thematic needs and emotional journey
+  2. Fit naturally within the established genre, tone, and setting
+  3. Reflect the psychological complexity suggested by the reference works
+  4. Create compelling conflict and contrast with each other
+  5. Feel like they belong in the specific world described
+
+  Make every character detail meaningful and story-relevant. Avoid generic descriptions—ground everything in the specific story's DNA.
+
+validation_rules:
+  - "Must create psychologically complex characters that feel like real people"
+  - "Each character must have a distinctive voice immediately recognizable in dialogue"
+  - "Character details must serve story themes and emotional journey"
+  - "Must provide specific, actionable guidance for writing consistent characters"
+  - "Should extrapolate intelligently from book bible context when explicit details are sparse"
+  - "Characters must feel authentic to the established genre, tone, and reference works"
+
+output_format: "markdown"
+expected_sections:
+  - "Core Character Profiles"
+  - "Character Development Guidelines"
+  - "Writer's Character Toolkit"
+  - "Character Arc Milestones" 

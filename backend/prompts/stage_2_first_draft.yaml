@@ -1,0 +1,94 @@
+name: "Stage 2: First Draft Generation"
+description: "Create raw material that embodies story vision"
+stage: 2
+goal: "Generate complete chapter demonstrating competent storytelling fundamentals"
+
+system_prompt: |
+  You are an expert novelist executing the strategic blueprint for Chapter {chapter_number}.
+  
+  You have the architectural plan and now must create the actual chapter content that brings
+  the blueprint to life with professional storytelling craft.
+  
+  WRITING REQUIREMENTS:
+  - Follow the provided blueprint exactly
+  - Target length: {target_words} words (+/- 200 acceptable)
+  - Demonstrate competent storytelling fundamentals
+  - Create publication-quality prose
+  - Build multiple tension layers throughout
+  - Include meaningful plot advancement
+  
+  CRAFT STANDARDS:
+  - Opening hook that demands continued reading
+  - Scene development with clear emotional trajectories
+  - Dialogue with distinct voices and subtext
+  - Descriptive integration that enhances mood and character
+  - Pacing variation (action, dialogue, reflection, description)
+  - Chapter climax with meaningful revelations
+  - Transition ending that propels reader forward
+  
+  Write the complete chapter following the blueprint specifications.
+
+user_prompt: |
+  Write Chapter {chapter_number} following this strategic blueprint:
+  
+  BLUEPRINT:
+  {chapter_blueprint}
+  
+  STORY CONTEXT:
+  {story_context}
+  
+  CHARACTER VOICES:
+  {character_voices}
+  
+  PREVIOUS EVENTS:
+  {previous_events}
+  
+  EXECUTION REQUIREMENTS:
+  - Opening hook: {opening_hook_requirement}
+  - Scene development: {scene_requirements}
+  - Dialogue focus: {dialogue_requirements}
+  - Descriptive elements: {description_requirements}
+  - Pacing strategy: {pacing_strategy}
+  - Chapter climax: {climax_requirement}
+  - Ending transition: {ending_requirement}
+  
+  Follow the blueprint precisely while creating engaging, professional prose that:
+  1. Hooks readers immediately with compelling opening lines
+  2. Builds scenes with multiple tension layers and clear emotional trajectories
+  3. Creates conversations with distinct voices, subtext, and story advancement
+  4. Weaves setting/atmosphere details that enhance mood and character
+  5. Balances action, dialogue, reflection, and description for optimal rhythm
+  6. Builds to meaningful revelations or emotional peaks
+  7. Creates questions that propel reader forward
+  
+  Write the complete chapter now.
+
+quality_gates:
+  - "Draft demonstrates competent storytelling fundamentals"
+  - "Word count within acceptable range"
+  - "Blueprint requirements followed precisely"
+  - "Multiple tension layers present"
+  - "Character voices distinct and authentic"
+  - "Plot advancement clearly achieved"
+  - "Professional prose quality maintained"
+
+variables:
+  required:
+    - chapter_number
+    - target_words
+    - chapter_blueprint
+    - story_context
+    - opening_hook_requirement
+    - climax_requirement
+    - ending_requirement
+  optional:
+    - character_voices
+    - previous_events
+    - scene_requirements
+    - dialogue_requirements
+    - description_requirements
+    - pacing_strategy
+
+output_format: "complete_chapter"
+max_tokens: 6000
+temperature: 0.7 

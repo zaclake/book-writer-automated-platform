@@ -1,0 +1,297 @@
+name: "Style Guide Generator"
+description: "Creates comprehensive writing style and voice guidelines from book bible content"
+version: "2.0"
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.68
+  max_tokens: 6500
+  top_p: 0.9
+
+system_prompt: |
+  You are an elite writing craft consultant specializing in narrative voice, style consistency, and prose technique for literary and genre fiction. Your expertise encompasses voice development, stylistic analysis, and the technical aspects of creating distinctive, consistent prose that serves story needs.
+
+  CORE SPECIALIZATIONS:
+  1. **Voice Architecture**: Developing unique narrative voices that serve character and story
+  2. **Style Consistency**: Creating maintainable prose guidelines that stay coherent across long works
+  3. **Genre Craft Mastery**: Understanding how different genres require different stylistic approaches
+  4. **Prose Technique Analysis**: Breaking down the technical elements that create specific effects
+  5. **Reference Work Adaptation**: Extracting stylistic techniques from influence texts to create new voices
+
+  APPROACH FOR INCOMPLETE BOOK BIBLES:
+  When style information is sparse or missing:
+  - Extract voice cues from genre, tone, and reference works mentioned
+  - Analyze referenced authors' techniques to inform style recommendations
+  - Build voice guidelines that support the stated themes and emotional journey
+  - Create prose approaches that enhance character psychology and plot needs
+  - Ensure style serves story function, not just aesthetic preference
+
+  QUALITY STANDARDS:
+  - Every style recommendation must serve story and character needs
+  - Voice guidelines should be specific enough to maintain consistency but flexible enough for variation
+  - Prose techniques should create the emotional effects required by the story
+  - Style should feel natural to the genre while maintaining uniqueness
+  - All recommendations should be practically implementable during daily writing
+
+user_prompt_template: |
+  Analyze this book bible comprehensively and create detailed style and voice guidelines. Pay special attention to the reference works, genre requirements, emotional journey, and target audience to develop a prose approach that enhances every aspect of the storytelling.
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Create comprehensive style guidelines following this structure:
+
+  # Writing Style & Voice Guide
+
+  ## Voice Foundation Analysis
+
+  **Narrative Voice Requirements:**
+  - **Story's Emotional Needs:** [What feelings the prose must evoke and sustain]
+  - **Genre Voice Expectations:** [How this genre typically sounds and why]
+  - **Character Voice Reflection:** [How narrative voice should relate to protagonist's psychology]
+  - **Theme Support:** [How prose style should reinforce story themes]
+  - **Target Audience Considerations:** [Voice sophistication level for intended readers]
+
+  **Reference Work Analysis:**
+  - **Primary Style Influences:** [Key authors mentioned and their distinctive techniques]
+  - **Prose Technique Extraction:** [Specific methods to adapt from influences]
+  - **Tonal Benchmarks:** [How the prose should feel compared to reference works]
+  - **Innovation Opportunities:** [Where to create unique voice while honoring influences]
+
+  ## Core Narrative Voice Architecture
+
+  ### Point of View Implementation
+  **POV Structure:**
+  - **Chosen Perspective:** [Specific POV type and why it serves this story]
+  - **Narrative Distance:** [How close/far from character consciousness]
+  - **Consistency Rules:** [What the narrator can/cannot know or express]
+  - **POV Switching Guidelines:** [If applicable, rules for perspective changes]
+
+  **Narrator Personality:**
+  - **Voice Characteristics:** [The narrator's distinctive traits and attitudes]
+  - **Emotional Range:** [What feelings the narrator can express and how]
+  - **Knowledge Limitations:** [What the narrator doesn't know and how this affects voice]
+  - **Relationship to Characters:** [How the narrator treats different characters]
+  - **Relationship to Reader:** [How directly the narrator addresses audience]
+
+  ### Tone & Atmospheric Voice
+
+  **Overall Tonal Foundation:**
+  - **Primary Emotional Color:** [The basic feeling that underlies most prose]
+  - **Tonal Variations:** [How tone shifts for different scenes/characters/situations]
+  - **Mood Consistency:** [What never changes about the story's emotional atmosphere]
+  - **Contrast Opportunities:** [When to break tonal patterns for effect]
+
+  **Atmospheric Creation Techniques:**
+  - **Tension Generation:** [How word choice and rhythm create suspense]
+  - **Intimacy Building:** [Techniques for drawing readers into emotional connection]
+  - **Distance/Alienation:** [When and how to create emotional distance]
+  - **Genre Atmosphere:** [Specific techniques for creating the mood this genre requires]
+
+  ## Prose Style Architecture
+
+  ### Sentence & Paragraph Construction
+
+  **Sentence Rhythm & Flow:**
+  - **Average Sentence Length:** [Typical sentence size and why it fits the story]
+  - **Rhythm Patterns:** [How sentence length varies to create specific effects]
+  - **Syntax Preferences:** [Typical sentence construction and word order]
+  - **Punctuation Style:** [How commas, dashes, semicolons serve the voice]
+  - **Fragment Usage:** [When incomplete sentences enhance or detract]
+
+  **Paragraph Architecture:**
+  - **Paragraph Length Patterns:** [How ideas are chunked and why]
+  - **Transition Techniques:** [How paragraphs connect to each other]
+  - **White Space Usage:** [How paragraph breaks create pacing and emphasis]
+  - **Scene Transition Methods:** [How to move between locations/times/POVs]
+
+  ### Vocabulary & Diction Strategy
+
+  **Word Choice Philosophy:**
+  - **Formality Level:** [Where on the formal/informal spectrum and why]
+  - **Complexity Balance:** [Simple vs. complex words and when to use each]
+  - **Cultural/Historical Authenticity:** [Period-appropriate language without alienating readers]
+  - **Emotional Vocabulary:** [How to express feelings through word choice]
+
+  **Specialized Language Usage:**
+  - **Technical Terminology:** [When and how to use specialized words]
+  - **Regional/Cultural Dialects:** [How characters' backgrounds affect their speech]
+  - **Professional Jargon:** [Character-specific vocabulary and how it reveals personality]
+  - **Generational Language:** [How age affects character speech patterns]
+
+  **Words/Phrases to Embrace:**
+  - **Signature Words:** [Vocabulary that strengthens this story's unique voice]
+  - **Powerful Verbs:** [Action words that create energy and specificity]
+  - **Sensory Language:** [Words that engage the five senses effectively]
+  - **Emotional Precision:** [Specific words for feelings rather than generic terms]
+
+  **Words/Phrases to Avoid:**
+  - **Voice Killers:** [Words that break the established tone]
+  - **Cliché Patterns:** [Overused phrases that weaken impact]
+  - **Anachronisms:** [Modern words that break period authenticity]
+  - **Purple Prose Triggers:** [Words that risk over-writing]
+
+  ## Advanced Prose Techniques
+
+  ### Description & Imagery Craft
+
+  **Descriptive Strategy:**
+  - **Detail Selection Criteria:** [What to describe and what to leave to imagination]
+  - **Sensory Focus:** [Which senses to emphasize for this story's effects]
+  - **Metaphor/Simile Style:** [How comparisons should feel and function]
+  - **Symbolic Integration:** [How to weave meaningful imagery naturally]
+
+  **Show vs. Tell Balance:**
+  - **Dramatization Priorities:** [What to show in scene vs. summarize]
+  - **Exposition Integration:** [How to convey necessary information smoothly]
+  - **Emotional Revelation:** [When to show feelings vs. state them]
+  - **Character Disclosure:** [How characters reveal themselves through action vs. description]
+
+  ### Dialogue Mastery
+
+  **Conversation Philosophy:**
+  - **Realistic vs. Stylized:** [How close to real speech vs. crafted for story effect]
+  - **Subtext Integration:** [How much characters say indirectly]
+  - **Conflict Through Dialogue:** [How conversations create and reveal tension]
+  - **Information Distribution:** [How plot/character info emerges through speech]
+
+  **Character Voice Distinction:**
+  - **Speech Pattern Variation:** [How each character sounds unique]
+  - **Vocabulary Differences:** [How background affects word choice]
+  - **Emotional Expression Styles:** [How different characters show feelings verbally]
+  - **Cultural/Regional Markers:** [How background shows in speech without caricature]
+
+  **Dialogue Mechanics:**
+  - **Attribution Style:** [Said vs. alternatives, adverb usage]
+  - **Action Integration:** [How physical actions weave with speech]
+  - **Silence Usage:** [When characters don't speak and how to show it]
+  - **Internal Response:** [How to show character reactions to dialogue]
+
+  ## Character-Specific Voice Guidelines
+
+  ### [Primary Character Name] Voice Profile
+  **Speech Characteristics:**
+  - **Vocabulary Level:** [Education/background reflected in word choice]
+  - **Sentence Patterns:** [How they typically construct thoughts/sentences]
+  - **Emotional Expression:** [How they show feelings through language]
+  - **Cultural Markers:** [Background elements that show in speech]
+  - **Professional Influence:** [How their work affects how they speak]
+
+  **Internal Monologue Style:**
+  - **Thought Patterns:** [How their mind works differently from their speech]
+  - **Self-Talk Tone:** [How they address themselves internally]
+  - **Processing Style:** [How they work through problems mentally]
+  - **Emotional Honesty:** [What they admit to themselves vs. others]
+
+  **Dialogue Sample:** [2-3 lines that immediately identify this character]
+
+  ### [Secondary Character Name] Voice Profile
+  [Abbreviated version focusing on distinctive speech patterns]
+
+  ## Genre & Technical Requirements
+
+  ### Genre Craft Specifications
+  **Genre Voice Conventions:**
+  - **Expected Elements:** [Style features readers of this genre expect]
+  - **Convention Subversion:** [Where to surprise while honoring genre]
+  - **Pacing Requirements:** [How this genre's pacing affects prose rhythm]
+  - **Atmosphere Creation:** [Genre-specific mood techniques]
+
+  **Technical Formatting:**
+  - **Chapter Opening Style:** [How chapters should begin]
+  - **Scene Break Methods:** [How to transition between scenes]
+  - **Time/Location Transitions:** [How to move through time and space]
+  - **Flashback/Memory Integration:** [How to handle non-linear time]
+
+  ### Consistency Maintenance Systems
+
+  **Voice Maintenance Checklist:**
+  - **Daily Writing Warm-up:** [How to get into voice before writing]
+  - **Voice Drift Prevention:** [How to maintain consistency across long projects]
+  - **Character Voice Testing:** [How to check if dialogue sounds right]
+  - **Revision Priorities:** [What to focus on when editing for voice]
+
+  **Style Error Prevention:**
+  - **Common Mistakes:** [Patterns to watch for that break this voice]
+  - **Overwriting Risks:** [When good techniques become too much]
+  - **Underwriting Risks:** [When minimalism becomes insufficient]
+  - **Tonal Inconsistencies:** [Mood shifts that don't serve the story]
+
+  ## Style Examples & Models
+
+  ### Voice Demonstration Samples
+
+  **Opening Paragraph Example:**
+  [2-3 paragraphs written in the target style showing voice establishment]
+
+  **Dialogue Exchange Example:**
+  [Short conversation demonstrating character voice distinction]
+
+  **Descriptive Passage Example:**
+  [Scene-setting prose showing atmospheric technique]
+
+  **Tension/Conflict Example:**
+  [High-stakes moment showing how style serves dramatic needs]
+
+  **Quiet/Intimate Example:**
+  [Emotional scene showing how style creates connection]
+
+  ### Technical Implementation Examples
+
+  **Sentence Variety Demo:**
+  [Paragraph showing rhythm variation techniques]
+
+  **Show vs. Tell Demo:**
+  [Same information conveyed both ways to show the difference]
+
+  **Subtext Demo:**
+  [Dialogue where characters don't say what they mean]
+
+  ## Writer's Daily Implementation Guide
+
+  ### Pre-Writing Voice Preparation
+  - **Voice Immersion Techniques:** [How to get into character/narrator headspace]
+  - **Reference Work Review:** [How to refresh style awareness before writing]
+  - **Character Voice Warm-up:** [Exercises for finding each character's voice]
+
+  ### During Writing Maintenance
+  - **Voice Check Questions:** [What to ask while writing to stay on track]
+  - **Style Decision Points:** [When to choose between techniques]
+  - **Dialogue Testing:** [How to check if conversations sound right]
+
+  ### Revision & Refinement
+  - **Style Revision Passes:** [Specific editing focuses for voice consistency]
+  - **Voice Strengthening:** [How to enhance weak prose during revision]
+  - **Consistency Checking:** [How to find and fix voice drift]
+
+  INSTRUCTIONS FOR INCOMPLETE INFORMATION:
+  When the book bible lacks specific style details:
+  1. Extract voice requirements from genre, themes, and emotional journey
+  2. Analyze mentioned reference works to inform style recommendations
+  3. Create prose guidelines that support character psychology and plot needs
+  4. Build style approaches that enhance the story's atmospheric requirements
+  5. Ensure every technique serves story function rather than stylistic preference
+
+  Make every style recommendation specific and actionable. Avoid generic writing advice—ground everything in this story's unique voice and technical needs.
+
+validation_rules:
+  - "Must create a distinctive, maintainable narrative voice that serves the story"
+  - "Style guidelines must be specific enough for consistency but flexible for variation"
+  - "Every technique must support character development and story atmosphere"
+  - "Must provide concrete examples demonstrating the recommended style"
+  - "Should extrapolate intelligently from reference works and genre requirements"
+  - "Voice must feel authentic to the story's themes and emotional journey"
+  - "All recommendations must be practically implementable during daily writing"
+
+output_format: "markdown"
+expected_sections:
+  - "Voice Foundation Analysis"
+  - "Core Narrative Voice Architecture"
+  - "Prose Style Architecture"
+  - "Advanced Prose Techniques"
+  - "Character-Specific Voice Guidelines"
+  - "Genre & Technical Requirements"
+  - "Style Examples & Models"
+  - "Writer's Daily Implementation Guide" 

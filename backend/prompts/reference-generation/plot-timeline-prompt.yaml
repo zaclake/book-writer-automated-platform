@@ -1,0 +1,283 @@
+name: "Plot Timeline & Theme Generator"
+description: "Creates detailed chronological timeline and thematic development tracking from book bible content"
+version: "2.0"
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.63
+  max_tokens: 6500
+  top_p: 0.9
+
+system_prompt: |
+  You are a master story architect specializing in timeline coherence, thematic development, and narrative continuity for literary and genre fiction. Your expertise encompasses chronological structure, character arc timing, thematic integration, and the complex interplay between plot progression and meaning development.
+
+  CORE EXPERTISE AREAS:
+  1. **Timeline Architecture**: Creating chronologically sound, emotionally meaningful event sequences
+  2. **Thematic Development**: Tracking how themes emerge, complicate, and resolve through story events
+  3. **Character Arc Synchronization**: Ensuring character development aligns with plot progression and thematic needs
+  4. **Continuity Management**: Maintaining logical consistency across all story elements and timelines
+  5. **Symbolic Event Mapping**: Understanding how plot events carry thematic weight and symbolic meaning
+
+  APPROACH FOR INCOMPLETE BOOK BIBLES:
+  When timeline/thematic details are sparse or missing:
+  - Extract temporal and thematic structure from provided story elements
+  - Use genre conventions and reference works to inform chronological pacing
+  - Build event sequences that serve character development and thematic exploration
+  - Create timeline frameworks that support the story's emotional journey
+  - Ensure every plot point carries both narrative and thematic weight
+
+  QUALITY STANDARDS:
+  - Every timeline element must serve both plot advancement and character/thematic development
+  - Chronological structure should create emotional rhythm and thematic resonance
+  - Character arc timing should feel psychologically authentic and dramatically satisfying
+  - Thematic development should emerge naturally from plot events, not feel forced
+  - Timeline should support the story's genre requirements and emotional goals
+
+user_prompt_template: |
+  Analyze this book bible comprehensively and create detailed timeline and thematic development documentation. Focus on extracting the emotional journey, character development needs, and thematic concerns to build a chronological framework that serves all story elements.
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Create a comprehensive timeline and thematic development guide following this structure:
+
+  # Plot Timeline & Thematic Development Guide
+
+  ## Story Foundation Timeline Analysis
+
+  **Temporal Structure Requirements:**
+  - **Story Timespan:** [How much time the main narrative covers and why]
+  - **Chronological vs. Narrative Time:** [How story time relates to reading time]
+  - **Pacing Requirements:** [How quickly or slowly events should unfold]
+  - **Timeline Anchors:** [Fixed points that anchor the chronological structure]
+
+  **Thematic Timeline Needs:**
+  - **Theme Introduction Requirements:** [When and how themes should first appear]
+  - **Thematic Development Arc:** [How themes should evolve throughout the story]
+  - **Theme Integration Points:** [Where themes naturally connect to plot events]
+  - **Thematic Resolution Timing:** [When and how themes should reach conclusion]
+
+  ## Pre-Story Historical Framework
+
+  ### Relevant Backstory Timeline
+  **[Time Period: e.g., "10 years before story"]**
+  - **Major Events:** [Historical moments that shape current story circumstances]
+  - **Character Histories:** [Formative experiences that affect current character psychology]
+  - **World/Setting Changes:** [How the environment evolved to current state]
+  - **Relationship Origins:** [How current character dynamics began]
+  - **Thematic Seeds:** [Early events that planted current thematic concerns]
+
+  **[Time Period: e.g., "5 years before story"]**
+  - **Escalating Circumstances:** [Events that built toward current story situation]
+  - **Character Development:** [How characters changed in this period]
+  - **Relationship Evolution:** [How connections shifted or deepened]
+  - **Emerging Patterns:** [Behaviors or situations that set up current conflicts]
+
+  **[Time Period: e.g., "1 year before story"]**
+  - **Immediate Setup Events:** [Recent happenings that directly trigger main story]
+  - **Character State Changes:** [Recent shifts in character circumstances/psychology]
+  - **Tension Building:** [Growing pressures that will explode in main story]
+  - **Final Preparations:** [Last pieces falling into place for main narrative]
+
+  ## Main Story Chronological Timeline
+
+  ### Opening Phase Timeline
+  **[Specific Time Marker: e.g., "Day 1, Morning"]**
+  - **Plot Events:** [What happens in the external story world]
+  - **Character Internal State:** [Psychological/emotional condition at this moment]
+  - **Character Discoveries:** [What they learn about themselves/situation/others]
+  - **Relationship Dynamics:** [How connections between characters manifest]
+  - **Thematic Elements:** [How story themes appear or develop]
+  - **Foreshadowing:** [What future events are hinted at]
+  - **Symbolic Weight:** [What this moment represents beyond literal events]
+
+  **[Next Time Marker: e.g., "Day 1, Evening"]**
+  - **Event Progression:** [How circumstances evolve from previous moment]
+  - **Character Response:** [How protagonist reacts based on psychology]
+  - **Information Revelation:** [What new knowledge emerges]
+  - **Tension Development:** [How conflict builds or shifts]
+  - **Character Relationship Changes:** [How connections evolve]
+  - **Thematic Complication:** [How themes become more complex]
+
+  [Continue this pattern through the entire story, with time markers appropriate to the story's scope]
+
+  ### Development Phase Timeline
+  **[Major Story Milestone: e.g., "First Plot Point"]**
+  - **Chronological Position:** [When this occurs in story time]
+  - **Plot Significance:** [What this accomplishes in the external story]
+  - **Character Transformation Marker:** [How characters have changed to reach this point]
+  - **Thematic Crystallization:** [How themes become clearer or more complex]
+  - **Relationship Redefinition:** [How character connections have evolved]
+  - **Internal Logic:** [Why this happens now rather than earlier or later]
+
+  ### Resolution Phase Timeline
+  **[Climactic Sequence]**
+  - **Event Convergence:** [How all plot threads come together]
+  - **Character Arc Completion:** [How character journeys reach resolution]
+  - **Thematic Statement:** [How themes receive their final expression]
+  - **Relationship Resolution:** [How character connections conclude]
+  - **Chronological Necessity:** [Why these events must happen in this order]
+
+  ## Character Arc Timeline Integration
+
+  ### [Primary Character Name] Development Schedule
+  **Character Journey Phases:**
+  - **Starting Point (Story Beginning):** [Their psychological/emotional state]
+  - **First Change Marker ([Time/Event]):** [When they first begin to shift]
+  - **Resistance Phase ([Time Period]):** [When they fight change]
+  - **Acceptance Point ([Time/Event]):** [When they embrace transformation]
+  - **Integration Period ([Time Period]):** [When they learn to live with change]
+  - **Resolution State (Story End):** [Who they've become]
+
+  **Internal Timeline Milestones:**
+  - **Fear Confrontation:** [When they face their deepest fears]
+  - **Strength Discovery:** [When they find hidden capabilities]
+  - **Relationship Revelation:** [When they understand their connections to others]
+  - **Value Clarification:** [When they understand what truly matters]
+  - **Identity Resolution:** [When they know who they are]
+
+  **Character Learning Curve:**
+  - **Skill Acquisition:** [What they learn and when]
+  - **Knowledge Revelation:** [Information they gain and its timing]
+  - **Wisdom Development:** [How understanding deepens over time]
+  - **Emotional Maturation:** [How their emotional intelligence grows]
+
+  ### [Secondary Character Name] Development Schedule
+  [Abbreviated version focusing on key development moments and their timing]
+
+  ## Thematic Development Architecture
+
+  ### [Primary Theme] Evolution Timeline
+  **Theme Introduction Phase:**
+  - **First Appearance:** [When/how this theme initially emerges]
+  - **Initial Expression:** [How it first manifests in plot/character]
+  - **Reader Recognition Point:** [When audiences should identify the theme]
+  - **Symbolic Introduction:** [Images/events that represent the theme]
+
+  **Theme Development Phase:**
+  - **Complication Introduction:** [When the theme becomes more complex]
+  - **Character Testing:** [How characters are challenged by thematic questions]
+  - **Conflict Generation:** [How the theme creates story tension]
+  - **Deepening Moments:** [When the theme gains additional layers]
+
+  **Theme Integration Phase:**
+  - **Plot-Theme Fusion:** [When theme and plot become inseparable]
+  - **Character Embodiment:** [When characters fully represent thematic concerns]
+  - **Climactic Expression:** [How the theme drives the story's climax]
+  - **Resolution Achievement:** [How the theme reaches its conclusion]
+
+  ### [Secondary Theme] Evolution Timeline
+  [Focus on how this theme interacts with the primary theme and main plot]
+
+  ### Thematic Intersection Points
+  - **Theme Conflict Moments:** [When different themes create tension]
+  - **Theme Synthesis Events:** [When themes work together]
+  - **Theme Revelation Scenes:** [When thematic meanings become explicit]
+  - **Theme Resolution Convergence:** [How all themes conclude together]
+
+  ## Continuity & Logic Framework
+
+  ### Timeline Consistency Rules
+  **Chronological Anchors:**
+  - **Fixed Time References:** [Dates, times, durations that cannot change]
+  - **Relative Time Markers:** [Events that must maintain specific relationships]
+  - **Character Age Progression:** [How characters age throughout story]
+  - **Seasonal/Calendar Considerations:** [How time of year affects events]
+
+  **Physical Continuity Requirements:**
+  - **Travel Time Constraints:** [How long it takes to move between locations]
+  - **Healing/Recovery Timelines:** [Realistic timing for physical recovery]
+  - **Learning Curves:** [How long skill/knowledge acquisition takes]
+  - **Relationship Development:** [Realistic timing for emotional connections]
+
+  **Information Flow Timeline:**
+  - **Knowledge Acquisition Schedule:** [When characters learn key information]
+  - **Secret Revelation Timing:** [When hidden information emerges]
+  - **Communication Possibilities:** [When characters can/cannot contact each other]
+  - **Discovery Sequence:** [Order in which clues/evidence appears]
+
+  ### Emotional Logic Timeline
+  **Psychological Realism:**
+  - **Grief Processing:** [Realistic emotional recovery timelines]
+  - **Trust Building:** [How long relationship repair takes]
+  - **Trauma Response:** [How psychological wounds affect timeline]
+  - **Growth Integration:** [Time needed to internalize change]
+
+  **Relationship Evolution Logic:**
+  - **Attraction/Connection Development:** [Realistic timeline for emotional bonds]
+  - **Conflict Resolution:** [How long relationship repair requires]
+  - **Intimacy Progression:** [Natural pace of emotional/physical closeness]
+  - **Trust/Betrayal Cycles:** [Timeline for relationship damage and healing]
+
+  ## Scene-Level Timeline Reference
+
+  ### Daily Timeline Structure (if applicable)
+  **[Story Day 1]**
+  - **Morning Events:** [What happens, character states, thematic elements]
+  - **Afternoon Developments:** [Plot progression, character interactions]
+  - **Evening Conclusions:** [Scene endings, emotional states, setup for next day]
+
+  **[Story Day 2]**
+  [Continue pattern as appropriate for story scope]
+
+  ### Chapter Timeline Mapping
+  **Chapter [X]: [Title/Theme]**
+  - **Time Covered:** [How much story time this chapter spans]
+  - **Opening Moment:** [When chapter begins relative to previous chapter]
+  - **Key Time Markers:** [Important moments within the chapter]
+  - **Closing Moment:** [When chapter ends and emotional state]
+  - **Timeline Function:** [How this chapter serves overall chronological structure]
+
+  ## Writer's Timeline Implementation Tools
+
+  ### Timeline Maintenance Guidelines
+  **Consistency Checking:**
+  - **Timeline Review Questions:** [What to verify when writing each scene]
+  - **Character State Tracking:** [How to maintain psychological consistency]
+  - **Information Flow Monitoring:** [Ensuring knowledge appears at right times]
+  - **Relationship Status Updates:** [Tracking connection evolution]
+
+  **Revision Timeline Priorities:**
+  - **Chronological Error Detection:** [Common timeline mistakes to watch for]
+  - **Pacing Adjustment Techniques:** [How to speed up or slow down story time]
+  - **Thematic Timing Refinement:** [Ensuring themes emerge at optimal moments]
+  - **Character Arc Synchronization:** [Aligning internal and external timelines]
+
+  ### Timeline Expansion Guidelines
+  **Detail Addition Priorities:**
+  - **Emotional Moment Enhancement:** [Where to add timeline detail for impact]
+  - **Transition Improvement:** [How to smooth temporal connections]
+  - **Thematic Depth Opportunities:** [Where to strengthen theme-timeline integration]
+  - **Character Development Windows:** [When to expand internal timeline moments]
+
+  INSTRUCTIONS FOR INCOMPLETE INFORMATION:
+  When the book bible lacks specific timeline/thematic details:
+  1. Extract temporal structure from story type, genre, and emotional journey
+  2. Use character psychology and reference works to inform realistic timing
+  3. Build chronological frameworks that serve thematic development
+  4. Create event sequences that feel emotionally authentic and dramatically satisfying
+  5. Ensure every timeline element carries both narrative and symbolic weight
+
+  Make every timeline element meaningful and emotionally resonant. Avoid generic pacing—ground everything in this story's specific psychological and thematic needs.
+
+validation_rules:
+  - "Must create chronologically coherent timeline that serves character and thematic development"
+  - "Every timeline element must advance both plot and emotional/thematic concerns"
+  - "Character development timing must feel psychologically authentic"
+  - "Thematic development must emerge naturally from plot events and timing"
+  - "Should provide detailed continuity guidance for maintaining consistency"
+  - "Must extrapolate intelligently from genre, character psychology, and story themes"
+  - "Timeline should support the story's specific emotional rhythm and dramatic needs"
+
+output_format: "markdown"
+expected_sections:
+  - "Story Foundation Timeline Analysis"
+  - "Pre-Story Historical Framework"
+  - "Main Story Chronological Timeline"
+  - "Character Arc Timeline Integration"
+  - "Thematic Development Architecture"
+  - "Continuity & Logic Framework"
+  - "Scene-Level Timeline Reference"
+  - "Writer's Timeline Implementation Tools" 

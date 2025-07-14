@@ -1,0 +1,242 @@
+name: "Story Outline Generator"
+description: "Creates detailed plot structure and chapter breakdown from book bible content"
+version: "2.0"
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.65
+  max_tokens: 7000
+  top_p: 0.9
+
+system_prompt: |
+  You are an elite story architect and narrative consultant specializing in plot construction for literary and genre fiction. Your expertise includes story beats, pacing dynamics, character arc integration, and thematic development across all major genres.
+
+  CORE EXPERTISE AREAS:
+  1. **Genre-Specific Structure**: Understanding how different genres (thriller, literary fiction, mystery, etc.) require different pacing and structural approaches
+  2. **Character-Driven Plotting**: Ensuring plot events arise from character psychology and drive character growth
+  3. **Thematic Integration**: Weaving themes naturally through plot progression without forcing message moments
+  4. **Intelligent Extrapolation**: Building complete, compelling plots from partial information by understanding story DNA
+  5. **Professional Pacing**: Creating tension curves that maintain reader engagement while serving the story's emotional journey
+
+  APPROACH FOR INCOMPLETE BOOK BIBLES:
+  When plot details are sparse or missing:
+  - Extract the core conflict and central question from what's provided
+  - Use genre conventions and reference works as structural guides
+  - Build plot events that serve the stated themes and emotional journey
+  - Create complications that test the protagonist's psychological journey
+  - Ensure every plot point drives both external story and internal character development
+
+  QUALITY STANDARDS:
+  - Every plot point must serve both story advancement and character development
+  - Pacing should reflect the specific genre and reference works mentioned
+  - Chapter breakdowns should create page-turning momentum
+  - Structure should support the book's thematic concerns naturally
+  - Plot complications should escalate logically and emotionally
+
+user_prompt_template: |
+  Analyze this book bible comprehensively and create a detailed, professional story outline. Pay particular attention to the genre, themes, reference works, emotional journey, and target audience to construct a plot that serves all these elements seamlessly.
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Create a comprehensive story outline following this structure:
+
+  # Story Structure & Plot Guide
+
+  ## Story Foundation Analysis
+
+  **Core Conflict Elements:**
+  - **External Conflict:** [The tangible problem the protagonist must solve]
+  - **Internal Conflict:** [The psychological/emotional journey the protagonist must complete]
+  - **Thematic Question:** [The central question the story explores through plot events]
+  - **Story Promise:** [What the opening promises readers about the journey ahead]
+
+  **Genre Architecture:**
+  - **Primary Genre Conventions:** [Structural expectations this genre creates]
+  - **Pacing Requirements:** [How this genre typically manages tension and revelation]
+  - **Reader Expectations:** [What the target audience expects from this type of story]
+  - **Subversion Opportunities:** [Where this story might surprise while honoring the genre]
+
+  ## Three-Act Structural Framework
+
+  ### Act I: Foundation & Launch (25% / [X] words)
+
+  **Opening Hook (First 5%):**
+  - **Scene Setting:** [Specific opening scene that establishes tone and character]
+  - **Character Introduction:** [How we meet the protagonist in their normal world]
+  - **World Establishment:** [Key details about setting, time, atmosphere revealed]
+  - **Tone & Voice Setup:** [How the narrative voice should establish the story's mood]
+
+  **Inciting Incident ([X]% in):**
+  - **Triggering Event:** [The specific moment that launches the main story]
+  - **Character's Initial Response:** [How the protagonist reacts based on their psychology]
+  - **Stakes Introduction:** [What the character risks by engaging or not engaging]
+  - **World Change:** [How this event shifts the story world]
+
+  **Progressive Complications:**
+  - **First Complication:** [Early obstacle that tests character's approach]
+  - **Character Skill/Knowledge Gaps:** [What the protagonist doesn't yet know/can't do]
+  - **Relationship Establishment:** [Key supporting characters and their dynamics]
+
+  **First Plot Point / Point of No Return:**
+  - **Commitment Moment:** [When the protagonist fully engages with the main story]
+  - **Character Choice:** [The decision that locks them into the journey]
+  - **Stakes Escalation:** [How the consequences become more serious]
+  - **Internal Shift:** [How this changes the character's internal landscape]
+
+  ### Act II: Development & Complication (50% / [X] words)
+
+  **First Half of Act II (25-50%):**
+  - **New World/Situation Adjustment:** [How character adapts to changed circumstances]
+  - **Ally & Enemy Introduction:** [Key relationships that complicate the journey]
+  - **Skill/Knowledge Building:** [What the protagonist learns or develops]
+  - **False Progress:** [Early victories that feel like advancement]
+  - **Hidden Complications:** [Problems that aren't immediately obvious]
+
+  **Midpoint Reversal (50%):**
+  - **Game-Changing Revelation:** [New information that transforms the story]
+  - **Stakes Escalation:** [How the danger/importance increases dramatically]
+  - **Character Realization:** [Internal shift in how protagonist sees situation/self]
+  - **Strategic Shift:** [How the character's approach must change]
+  - **Relationship Dynamics Change:** [How key relationships evolve]
+
+  **Second Half of Act II (50-75%):**
+  - **Intensifying Opposition:** [How the antagonistic forces strengthen]
+  - **Character Under Pressure:** [Testing the protagonist's resolve and growth]
+  - **Relationship Complications:** [How personal stakes interweave with plot stakes]
+  - **Ticking Clock Elements:** [Time pressure that accelerates the story]
+  - **Character's Darkest Competence:** [Protagonist at their most effective before the fall]
+
+  **Second Plot Point / Crisis (75%):**
+  - **Major Reversal/Loss:** [The moment when everything seems lost]
+  - **Character's Lowest Point:** [Emotional/psychological rock bottom]
+  - **Internal Revelation:** [What the character finally understands about themselves]
+  - **Final Choice Setup:** [The decision they'll have to make in Act III]
+
+  ### Act III: Resolution & Transformation (25% / [X] words)
+
+  **Preparation for Final Confrontation:**
+  - **Character's New Understanding:** [How they've internally changed]
+  - **Resource Gathering:** [What they need for the final push]
+  - **Relationship Resolution Setup:** [Personal stakes that need addressing]
+  - **Strategic Planning:** [Their approach based on everything learned]
+
+  **Climactic Sequence:**
+  - **Final Confrontation:** [The ultimate test of character growth and plot resolution]
+  - **Character Choice Moment:** [The decision that proves their transformation]
+  - **External Resolution:** [How the plot problem gets solved]
+  - **Internal Resolution:** [How the character's journey concludes]
+  - **Thematic Statement:** [How the theme gets its final expression]
+
+  **Resolution & Denouement:**
+  - **Immediate Aftermath:** [Direct consequences of the climax]
+  - **Character in New World:** [How they exist post-transformation]
+  - **Relationship Resolutions:** [How key relationships have evolved]
+  - **Thematic Echo:** [Final reinforcement of the story's meaning]
+
+  ## Detailed Chapter Architecture
+
+  [For each chapter, provide:]
+
+  ### Chapter [Number]: [Chapter Title/Theme]
+  - **Word Count Target:** [Specific range based on book bible target length]
+  - **Primary Purpose:** [What this chapter accomplishes in the overall story]
+  - **POV Focus:** [Whose perspective drives this chapter]
+  - **Emotional Journey:** [The feeling arc within this chapter]
+  - **Plot Advancement:** [Specific story progress made]
+  - **Character Development:** [How characters change or are revealed]
+  - **Key Scenes:**
+    - **Scene 1:** [Location, characters, purpose, emotional beat]
+    - **Scene 2:** [If applicable]
+  - **Chapter Hook:** [How it ends to maintain momentum]
+  - **Setup/Payoff Elements:** [What this chapter plants or resolves]
+  - **Thematic Integration:** [How the theme appears in this chapter]
+
+  ## Plot Threading & Layering
+
+  **Primary Plot Thread:**
+  - **Central Question:** [The main story question that drives reader engagement]
+  - **Resolution Path:** [How this question gets answered through the story]
+  - **Key Turning Points:** [Major moments that advance this thread]
+
+  **Character Arc Integration:**
+  - **[Protagonist Name] Arc:** [How their internal journey weaves through plot events]
+  - **[Key Supporting Character] Arc:** [Their development path]
+  - **Arc Intersection Points:** [Where character journeys influence each other]
+
+  **Subplot Management:**
+  - **[Subplot 1]:** [Secondary story line and how it supports the main plot]
+  - **[Subplot 2]:** [Another supporting narrative thread]
+  - **Convergence Points:** [Where subplots merge with or support main plot]
+
+  **Thematic Development:**
+  - **Theme Introduction:** [How the central theme first appears]
+  - **Theme Complication:** [How the theme gets tested and developed]
+  - **Theme Resolution:** [How the story ultimately addresses the thematic question]
+
+  ## Pacing & Tension Management
+
+  **Tension Curve Design:**
+  - **Opening Tension:** [How to create immediate engagement]
+  - **Building Pressure:** [Escalation strategy through Act I and first half of Act II]
+  - **Pressure Release Points:** [Strategic moments of relief that don't kill momentum]
+  - **Final Escalation:** [Building to climax without exhausting readers]
+
+  **Revelation Schedule:**
+  - **Early Reveals:** [Information that hooks but doesn't spoil]
+  - **Midpoint Revelations:** [Game-changing information at story center]
+  - **Late Reveals:** [Final pieces that enable resolution]
+  - **Red Herrings:** [Misdirection that serves story rather than tricks reader]
+
+  **Scene Type Balance:**
+  - **Action/External Scenes:** [High-energy plot advancement moments]
+  - **Reaction/Internal Scenes:** [Character processing and decision-making moments]
+  - **Discovery Scenes:** [Revelation and information-gathering moments]
+  - **Relationship Scenes:** [Character interaction and development moments]
+
+  ## Writer's Implementation Guide
+
+  **Chapter Transition Strategies:**
+  - **Hook Techniques:** [How to end chapters to maintain reading momentum]
+  - **Cliffhanger Guidelines:** [When and how to use suspense effectively]
+  - **Emotional Bridges:** [Connecting emotional states between chapters]
+
+  **Foreshadowing Integration:**
+  - **Plant Schedule:** [What to hint at and when]
+  - **Payoff Timeline:** [When foreshadowed elements should pay off]
+  - **Subtlety Guidelines:** [How to foreshadow without telegraphing]
+
+  **Character Consistency Checkpoints:**
+  - **Decision Logic:** [How each character's choices should reflect their psychology]
+  - **Growth Markers:** [Specific points where character change should be visible]
+  - **Relationship Evolution:** [How character dynamics should shift]
+
+  INSTRUCTIONS FOR INCOMPLETE INFORMATION:
+  When the book bible lacks specific plot details:
+  1. Extract the core story DNA from genre, themes, and emotional journey
+  2. Use reference works as structural and tonal guides
+  3. Create plot events that serve character development and thematic exploration
+  4. Build complications that test the protagonist's specific psychological journey
+  5. Ensure every created element feels authentic to the established world and tone
+
+  Make every plot point meaningful and emotionally resonant. Avoid generic beats—ground everything in the specific story's unique elements.
+
+validation_rules:
+  - "Must create a structurally sound plot that serves character development"
+  - "Every chapter must have clear purpose and emotional progression"
+  - "Plot events must arise naturally from character psychology and story world"
+  - "Pacing must reflect the specific genre and reference works mentioned"
+  - "Must provide detailed, actionable guidance for chapter-by-chapter writing"
+  - "Should extrapolate intelligently from book bible context when plot details are sparse"
+  - "Structure must support thematic development without forcing message moments"
+
+output_format: "markdown"
+expected_sections:
+  - "Story Foundation Analysis"
+  - "Three-Act Structural Framework"
+  - "Detailed Chapter Architecture"
+  - "Plot Threading & Layering"
+  - "Pacing & Tension Management"
+  - "Writer's Implementation Guide" 
