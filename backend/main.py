@@ -21,6 +21,8 @@ from pathlib import Path
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from fastapi.exception_handlers import RequestValidationError
+from fastapi import status
 
 # Configure structured logging
 logging.basicConfig(
@@ -67,8 +69,19 @@ class ChapterGenerationRequest(BaseModel):
     project_id: str = Field(..., min_length=1, max_length=100)
     chapter_number: int = Field(..., ge=1, le=100)
     words: int = Field(default=3800, ge=500, le=10000)
-    stage: str = Field(default="complete", pattern="^(draft|complete|revision)$")
+    stage: str = Field(default="complete", pattern="^(spike|complete|5-stage)$")
     project_data: Dict[str, Any] = Field(default_factory=dict, max_length=10000)
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "project_id": "project-123",
+                "chapter_number": 1,
+                "words": 3800,
+                "stage": "complete",
+                "project_data": {}
+            }
+        }
     
 class QualityAssessmentRequest(BaseModel):
     """Request model for quality assessment."""
@@ -165,6 +178,22 @@ async def all_exceptions(request: Request, exc: Exception):
         "timestamp": datetime.utcnow().isoformat()
     }, status_code=500)
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    # Return a clear error message for missing/invalid fields
+    errors = exc.errors()
+    details = []
+    for err in errors:
+        loc = ' -> '.join(str(l) for l in err['loc'])
+        details.append(f"{loc}: {err['msg']}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": "Validation error: missing or invalid fields.",
+            "details": details
+        },
+    )
+
 # Add rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -254,6 +283,13 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     """Verify JWT token using Clerk authentication."""
     from auth_middleware import auth_middleware
     return auth_middleware.verify_token(credentials)
+
+# Include routers
+from routers import projects_v2, chapters_v2, users_v2
+
+app.include_router(projects_v2.router)
+app.include_router(chapters_v2.router)
+app.include_router(users_v2.router)
 
 # Debug endpoints
 @app.get("/debug/auth-config")
@@ -452,6 +488,62 @@ async def test_file_operations():
             "timestamp": datetime.utcnow().isoformat()
         }
 
+@app.get("/debug/paths")
+async def debug_paths():
+    """Debug endpoint to check file paths in Railway deployment"""
+    import os
+    import sys
+    from pathlib import Path
+    
+    debug_info = {
+        "python_version": sys.version,
+        "current_working_directory": os.getcwd(),
+        "file_location": __file__,
+        "script_parent": str(Path(__file__).parent),
+        "directories": {}
+    }
+    
+    # Check key directories
+    directories_to_check = [
+        "/app",
+        "/app/backend",
+        "/app/backend/prompts",
+        "/app/backend/prompts/reference-generation",
+        "/app/prompts",
+        "/app/prompts/reference-generation",
+        str(Path.cwd()),
+        str(Path.cwd() / "prompts"),
+        str(Path.cwd() / "prompts" / "reference-generation"),
+        str(Path.cwd() / "backend" / "prompts" / "reference-generation"),
+        str(Path(__file__).parent / "prompts" / "reference-generation"),
+    ]
+    
+    for dir_path in directories_to_check:
+        path = Path(dir_path)
+        dir_info = {
+            "exists": path.exists(),
+            "is_dir": path.is_dir(),
+            "contents": [],
+            "yaml_files": []
+        }
+        
+        if path.exists():
+            try:
+                contents = list(path.iterdir())
+                dir_info["contents"] = [item.name for item in contents]
+                
+                # If this is a prompts directory, check for YAML files
+                if "prompts" in str(path) or "reference-generation" in str(path):
+                    yaml_files = [f for f in contents if f.name.endswith('.yaml')]
+                    dir_info["yaml_files"] = [f.name for f in yaml_files]
+                    
+            except Exception as e:
+                dir_info["error"] = str(e)
+        
+        debug_info["directories"][str(path)] = dir_info
+    
+    return debug_info
+
 # Root endpoint
 @app.get("/")
 @limiter.limit("60/minute")
@@ -611,6 +703,156 @@ async def start_auto_complete(
         
     except Exception as e:
         logger.error(f"Failed to start auto-complete job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Auto-complete cost estimation endpoint
+@app.post("/auto-complete/estimate")
+@limiter.limit("20/minute")
+async def estimate_auto_complete_cost(
+    request: Request,
+    auto_complete_request: AutoCompleteRequest,
+    user: Dict = Depends(verify_token)
+):
+    """Estimate the total cost for auto-completing a book."""
+    try:
+        logger.info(f"Estimating auto-complete cost for {auto_complete_request.target_chapters} chapters")
+        
+        # Calculate words per chapter
+        words_per_chapter = auto_complete_request.words_per_chapter
+        total_chapters = auto_complete_request.target_chapters or 20
+        
+        # Import LLMOrchestrator for cost estimation
+        import sys
+        import os
+        from pathlib import Path
+        parent_dir = Path(__file__).parent.parent
+        sys.path.insert(0, str(parent_dir))
+        
+        try:
+            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+        except ImportError as e:
+            logger.warning(f"LLMOrchestrator not available, using fallback estimation: {e}")
+            
+            # Fallback estimation calculation
+            base_tokens_per_chapter = round(words_per_chapter * 1.3)  # 1.3 tokens per word
+            stage_multiplier = 2  # Complete stage typically uses 2x tokens
+            retries_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0)  # Higher quality = more retries
+            
+            tokens_per_chapter = base_tokens_per_chapter * stage_multiplier * retries_multiplier
+            total_tokens = tokens_per_chapter * total_chapters
+            total_cost = total_tokens * 0.015 / 1000  # $0.015 per 1K tokens for GPT-4o
+            
+            return {
+                "success": True,
+                "estimation": {
+                    "total_chapters": total_chapters,
+                    "words_per_chapter": words_per_chapter,
+                    "total_words": words_per_chapter * total_chapters,
+                    "estimated_tokens_per_chapter": int(tokens_per_chapter),
+                    "estimated_total_tokens": int(total_tokens),
+                    "estimated_cost_per_chapter": round(total_cost / total_chapters, 4),
+                    "estimated_total_cost": round(total_cost, 4),
+                    "quality_threshold": auto_complete_request.quality_threshold,
+                    "estimation_method": "fallback",
+                    "notes": [
+                        f"Estimation for {total_chapters} chapters at {words_per_chapter} words each",
+                        f"Quality threshold: {auto_complete_request.quality_threshold}% (affects retry costs)",
+                        "Fallback estimation used - install LLM orchestrator for precise estimates"
+                    ]
+                }
+            }
+        
+        # Use LLMOrchestrator for precise estimation
+        try:
+            retry_config = RetryConfig(max_retries=1)
+            orchestrator = LLMOrchestrator(retry_config=retry_config)
+            
+            # Estimate for a single chapter and multiply
+            system_prompt, user_prompt = orchestrator._build_comprehensive_prompts(1, words_per_chapter)
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            
+            single_chapter_estimate = orchestrator.get_cost_estimate(full_prompt, words_per_chapter)
+            
+            # Account for quality threshold affecting retries
+            quality_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0 * 0.5)  # Up to 50% increase for high quality
+            
+                         # Account for max retries per chapter (default to 3 if not specified)
+            max_retries = 3  # Default value
+            retry_multiplier = 1 + (max_retries / 10.0)  # Each retry adds ~10% cost
+            
+            total_multiplier = quality_multiplier * retry_multiplier
+            
+            tokens_per_chapter = single_chapter_estimate["estimated_total_tokens"] * total_multiplier
+            cost_per_chapter = single_chapter_estimate["estimated_total_cost"] * total_multiplier
+            
+            total_tokens = tokens_per_chapter * total_chapters
+            total_cost = cost_per_chapter * total_chapters
+            
+            return {
+                "success": True,
+                "estimation": {
+                    "total_chapters": total_chapters,
+                    "words_per_chapter": words_per_chapter,
+                    "total_words": words_per_chapter * total_chapters,
+                    "estimated_tokens_per_chapter": int(tokens_per_chapter),
+                    "estimated_total_tokens": int(total_tokens),
+                    "estimated_cost_per_chapter": round(cost_per_chapter, 4),
+                    "estimated_total_cost": round(total_cost, 4),
+                    "quality_threshold": auto_complete_request.quality_threshold,
+                    "max_retries_per_chapter": max_retries,
+                    "estimation_method": "llm_orchestrator",
+                    "quality_multiplier": round(quality_multiplier, 2),
+                    "retry_multiplier": round(retry_multiplier, 2),
+                    "notes": [
+                        f"Estimation for {total_chapters} chapters at {words_per_chapter} words each",
+                        f"Quality threshold: {auto_complete_request.quality_threshold}% (multiplier: {quality_multiplier:.2f})",
+                        f"Max retries per chapter: {max_retries} (multiplier: {retry_multiplier:.2f})",
+                        f"Total cost multiplier: {total_multiplier:.2f}",
+                        "Precise estimation using LLM orchestrator"
+                    ]
+                }
+            }
+            
+        except Exception as llm_error:
+            logger.warning(f"LLM orchestrator estimation failed: {llm_error}, using enhanced fallback")
+            
+            # Enhanced fallback with better calculations
+            base_tokens_per_chapter = round(words_per_chapter * 1.3)
+            stage_multiplier = 2.5  # More realistic for complete stage with quality gates
+            quality_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0 * 0.3)
+            retry_multiplier = 1 + (max_retries / 20.0)
+            
+            total_multiplier = stage_multiplier * quality_multiplier * retry_multiplier
+            tokens_per_chapter = base_tokens_per_chapter * total_multiplier
+            total_tokens = tokens_per_chapter * total_chapters
+            total_cost = total_tokens * 0.015 / 1000
+            
+            return {
+                "success": True,
+                "estimation": {
+                    "total_chapters": total_chapters,
+                    "words_per_chapter": words_per_chapter,
+                    "total_words": words_per_chapter * total_chapters,
+                    "estimated_tokens_per_chapter": int(tokens_per_chapter),
+                    "estimated_total_tokens": int(total_tokens),
+                    "estimated_cost_per_chapter": round(total_cost / total_chapters, 4),
+                    "estimated_total_cost": round(total_cost, 4),
+                    "quality_threshold": auto_complete_request.quality_threshold,
+                    "max_retries_per_chapter": max_retries,
+                    "estimation_method": "enhanced_fallback",
+                    "total_multiplier": round(total_multiplier, 2),
+                    "error": str(llm_error),
+                    "notes": [
+                        f"Estimation for {total_chapters} chapters at {words_per_chapter} words each",
+                        f"Enhanced fallback estimation with quality and retry factors",
+                        f"Total cost multiplier: {total_multiplier:.2f}",
+                        "LLM orchestrator estimation failed, using enhanced fallback"
+                    ]
+                }
+            }
+        
+    except Exception as e:
+        logger.error(f"Failed to estimate auto-complete cost: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/auto-complete/{job_id}/status")
@@ -802,34 +1044,402 @@ async def list_jobs(
         "offset": offset
     }
 
-# Single chapter generation endpoint (BETA)
+# Cost estimation endpoint
+@app.post("/v1/estimate")
+@limiter.limit("20/minute")
+async def estimate_cost(
+    request: Request,
+    estimate_request: ChapterGenerationRequest,
+    user: Dict = Depends(verify_token)
+):
+    """Estimate the cost for chapter generation."""
+    try:
+        # Import LLMOrchestrator 
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        
+        try:
+            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+        except ImportError:
+            # Fallback to simple estimation if LLMOrchestrator is not available
+            logger.warning("LLMOrchestrator not available, using fallback estimation")
+            
+            # Basic estimation based on word count
+            base_tokens = round(estimate_request.words * 1.3)  # Rough estimate: 1.3 tokens per word
+            stage_multiplier = {
+                '5-stage': 5,
+                'spike': 1,
+                'complete': 2
+            }.get(estimate_request.stage, 2)
+            
+            total_tokens = base_tokens * stage_multiplier
+            total_cost = total_tokens * 0.015 / 1000  # $0.015 per 1K tokens for GPT-4o
+            
+            return {
+                "success": True,
+                "chapter": estimate_request.chapter_number,
+                "words": estimate_request.words,
+                "stage": estimate_request.stage,
+                "estimated_total_tokens": total_tokens,
+                "estimated_total_cost": round(total_cost, 4),
+                "estimated_input_cost": round(total_cost * 0.3, 4),  # Rough split
+                "estimated_output_cost": round(total_cost * 0.7, 4),
+                "estimation_method": "fallback"
+            }
+        
+        # Use the actual LLMOrchestrator for precise estimation
+        try:
+            retry_config = RetryConfig(max_retries=1)
+            orchestrator = LLMOrchestrator(retry_config=retry_config)
+            
+            # Build prompts for cost estimation
+            system_prompt, user_prompt = orchestrator._build_comprehensive_prompts(
+                estimate_request.chapter_number, 
+                estimate_request.words
+            )
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            
+            # Get cost estimate
+            estimate = orchestrator.get_cost_estimate(full_prompt, estimate_request.words)
+            
+            return {
+                "success": True,
+                "chapter": estimate_request.chapter_number,
+                "words": estimate_request.words,
+                "stage": estimate_request.stage,
+                "estimated_total_tokens": estimate["estimated_total_tokens"],
+                "estimated_total_cost": round(estimate["estimated_total_cost"], 4),
+                "estimated_input_cost": round(estimate["estimated_input_cost"], 4),
+                "estimated_output_cost": round(estimate["estimated_output_cost"], 4),
+                "estimation_method": "llm_orchestrator"
+            }
+            
+        except Exception as llm_error:
+            logger.warning(f"LLMOrchestrator estimation failed: {llm_error}, using fallback")
+            
+            # Fallback estimation
+            base_tokens = round(estimate_request.words * 1.3)
+            stage_multiplier = {
+                '5-stage': 5,
+                'spike': 1,
+                'complete': 2
+            }.get(estimate_request.stage, 2)
+            
+            total_tokens = base_tokens * stage_multiplier
+            total_cost = total_tokens * 0.015 / 1000
+            
+            return {
+                "success": True,
+                "chapter": estimate_request.chapter_number,
+                "words": estimate_request.words,
+                "stage": estimate_request.stage,
+                "estimated_total_tokens": total_tokens,
+                "estimated_total_cost": round(total_cost, 4),
+                "estimated_input_cost": round(total_cost * 0.3, 4),
+                "estimated_output_cost": round(total_cost * 0.7, 4),
+                "estimation_method": "fallback_after_error"
+            }
+        
+    except Exception as e:
+        logger.error(f"Failed to estimate cost: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Single chapter generation endpoint
 @app.post("/v1/chapters/generate")
 @limiter.limit("10/minute")
 async def generate_chapter(
-    request_obj: Request,
-    request: ChapterGenerationRequest,
+    request: Request,
+    chapter_request: ChapterGenerationRequest,
     user: Dict = Depends(verify_token)
 ):
-    """Generate a single chapter. [BETA - Mock Implementation]"""
+    """Generate a single chapter using the sophisticated 5-stage LLM orchestrator."""
     try:
-        # TODO: Implement actual chapter generation logic
-        # For now, return mock response
-        return {
-            "success": True,
-            "chapter": request.chapter_number,
-            "content": f"# Chapter {request.chapter_number}\n\nGenerated chapter content...",
-            "metadata": {
-                "word_count": request.words,
-                "stage": request.stage,
+        logger.info(f"Starting sophisticated chapter generation for chapter {chapter_request.chapter_number}")
+        
+        # Get project workspace
+        project_workspace = get_project_workspace(chapter_request.project_id)
+        
+        # Import LLMOrchestrator and context manager
+        import sys
+        from pathlib import Path
+        parent_dir = Path(__file__).parent.parent
+        system_dir = parent_dir / "system"
+        backend_dir = Path(__file__).parent
+        
+        # Add both system and backend directories to path
+        for dir_path in [str(parent_dir), str(system_dir), str(backend_dir)]:
+            if dir_path not in sys.path:
+                sys.path.insert(0, dir_path)
+        
+        try:
+            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            logger.info("Successfully imported LLMOrchestrator")
+        except ImportError as e:
+            logger.error(f"Failed to import LLMOrchestrator: {e}")
+            logger.error(f"Python path: {sys.path}")
+            logger.error(f"System directory exists: {system_dir.exists()}")
+            logger.error(f"System directory contents: {list(system_dir.iterdir()) if system_dir.exists() else 'N/A'}")
+            raise HTTPException(status_code=500, detail=f"LLMOrchestrator not available: {e}")
+        
+        try:
+            from backend.chapter_context_manager import ChapterContextManager
+            logger.info("Successfully imported ChapterContextManager")
+        except ImportError as e:
+            logger.error(f"Failed to import ChapterContextManager: {e}")
+            raise HTTPException(status_code=500, detail=f"ChapterContextManager not available: {e}")
+        
+        try:
+            # Initialize orchestrator with prompts directory
+            prompts_dir = Path(__file__).parent / "prompts"
+            logger.info(f"Prompts directory path: {prompts_dir}")
+            logger.info(f"Prompts directory exists: {prompts_dir.exists()}")
+            if prompts_dir.exists():
+                logger.info(f"Prompts directory contents: {list(prompts_dir.iterdir())}")
+            
+            retry_config = RetryConfig(max_retries=3)
+            logger.info("Initializing LLMOrchestrator...")
+            
+            # Check for OpenAI API key
+            openai_key = os.getenv('OPENAI_API_KEY')
+            if not openai_key:
+                logger.error("OPENAI_API_KEY environment variable not found")
+                raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+            logger.info(f"OpenAI API key found: {openai_key[:10]}...")
+            
+            orchestrator = LLMOrchestrator(
+                retry_config=retry_config,
+                prompts_dir=str(prompts_dir)
+            )
+            logger.info("LLMOrchestrator initialized successfully")
+            
+            # Initialize chapter context manager
+            logger.info("Initializing ChapterContextManager...")
+            context_manager = ChapterContextManager(str(project_workspace))
+            logger.info("ChapterContextManager initialized successfully")
+            
+            # Load reference files
+            references_dir = project_workspace / "references"
+            reference_files = {}
+            reference_file_names = ["characters.md", "outline.md", "plot-timeline.md", 
+                                   "world-building.md", "style-guide.md", "misc-notes.md"]
+            
+            for filename in reference_file_names:
+                ref_file = references_dir / filename
+                if ref_file.exists():
+                    try:
+                        reference_files[filename] = ref_file.read_text(encoding='utf-8')
+                        logger.info(f"Loaded reference file: {filename}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load reference file {filename}: {e}")
+                        reference_files[filename] = ""
+                else:
+                    logger.warning(f"Reference file not found: {filename}")
+                    reference_files[filename] = ""
+            
+            # Load book bible
+            book_bible_file = project_workspace / "book-bible.md"
+            book_bible_content = ""
+            if book_bible_file.exists():
+                try:
+                    book_bible_content = book_bible_file.read_text(encoding='utf-8')
+                    logger.info("Loaded book bible content")
+                except Exception as e:
+                    logger.warning(f"Failed to load book bible: {e}")
+            
+            # Build comprehensive context for 5-stage generation
+            generation_context = context_manager.build_generation_context(chapter_request.chapter_number)
+            
+            # Enhanced context with reference files
+            full_context = {
+                **generation_context,
+                "project_id": chapter_request.project_id,
+                "target_words": chapter_request.words,
+                "genre": "thriller",  # Default, could be extracted from book bible
+                "story_context": book_bible_content[:1000] if book_bible_content else "A thriller novel",
+                "required_plot_points": "Advance investigation, reveal new clue",
+                "focus_characters": reference_files.get("characters.md", "")[:500],
+                "chapter_climax_goal": "Significant revelation or plot advancement",
+                "previous_chapter_summary": generation_context.get('previous_chapters_summary', 'This is the first chapter.'),
+                "character_requirements": reference_files.get("characters.md", "")[:300],
+                "plot_requirements": reference_files.get("outline.md", "")[:500],
+                "character_voices": reference_files.get("style-guide.md", "")[:300],
+                "scene_requirements": reference_files.get("world-building.md", "")[:400],
+                "dialogue_requirements": reference_files.get("style-guide.md", "")[:200],
+                "description_requirements": reference_files.get("world-building.md", "")[:300],
+                "pacing_strategy": "Build tension through reveals and character interaction",
+                "book_bible": book_bible_content,
+                "reference_files": reference_files
+            }
+            
+            logger.info(f"Built comprehensive context with {len(reference_files)} reference files")
+            
+            # Use sophisticated 5-stage generation if stage is "5-stage", otherwise use basic method
+            if chapter_request.stage == "5-stage":
+                logger.info("Using 5-stage sophisticated generation method")
+                stage_results = orchestrator.generate_chapter_5_stage(
+                    chapter_number=chapter_request.chapter_number,
+                    target_words=chapter_request.words,
+                    context=full_context
+                )
+                
+                # Get the final result (last stage)
+                if not stage_results or not stage_results[-1].success:
+                    error_msg = stage_results[-1].error if stage_results else "5-stage generation failed"
+                    logger.error(f"5-stage generation failed: {error_msg}")
+                    raise HTTPException(status_code=500, detail=f"5-stage generation failed: {error_msg}")
+                
+                result = stage_results[-1]  # Final stage result
+                
+                # Save all stage results for debugging
+                stages_metadata = []
+                for i, stage_result in enumerate(stage_results):
+                    stages_metadata.append({
+                        "stage": i + 1,
+                        "success": stage_result.success,
+                        "word_count": len(stage_result.content.split()) if stage_result.content else 0,
+                        "tokens_used": stage_result.tokens_used,
+                        "cost_estimate": stage_result.cost_estimate,
+                        "error": stage_result.error
+                    })
+                
+            else:
+                logger.info(f"Using basic generation method for stage: {chapter_request.stage}")
+                result = orchestrator.generate_chapter(
+                    chapter_number=chapter_request.chapter_number,
+                    target_words=chapter_request.words,
+                    stage=chapter_request.stage
+                )
+                stages_metadata = None
+            
+            if not result.success:
+                logger.error(f"Chapter generation failed: {result.error}")
+                raise HTTPException(status_code=500, detail=f"Chapter generation failed: {result.error}")
+            
+            # Update chapter context with results
+            try:
+                from backend.chapter_context_manager import ChapterContext
+                chapter_context = ChapterContext(
+                    chapter_number=chapter_request.chapter_number,
+                    word_count=len(result.content.split()),
+                    key_events=["Chapter generated successfully"],  # TODO: Extract from content
+                    characters_introduced=[],  # TODO: Extract from content
+                    plot_threads=[],  # TODO: Extract from content
+                    theme_elements=[],  # TODO: Extract from content
+                    setting_details={},
+                    character_development={},
+                    quality_score=8.0,  # TODO: Calculate actual score
+                    timestamp=datetime.utcnow().isoformat()
+                )
+                context_manager.add_chapter_context(chapter_context)
+                logger.info("Updated chapter context successfully")
+            except Exception as e:
+                logger.warning(f"Failed to update chapter context: {e}")
+            
+            # Save chapter to project workspace
+            chapters_dir = project_workspace / "chapters"
+            chapters_dir.mkdir(exist_ok=True)
+            
+            chapter_filename = f"chapter-{chapter_request.chapter_number:02d}.md"
+            chapter_file = chapters_dir / chapter_filename
+            
+            # Write chapter content
+            chapter_file.write_text(result.content, encoding='utf-8')
+            
+            # Save metadata
+            metadata = {
+                "chapter_number": chapter_request.chapter_number,
+                "word_count": result.metadata.get("word_count", len(result.content.split())),
+                "stage": chapter_request.stage,
                 "generated_at": datetime.utcnow().isoformat(),
                 "api_version": "v1",
-                "status": "BETA - Mock implementation"
+                "tokens_used": result.tokens_used,
+                "cost_estimate": result.cost_estimate,
+                "generation_metadata": result.metadata,
+                "sophisticated_generation": chapter_request.stage == "5-stage",
+                "stages_metadata": stages_metadata,
+                "context_used": {
+                    "reference_files_loaded": list(reference_files.keys()),
+                    "book_bible_loaded": bool(book_bible_content),
+                    "context_manager_used": True
+                }
             }
-        }
+            
+            # Save metadata to logs directory
+            logs_dir = project_workspace / "logs"
+            logs_dir.mkdir(exist_ok=True)
+            
+            metadata_file = logs_dir / f"chapter_{chapter_request.chapter_number}_metadata.json"
+            metadata_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+            
+            logger.info(f"Chapter {chapter_request.chapter_number} generated successfully using {'5-stage sophisticated' if chapter_request.stage == '5-stage' else 'basic'} method")
+            
+            return {
+                "success": True,
+                "chapter": chapter_request.chapter_number,
+                "content": result.content,
+                "metadata": metadata
+            }
+            
+        except Exception as generation_error:
+            logger.error(f"Chapter generation failed: {generation_error}")
+            logger.error(f"Exception type: {type(generation_error)}")
+            logger.error(f"Exception args: {generation_error.args}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # If actual generation fails, provide a fallback mock chapter for development
+            if os.getenv('ENVIRONMENT') == 'development':
+                logger.warning("Falling back to mock chapter generation for development")
+                
+                mock_content = f"""# Chapter {chapter_request.chapter_number}
+
+This is a mock chapter generated for development purposes.
+
+Word count target: {chapter_request.words} words
+Stage: {chapter_request.stage}
+Generated at: {datetime.utcnow().isoformat()}
+
+This chapter would normally be generated using the LLM orchestrator, but fell back to mock content due to an error:
+{str(generation_error)}
+
+In production, this would be a fully generated chapter with the specified word count and quality.
+"""
+                
+                # Save mock chapter to project workspace
+                chapters_dir = project_workspace / "chapters"
+                chapters_dir.mkdir(exist_ok=True)
+                
+                chapter_filename = f"chapter-{chapter_request.chapter_number:02d}.md"
+                chapter_file = chapters_dir / chapter_filename
+                chapter_file.write_text(mock_content, encoding='utf-8')
+                
+                return {
+                    "success": True,
+                    "chapter": chapter_request.chapter_number,
+                    "content": mock_content,
+                    "metadata": {
+                        "word_count": len(mock_content.split()),
+                        "stage": chapter_request.stage,
+                        "generated_at": datetime.utcnow().isoformat(),
+                        "api_version": "v1",
+                        "status": "Development mock - generation failed",
+                        "error": str(generation_error) or f"Unknown error: {type(generation_error).__name__}"
+                    }
+                }
+            else:
+                error_detail = str(generation_error) or f"Unknown error: {type(generation_error).__name__}"
+                raise HTTPException(status_code=500, detail=error_detail)
         
     except Exception as e:
         logger.error(f"Failed to generate chapter: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Exception type: {type(e)}")
+        logger.error(f"Exception args: {e.args}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        
+        error_detail = str(e) or f"Unknown error: {type(e).__name__}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 # Quality assessment endpoint (BETA)
 @app.post("/v1/quality/assess")
@@ -859,6 +1469,176 @@ async def assess_quality(
         
     except Exception as e:
         logger.error(f"Failed to assess quality: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Chapter retrieval endpoints
+@app.get("/v1/chapters")
+@limiter.limit("30/minute")
+async def list_chapters(
+    request: Request,
+    project_id: str,
+    user: Dict = Depends(verify_token)
+):
+    """List all chapters for a project."""
+    try:
+        # Get project workspace
+        project_workspace = get_project_workspace(project_id)
+        chapters_dir = project_workspace / "chapters"
+        logs_dir = project_workspace / "logs"
+        
+        # Check if chapters directory exists
+        if not chapters_dir.exists():
+            return {
+                "success": True,
+                "chapters": [],
+                "total": 0
+            }
+        
+        chapters = []
+        
+        # Get all chapter files
+        for chapter_file in chapters_dir.glob("chapter-*.md"):
+            try:
+                # Extract chapter number from filename
+                import re
+                match = re.search(r"chapter-(\d+)\.md", chapter_file.name)
+                if not match:
+                    continue
+                
+                chapter_number = int(match.group(1))
+                
+                # Read chapter content to get word count
+                content = chapter_file.read_text(encoding='utf-8')
+                word_count = len(content.split())
+                
+                # Try to read metadata from logs
+                metadata = {
+                    "generation_time": 0,
+                    "cost": 0,
+                    "quality_score": None
+                }
+                
+                metadata_file = logs_dir / f"chapter_{chapter_number}_metadata.json"
+                if metadata_file.exists():
+                    try:
+                        metadata_content = metadata_file.read_text(encoding='utf-8')
+                        metadata_data = json.loads(metadata_content)
+                        metadata = {
+                            "generation_time": metadata_data.get("generation_time", 0),
+                            "cost": metadata_data.get("cost_estimate", 0),
+                            "quality_score": metadata_data.get("quality_score")
+                        }
+                    except (json.JSONDecodeError, KeyError):
+                        pass  # Use default metadata
+                
+                chapters.append({
+                    "chapter": chapter_number,
+                    "filename": chapter_file.name,
+                    "word_count": word_count,
+                    "created_at": datetime.fromtimestamp(chapter_file.stat().st_mtime).isoformat(),
+                    "status": "completed",
+                    **metadata
+                })
+                
+            except Exception as file_error:
+                logger.warning(f"Failed to process chapter file {chapter_file}: {file_error}")
+                continue
+        
+        # Sort chapters by chapter number
+        chapters.sort(key=lambda x: x["chapter"])
+        
+        return {
+            "success": True,
+            "chapters": chapters,
+            "total": len(chapters)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list chapters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/v1/chapters/{chapter_number}")
+@limiter.limit("30/minute")
+async def get_chapter(
+    request: Request,
+    chapter_number: int,
+    project_id: str,
+    user: Dict = Depends(verify_token)
+):
+    """Get a specific chapter content."""
+    try:
+        if chapter_number < 1 or chapter_number > 200:
+            raise HTTPException(status_code=400, detail="Invalid chapter number")
+        
+        # Get project workspace
+        project_workspace = get_project_workspace(project_id)
+        chapters_dir = project_workspace / "chapters"
+        
+        chapter_filename = f"chapter-{chapter_number:02d}.md"
+        chapter_file = chapters_dir / chapter_filename
+        
+        if not chapter_file.exists():
+            raise HTTPException(status_code=404, detail=f"Chapter {chapter_number} not found")
+        
+        # Read chapter content
+        content = chapter_file.read_text(encoding='utf-8')
+        
+        return {
+            "success": True,
+            "chapter": chapter_number,
+            "content": content,
+            "last_modified": datetime.fromtimestamp(chapter_file.stat().st_mtime).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get chapter: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/v1/chapters/{chapter_number}")
+@limiter.limit("10/minute")
+async def delete_chapter(
+    request: Request,
+    chapter_number: int,
+    project_id: str,
+    user: Dict = Depends(verify_token)
+):
+    """Delete a specific chapter."""
+    try:
+        if chapter_number < 1 or chapter_number > 200:
+            raise HTTPException(status_code=400, detail="Invalid chapter number")
+        
+        # Get project workspace
+        project_workspace = get_project_workspace(project_id)
+        chapters_dir = project_workspace / "chapters"
+        logs_dir = project_workspace / "logs"
+        
+        chapter_filename = f"chapter-{chapter_number:02d}.md"
+        chapter_file = chapters_dir / chapter_filename
+        
+        if not chapter_file.exists():
+            raise HTTPException(status_code=404, detail=f"Chapter {chapter_number} not found")
+        
+        # Delete chapter file
+        chapter_file.unlink()
+        
+        # Delete metadata file if it exists
+        metadata_file = logs_dir / f"chapter_{chapter_number}_metadata.json"
+        if metadata_file.exists():
+            metadata_file.unlink()
+        
+        logger.info(f"Deleted chapter {chapter_number} for project {project_id}")
+        
+        return {
+            "success": True,
+            "message": f"Chapter {chapter_number} deleted successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete chapter: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Book Bible initialization endpoint
@@ -917,35 +1697,44 @@ async def initialize_book_bible(
                 logger.info(f"Generated reference file structure for project {bible_request.project_id}: {created_files}")
                 
                 # Generate AI-powered content for reference files
-                content_generator = ReferenceContentGenerator()
-                if content_generator.is_available():
-                    try:
-                        logger.info(f"Generating AI-powered content for reference files in project {bible_request.project_id}")
-                        generation_results = content_generator.generate_all_references(
-                            book_bible_content=bible_request.content,
-                            references_dir=references_dir
-                        )
-                        
-                        successful_generations = [
-                            ref for ref, result in generation_results.items() 
-                            if result.get("success", False)
-                        ]
-                        failed_generations = [
-                            ref for ref, result in generation_results.items() 
-                            if not result.get("success", False)
-                        ]
-                        
-                        logger.info(f"AI content generation completed for project {bible_request.project_id}: "
-                                  f"{len(successful_generations)} successful, {len(failed_generations)} failed")
-                        
-                        if failed_generations:
-                            logger.warning(f"Failed to generate AI content for: {failed_generations}")
-                            
-                    except Exception as ai_error:
-                        logger.warning(f"AI content generation failed for project {bible_request.project_id}: {ai_error}")
-                        # Continue with basic reference files if AI generation fails
-                else:
-                    logger.info(f"OpenAI API not configured - using template reference files for project {bible_request.project_id}")
+                # TEMPORARILY DISABLED to prevent timeouts during initialization
+                logger.info("AI generation during initialization is temporarily disabled to prevent timeouts")
+                successful_generations = []
+                failed_generations = []
+                
+                # Original AI generation code (commented out):
+                # content_generator = ReferenceContentGenerator()
+                # if content_generator.is_available():
+                #     try:
+                #         logger.info(f"Generating AI-powered content for reference files in project {bible_request.project_id}")
+                #         generation_results = content_generator.generate_all_references(
+                #             book_bible_content=bible_request.content,
+                #             references_dir=references_dir
+                #         )
+                #         
+                #         successful_generations = [
+                #             ref for ref, result in generation_results.items() 
+                #             if result.get("success", False)
+                #         ]
+                #         failed_generations = [
+                #             ref for ref, result in generation_results.items() 
+                #             if not result.get("success", False)
+                #         ]
+                #         
+                #         logger.info(f"AI content generation completed for project {bible_request.project_id}: "
+                #                   f"{len(successful_generations)} successful, {len(failed_generations)} failed")
+                #         
+                #         if failed_generations:
+                #             logger.warning(f"Failed to generate AI content for: {failed_generations}")
+                #             
+                #     except Exception as ai_error:
+                #         logger.warning(f"AI content generation failed for project {bible_request.project_id}: {ai_error}")
+                #         # Continue with basic reference files if AI generation fails
+                # else:
+                #     logger.info(f"OpenAI API not configured - using template reference files for project {bible_request.project_id}")
+                
+                # Since AI generation is disabled, just log that we're using template files
+                logger.info(f"Using template reference files for project {bible_request.project_id}")
                 
             except Exception as e:
                 logger.error(f"Failed to generate reference files: {e}")
@@ -1612,6 +2401,61 @@ async def regenerate_reference_file(
         logger.error(f"Failed to regenerate reference file {filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Test endpoint for sophisticated generation system
+@app.get("/v1/debug/sophisticated-system")
+async def debug_sophisticated_system():
+    """Debug endpoint to test sophisticated generation system components."""
+    try:
+        import sys
+        from pathlib import Path
+        parent_dir = Path(__file__).parent.parent
+        system_dir = parent_dir / "system"
+        backend_dir = Path(__file__).parent
+        
+        # Add directories to path
+        for dir_path in [str(parent_dir), str(system_dir), str(backend_dir)]:
+            if dir_path not in sys.path:
+                sys.path.insert(0, dir_path)
+        
+        debug_info = {
+            "python_path": sys.path[:5],  # First 5 entries
+            "system_dir_exists": system_dir.exists(),
+            "backend_dir_exists": backend_dir.exists(),
+            "system_dir_contents": list(system_dir.iterdir()) if system_dir.exists() else [],
+            "prompts_dir_exists": (Path(__file__).parent / "prompts").exists(),
+            "prompts_contents": list((Path(__file__).parent / "prompts").iterdir()) if (Path(__file__).parent / "prompts").exists() else [],
+            "openai_key_available": bool(os.getenv('OPENAI_API_KEY')),
+        }
+        
+        # Test imports
+        try:
+            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            debug_info["llm_orchestrator_import"] = "success"
+        except Exception as e:
+            debug_info["llm_orchestrator_import"] = f"failed: {e}"
+        
+        try:
+            from backend.chapter_context_manager import ChapterContextManager
+            debug_info["chapter_context_import"] = "success"
+        except Exception as e:
+            debug_info["chapter_context_import"] = f"failed: {e}"
+        
+        # Test LLMOrchestrator initialization
+        try:
+            prompts_dir = Path(__file__).parent / "prompts"
+            retry_config = RetryConfig(max_retries=1)
+            orchestrator = LLMOrchestrator(
+                retry_config=retry_config,
+                prompts_dir=str(prompts_dir)
+            )
+            debug_info["llm_orchestrator_init"] = "success"
+        except Exception as e:
+            debug_info["llm_orchestrator_init"] = f"failed: {e}"
+        
+        return {"success": True, "debug_info": debug_info}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e), "type": type(e).__name__}
 
 if __name__ == "__main__":
     import uvicorn
