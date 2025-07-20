@@ -2,70 +2,49 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthToken } from '@/lib/auth'
+import { useProject } from '@/hooks/useFirestore'
 import { CheckCircleIcon, ExclamationTriangleIcon, InformationCircleIcon, FolderIcon } from '@heroicons/react/24/outline'
 
-interface ProjectStatusData {
-  initialized: boolean
-  hasBookBible: boolean
-  hasReferences: boolean
-  hasState: boolean
-  referenceFiles: string[]
-  metadata: any
-  message: string
+interface ProjectStatusProps {
+  projectId?: string | null
 }
 
-export function ProjectStatus() {
+export function ProjectStatus({ projectId }: ProjectStatusProps) {
   const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
-  const [status, setStatus] = useState<ProjectStatusData | null>(null)
+  const [apiStatus, setApiStatus] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  
+  // Get real-time project data from Firestore
+  const { project, loading: projectLoading, error: projectError } = useProject(projectId || null)
 
   useEffect(() => {
-    // Only fetch if user is authenticated
-    if (isLoaded && isSignedIn) {
+    // Only fetch API status if user is authenticated and we have a project
+    if (isLoaded && isSignedIn && projectId) {
       fetchProjectStatus()
     }
-  }, [isLoaded, isSignedIn])
+  }, [isLoaded, isSignedIn, projectId])
 
   const fetchProjectStatus = async () => {
-    if (!isSignedIn) return
+    if (!isSignedIn || !projectId) return
     
     setIsLoading(true)
     setError('')
     
-    console.log('=== PROJECT STATUS DEBUG START ===')
-    console.log('isSignedIn:', isSignedIn)
-    console.log('isLoaded:', isLoaded)
-    
     try {
-      console.log('Getting auth headers...')
       const authHeaders = await getAuthHeaders()
-      console.log('Auth headers received:', Object.keys(authHeaders))
-      console.log('Has Authorization header:', !!authHeaders.Authorization)
       
-      // Try to get project_id from localStorage (from successful book bible upload)
-      const lastProjectId = localStorage.getItem('lastProjectId')
-      console.log('Last project ID from localStorage:', lastProjectId)
-      
-      const statusUrl = lastProjectId 
-        ? `/api/project/status?project_id=${lastProjectId}`
-        : '/api/project/status'
-      
-      console.log('Making status request to:', statusUrl)
+      const statusUrl = `/api/project/status?project_id=${projectId}`
       
       const response = await fetch(statusUrl, {
         headers: authHeaders
       })
-      console.log('ProjectStatus - response status:', response.status)
-      console.log('ProjectStatus - response headers:', Object.fromEntries(response.headers.entries()))
       
       if (response.ok) {
         const data = await response.json()
-        console.log('ProjectStatus - status data:', data)
-        setStatus(data)
+        setApiStatus(data)
       } else {
         const errorData = await response.json()
-        console.log('ProjectStatus - error data:', errorData)
         setError(errorData.error || 'Failed to fetch project status')
       }
     } catch (error) {
@@ -73,7 +52,6 @@ export function ProjectStatus() {
       setError('Network error fetching project status')
     } finally {
       setIsLoading(false)
-      console.log('=== PROJECT STATUS DEBUG END ===')
     }
   }
 
@@ -108,6 +86,23 @@ export function ProjectStatus() {
     )
   }
 
+  // Show project selection prompt if no project is selected
+  if (!projectId) {
+    return (
+      <div className="card">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          Project Status
+        </h2>
+        <div className="text-center py-8">
+          <div className="text-gray-500 mb-4">No project selected</div>
+          <p className="text-sm text-gray-400">
+            Upload a book bible or select a project to view status.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const getStatusIcon = (hasFeature: boolean) => {
     return hasFeature ? (
       <CheckCircleIcon className="w-5 h-5 text-green-600" />
@@ -124,53 +119,76 @@ export function ProjectStatus() {
     return hasFeature ? 'bg-green-50' : 'bg-red-50'
   }
 
+  // Determine overall project readiness from Firestore data
+  const hasBookBible = !!project?.book_bible?.content
+  const hasMetadata = !!project?.metadata
+  const hasSettings = !!project?.settings
+  const isProjectReady = hasBookBible && hasMetadata && hasSettings
+
+  // Combine Firestore and API status
+  const combinedLoading = projectLoading || isLoading
+  const combinedError = projectError || error
+
   return (
     <div className="card">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
         Project Status
+        {combinedLoading && (
+          <span className="ml-2 text-sm text-blue-600">
+            <div className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+            Syncing...
+          </span>
+        )}
       </h2>
 
-      {isLoading && (
+      {combinedLoading && !project && (
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
         </div>
       )}
 
-      {error && (
+      {combinedError && (
         <div className="p-4 bg-red-50 rounded-md">
           <div className="flex">
             <ExclamationTriangleIcon className="w-5 h-5 text-red-400 mr-2" />
-            <p className="text-sm text-red-800">{error}</p>
+            <p className="text-sm text-red-800">{combinedError instanceof Error ? combinedError.message : combinedError}</p>
           </div>
         </div>
       )}
 
-      {status && !isLoading && (
+      {project && (
         <div className="space-y-4">
           {/* Overall Status */}
-          <div className={`p-4 rounded-lg ${getStatusBg(status.initialized)}`}>
+          <div className={`p-4 rounded-lg ${getStatusBg(isProjectReady)}`}>
             <div className="flex items-center">
-              {getStatusIcon(status.initialized)}
+              {getStatusIcon(isProjectReady)}
               <div className="ml-3">
-                <h3 className={`text-sm font-medium ${getStatusColor(status.initialized)}`}>
-                  {status.initialized ? 'Project Ready' : 'Project Not Ready'}
+                <h3 className={`text-sm font-medium ${getStatusColor(isProjectReady)}`}>
+                  {isProjectReady ? 'Project Ready' : 'Project Setup Incomplete'}
                 </h3>
-                <p className={`text-sm ${getStatusColor(status.initialized)}`}>
-                  {status.message}
+                <p className={`text-sm ${getStatusColor(isProjectReady)}`}>
+                  {isProjectReady 
+                    ? 'All components are configured and ready for generation'
+                    : 'Some required components are missing'
+                  }
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Project Metadata */}
-          {status.metadata && (
+          {/* Project Metadata from Firestore */}
+          {project.metadata && (
             <div className="p-4 bg-blue-50 rounded-lg">
               <h3 className="text-sm font-medium text-blue-900 mb-2">Project Information</h3>
               <div className="space-y-1 text-sm text-blue-800">
-                {status.metadata.title && <p><strong>Title:</strong> {status.metadata.title}</p>}
-                {status.metadata.genre && <p><strong>Genre:</strong> {status.metadata.genre}</p>}
-                {status.metadata.created_at && (
-                  <p><strong>Created:</strong> {new Date(status.metadata.created_at).toLocaleDateString()}</p>
+                {project.metadata.title && <p><strong>Title:</strong> {project.metadata.title}</p>}
+                {project.settings?.genre && <p><strong>Genre:</strong> {project.settings.genre}</p>}
+                {project.metadata.status && <p><strong>Status:</strong> {project.metadata.status}</p>}
+                {project.metadata.created_at && (
+                  <p><strong>Created:</strong> {new Date(project.metadata.created_at.seconds * 1000).toLocaleDateString()}</p>
+                )}
+                {project.progress && (
+                  <p><strong>Progress:</strong> {project.progress.chapters_completed || 0} chapters completed</p>
                 )}
               </div>
             </div>
@@ -183,48 +201,48 @@ export function ProjectStatus() {
             <div className="grid grid-cols-1 gap-2">
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center">
-                  {getStatusIcon(status.hasBookBible)}
+                  {getStatusIcon(hasBookBible)}
                   <span className="ml-2 text-sm font-medium text-gray-900">Book Bible</span>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${
-                  status.hasBookBible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  hasBookBible ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                 }`}>
-                  {status.hasBookBible ? 'Present' : 'Missing'}
+                  {hasBookBible ? 'Present' : 'Missing'}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center">
-                  {getStatusIcon(status.hasReferences)}
-                  <span className="ml-2 text-sm font-medium text-gray-900">Reference Files</span>
+                  {getStatusIcon(hasSettings)}
+                  <span className="ml-2 text-sm font-medium text-gray-900">Project Settings</span>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${
-                  status.hasReferences ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  hasSettings ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                 }`}>
-                  {status.hasReferences ? `${status.referenceFiles?.length || 0} files` : 'Missing'}
+                  {hasSettings ? 'Configured' : 'Missing'}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center">
-                  {getStatusIcon(status.hasState)}
-                  <span className="ml-2 text-sm font-medium text-gray-900">Project State</span>
+                  {getStatusIcon(hasMetadata)}
+                  <span className="ml-2 text-sm font-medium text-gray-900">Project Metadata</span>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${
-                  status.hasState ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  hasMetadata ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                 }`}>
-                  {status.hasState ? 'Initialized' : 'Missing'}
+                  {hasMetadata ? 'Present' : 'Missing'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Reference Files List */}
-          {status.referenceFiles && Array.isArray(status.referenceFiles) && status.referenceFiles.length > 0 && (
+          {/* Reference Files from API Status (fallback) */}
+          {apiStatus?.referenceFiles && Array.isArray(apiStatus.referenceFiles) && apiStatus.referenceFiles.length > 0 && (
             <div className="pt-4 border-t">
               <h3 className="text-sm font-medium text-gray-900 mb-2">Reference Files</h3>
               <div className="space-y-1">
-                {status.referenceFiles.map((file) => (
+                {apiStatus.referenceFiles.map((file: string) => (
                   <div key={file} className="flex items-center text-sm text-gray-600">
                     <FolderIcon className="w-4 h-4 mr-2" />
                     {file}
@@ -237,10 +255,10 @@ export function ProjectStatus() {
           {/* Refresh Button */}
           <button
             onClick={fetchProjectStatus}
-            disabled={isLoading}
+            disabled={combinedLoading}
             className="w-full btn-secondary"
           >
-            {isLoading ? 'Refreshing...' : 'Refresh Status'}
+            {combinedLoading ? 'Refreshing...' : 'Refresh Status'}
           </button>
         </div>
       )}

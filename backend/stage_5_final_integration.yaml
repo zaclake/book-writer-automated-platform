@@ -1,0 +1,124 @@
+name: "Stage 5: Final Integration"
+description: "Perfect chapter within larger story context"
+stage: 5
+goal: "Chapter must integrate seamlessly with complete story and database"
+
+system_prompt: |
+  You are an expert story integration specialist ensuring Chapter {chapter_number} 
+  fits perfectly within the larger narrative context.
+  
+  Your task is final optimization and integration - making sure this chapter serves 
+  the complete story while maintaining all achieved quality standards.
+  
+  INTEGRATION RESPONSIBILITIES:
+  1. Continuity Verification
+  2. Story Progression Optimization  
+  3. Pattern Database Update
+  4. Final Quality Assurance
+  
+  CRITICAL REQUIREMENTS:
+  - Maintain all craft excellence achievements from previous stages
+  - Ensure seamless integration with broader story
+  - Verify pattern database consistency
+  - Confirm thematic threading
+  - Validate series positioning (if applicable)
+  
+  Output the final, publication-ready chapter with perfect story integration.
+
+user_prompt: |
+  Finalize Chapter {chapter_number} for seamless story integration:
+  
+  REFINED CHAPTER:
+  {refined_chapter}
+  
+  STORY INTEGRATION CONTEXT:
+  
+  Previous Chapters: {previous_chapters_summary}
+  Next Chapter Plans: {next_chapter_preview}
+  Overall Story Arc: {story_arc_context}
+  Character Development Timeline: {character_timeline}
+  World Building Consistency: {world_rules}
+  Thematic Threading: {theme_development}
+  
+  PATTERN DATABASE:
+  {pattern_database}
+  
+  SERIES CONTEXT (if applicable):
+  {series_context}
+  
+  INTEGRATION CHECKLIST:
+  
+  1. CONTINUITY VERIFICATION:
+     - Character consistency: Behavior matches established patterns and growth
+     - World rule adherence: All details consistent with story reality
+     - Timeline accuracy: Events fit logically in story chronology
+     - Tone maintenance: Chapter voice matches overall story atmosphere
+     - Thematic threading: Deeper meaning connects to larger story themes
+  
+  2. STORY PROGRESSION OPTIMIZATION:
+     - Setup/payoff balance: Proper promise and fulfillment ratios
+     - Subplot advancement: Secondary stories develop appropriately
+     - Foreshadowing integration: Subtle hints for future developments
+     - Callback incorporation: References to earlier story elements
+     - Series positioning: Chapter serves larger narrative arc (if applicable)
+  
+  3. PATTERN DATABASE UPDATE:
+     - Catalog new descriptions for archive
+     - Record language patterns and vocabulary choices
+     - Update emotional expressions documentation
+     - Archive dialogue patterns for consistency checking
+     - Note structural elements used
+  
+  Ensure perfect integration while maintaining all quality achievements.
+  Output the final chapter ready for publication.
+
+integration_checks:
+  continuity:
+    - character_behavior_consistency
+    - world_rules_adherence
+    - timeline_logical_fit
+    - tone_atmosphere_match
+    - thematic_connection
+  
+  progression:
+    - setup_payoff_balance
+    - subplot_development
+    - foreshadowing_integration
+    - callback_references
+    - series_arc_service
+  
+  database:
+    - new_descriptions_catalogued
+    - language_patterns_recorded
+    - emotional_expressions_updated
+    - dialogue_patterns_archived
+    - structural_elements_noted
+
+quality_gates:
+  - "Character consistency verified against established patterns"
+  - "World rules never violated or contradicted"
+  - "Timeline accuracy confirmed"
+  - "Tone matches overall story atmosphere"
+  - "Thematic connections established"
+  - "Setup/payoff ratios properly balanced"
+  - "Foreshadowing subtly integrated"
+  - "Pattern database fully updated"
+  - "Series balance maintained (if applicable)"
+
+variables:
+  required:
+    - chapter_number
+    - refined_chapter
+    - story_arc_context
+    - pattern_database
+  optional:
+    - previous_chapters_summary
+    - next_chapter_preview
+    - character_timeline
+    - world_rules
+    - theme_development
+    - series_context
+
+output_format: "final_integrated_chapter"
+max_tokens: 6000
+temperature: 0.3 

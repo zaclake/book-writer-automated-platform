@@ -1,0 +1,122 @@
+name: "Series Bible Reference Generator"
+description: "Generates comprehensive series continuity and overarching narrative documentation from book bible content"
+
+system_prompt: |
+  You are a series development specialist and continuity expert who helps authors maintain consistency and plan long-term storytelling across multiple books. Your role is to extract series potential from book bible content and create systematic approaches for multi-book narrative management.
+
+  Your responsibilities include:
+  1. **Series Architecture**: Designing overarching narrative structure across multiple books
+  2. **Continuity Management**: Tracking characters, settings, and plot elements across the series
+  3. **Character Evolution**: Planning long-term character development across multiple books
+  4. **World Expansion**: Developing the fictional world beyond the scope of a single book
+  5. **Plot Threading**: Weaving ongoing storylines throughout the series
+  6. **Reader Engagement**: Maintaining series momentum and reader investment
+
+  Generate comprehensive documentation that serves as both a planning tool for future books and a reference for maintaining consistency across the series.
+
+user_prompt_template: |
+  Based on this book bible content:
+
+  {book_bible_content}
+
+  Please generate a comprehensive **Series Bible Reference** document that will guide multi-book storytelling and continuity management.
+
+  Structure your response with these sections:
+
+  ## Series Overview
+  - **Series Concept**: High-level description of the multi-book narrative
+  - **Series Length**: Recommended number of books and why
+  - **Overarching Theme**: Central theme that unifies all books in the series
+  - **Series Arc**: The major story progression from book one to series conclusion
+  - **Target Timeline**: Recommended timeline for book releases
+
+  ## Book-by-Book Breakdown
+  - **Book 1 (Current)**: Role in series, key introductions, setup for future books
+  - **Book 2 Concept**: Central conflict, character development, plot advancement
+  - **Book 3+ Concepts**: Brief concepts for subsequent books in the series
+  - **Series Climax**: Where and how the overarching conflict reaches its peak
+  - **Series Resolution**: How the series will conclude satisfyingly
+
+  ## Character Evolution Across Series
+  - **Protagonist Journey**: Long-term character arc spanning multiple books
+  - **Supporting Character Development**: How key characters grow throughout the series
+  - **Character Introductions**: When new characters enter the series and why
+  - **Character Departures**: When characters leave the series and how
+  - **Relationship Evolution**: How relationships change and develop across books
+
+  ## World Building Expansion
+  - **Geographic Expansion**: New locations introduced in each book
+  - **Cultural Development**: Deeper exploration of cultures and societies
+  - **Historical Revelation**: How the world's history unfolds across books
+  - **System Evolution**: How magic/technology/social systems develop
+  - **Scope Progression**: How the stakes and scope expand through the series
+
+  ## Continuity Tracking System
+  - **Character Sheets**: Key details to track for each recurring character
+  - **Timeline Management**: System for tracking events across multiple books
+  - **Setting Documentation**: Details to maintain for each location
+  - **Plot Thread Tracking**: Ongoing storylines that span multiple books
+  - **Detail Database**: System for tracking minor but important details
+
+  ## Series-Specific Plot Elements
+  - **Ongoing Mysteries**: Questions introduced early and resolved over time
+  - **Recurring Conflicts**: Challenges that appear in multiple books
+  - **Progressive Revelations**: Information revealed gradually across the series
+  - **Foreshadowing System**: How early books hint at later developments
+  - **Callback Opportunities**: Moments to reference earlier books
+
+  ## Reader Experience Across Series
+  - **Entry Points**: Can readers start with later books or must they start with book one?
+  - **Standalone Elements**: What makes each book satisfying on its own
+  - **Series Hooks**: What keeps readers coming back for the next book
+  - **Payoff Schedule**: When readers receive rewards for long-term investment
+  - **Series Memory**: How to remind readers of important past events
+
+  ## Publishing Strategy
+  - **Book Length Consistency**: Maintaining similar length/scope across books
+  - **Release Schedule**: Optimal timing between book releases
+  - **Marketing Continuity**: How to market the series as a cohesive whole
+  - **Reader Retention**: Strategies for maintaining audience between books
+  - **Series Conclusion**: Planning a satisfying ending that rewards long-term readers
+
+  ## Quality Control Across Series
+  - **Consistency Checklists**: What to verify before publishing each new book
+  - **Beta Reader Guidance**: How to use series-familiar beta readers effectively
+  - **Character Voice Consistency**: Maintaining authentic character voices across years
+  - **World Logic Consistency**: Ensuring world rules remain consistent
+  - **Series Bible Updates**: How to update this document as the series progresses
+
+  ## Flexibility and Adaptation
+  - **Plot Pivot Points**: Where the series can change direction based on reader response
+  - **Character Flexibility**: Which characters can be modified based on story needs
+  - **Market Adaptation**: How to adjust later books based on market feedback
+  - **Series Extension**: Potential for additional books beyond the planned series
+  - **Spin-off Opportunities**: Potential for related series or standalone books
+
+  Provide specific, actionable guidance that helps maintain series coherence while allowing for creative evolution. Focus on practical continuity management and long-term planning.
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.7
+  max_tokens: 4000
+  top_p: 0.9
+
+validation:
+  required_sections:
+    - "Series Overview"
+    - "Book-by-Book Breakdown"
+    - "Character Evolution Across Series"
+    - "World Building Expansion"
+    - "Continuity Tracking System"
+    - "Series-Specific Plot Elements"
+    - "Reader Experience Across Series"
+    - "Publishing Strategy"
+    - "Quality Control Across Series"
+    - "Flexibility and Adaptation"
+  
+  quality_checks:
+    - "Series concept is compelling and sustainable"
+    - "Book breakdown shows clear progression"
+    - "Character evolution is realistic and engaging"
+    - "Continuity system is detailed and practical"
+    - "Reader experience considerations are thorough" 

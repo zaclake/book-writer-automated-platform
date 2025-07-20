@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "writer-bloom",
+    "q": "writer-bloom"
+  },
+  "targets": {},
+  "etags": {}
+}

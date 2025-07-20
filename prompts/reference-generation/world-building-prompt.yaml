@@ -1,0 +1,255 @@
+name: "World Building Generator"
+description: "Creates comprehensive setting and environmental details from book bible content"
+version: "2.0"
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.72
+  max_tokens: 6500
+  top_p: 0.9
+
+system_prompt: |
+  You are a master world-building consultant specializing in creating immersive, believable fictional environments for literary and genre fiction. Your expertise encompasses historical research, cultural anthropology, architectural design, and environmental storytelling.
+
+  CORE COMPETENCIES:
+  1. **Atmospheric World Creation**: Building settings that enhance mood, theme, and character psychology
+  2. **Cultural Authenticity**: Creating believable social structures, customs, and daily life details
+  3. **Environmental Storytelling**: Using setting details to advance plot and reveal character
+  4. **Genre-Specific World Rules**: Understanding how different genres require different approaches to world-building
+  5. **Research-Based Accuracy**: Grounding fictional elements in realistic historical/geographical/cultural foundations
+
+  APPROACH FOR INCOMPLETE BOOK BIBLES:
+  When setting details are sparse or missing:
+  - Extract atmospheric cues from genre, tone, and reference works
+  - Build environments that support the stated themes and emotional journey
+  - Create cultural details that enhance character psychology and conflict
+  - Use historical/geographical research to ground fictional elements
+  - Ensure every world-building detail serves story function, not just decoration
+
+  QUALITY STANDARDS:
+  - Every setting detail should enhance atmosphere and story
+  - Cultural elements must feel authentic and internally consistent
+  - World rules should emerge naturally from genre and theme requirements
+  - Environmental details should engage multiple senses
+  - Settings should feel lived-in and historically grounded
+
+user_prompt_template: |
+  Analyze this book bible thoroughly and create a comprehensive world-building reference. Focus on extracting atmospheric cues, genre requirements, and thematic needs to build a setting that enhances every aspect of the story experience.
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Create a detailed world-building guide following this structure:
+
+  # World-Building Reference Guide
+
+  ## Setting Foundation Analysis
+
+  **Atmospheric Requirements:**
+  - **Mood/Tone Needs:** [How the setting should make readers feel]
+  - **Genre Expectations:** [What this genre requires from its world]
+  - **Thematic Support:** [How the environment should reinforce story themes]
+  - **Character Psychology Reflection:** [How settings should mirror/contrast with internal states]
+
+  **Research Foundation:**
+  - **Historical Anchors:** [Real-world time periods/events that inform this setting]
+  - **Geographic Inspirations:** [Real locations that provide environmental basis]
+  - **Cultural References:** [Societies/communities that inspire social structures]
+  - **Architectural Influences:** [Building styles and urban planning that fit the story]
+
+  ## Primary Setting Architecture
+
+  ### Temporal Context
+  **Time Period Specifications:**
+  - **Exact Era/Year:** [When the story takes place and why this matters]
+  - **Historical Moment:** [Specific events or cultural shifts affecting the world]
+  - **Technological Level:** [What's available and what's not, and how this shapes daily life]
+  - **Social/Political Climate:** [The broader forces affecting individual lives]
+
+  **Time's Impact on Story:**
+  - **Period-Specific Opportunities:** [What this time period makes possible for the plot]
+  - **Historical Constraints:** [What limitations create interesting obstacles]
+  - **Cultural Attitudes:** [Prevailing beliefs that affect character choices]
+  - **Communication/Transportation:** [How people connect and move, affecting plot pacing]
+
+  ### Geographic & Environmental Framework
+
+  **Primary Location Details:**
+  - **Geographic Setting:** [Specific region, climate, topography]
+  - **Urban vs. Rural Character:** [How populated/developed the area is]
+  - **Natural Environment:** [Landscape features that affect mood and plot]
+  - **Climate & Weather:** [How environmental conditions shape daily life and story events]
+  - **Natural Resources:** [What the land provides and what's scarce]
+
+  **Sensory Environment:**
+  - **Visual Landscape:** [What characters see that immediately establishes place]
+  - **Soundscape:** [Ambient sounds that create atmosphere]
+  - **Scent & Air Quality:** [Smells that ground readers in the environment]
+  - **Tactile Elements:** [Textures, temperatures, physical sensations]
+  - **Taste Elements:** [Food, drink, air quality that adds authenticity]
+
+  **Environmental Storytelling:**
+  - **Symbolic Landscapes:** [How geography reflects themes or character states]
+  - **Setting as Character:** [How the environment actively affects the story]
+  - **Pathetic Fallacy Opportunities:** [When weather/environment should mirror emotion]
+  - **Contrast Points:** [Where environmental beauty/harshness creates thematic tension]
+
+  ## Cultural & Social Architecture
+
+  ### Social Structure Design
+  **Power Dynamics:**
+  - **Authority Systems:** [Who holds power and how it's exercised]
+  - **Class/Economic Stratification:** [Social layers and mobility between them]
+  - **Professional Hierarchies:** [Work structures that affect character interactions]
+  - **Gender/Age Dynamics:** [Social expectations based on demographics]
+  - **Outsider/Insider Status:** [How belonging and exclusion work in this world]
+
+  **Institutional Framework:**
+  - **Government Structure:** [How official power operates]
+  - **Legal System:** [Laws, enforcement, justice mechanisms]
+  - **Educational System:** [How knowledge is transmitted and controlled]
+  - **Religious/Spiritual Institutions:** [Belief systems and their social influence]
+  - **Economic Institutions:** [How money, trade, and resources flow]
+
+  ### Daily Life Texture
+
+  **Routine & Rhythm:**
+  - **Daily Schedules:** [How people structure their time]
+  - **Weekly/Seasonal Patterns:** [Longer rhythms that shape life]
+  - **Work Patterns:** [How people earn living and what this reveals about society]
+  - **Social Gatherings:** [How and when people come together]
+  - **Privacy vs. Community:** [Balance between individual and group life]
+
+  **Material Culture:**
+  - **Architecture & Housing:** [How buildings reflect values and practical needs]
+  - **Clothing & Fashion:** [How people present themselves and what it signifies]
+  - **Food & Drink:** [What people eat, how it's prepared, what it means socially]
+  - **Transportation:** [How people and goods move]
+  - **Technology & Tools:** [What's available and how it shapes daily life]
+
+  **Communication & Information:**
+  - **Language Patterns:** [How people speak, regional/class dialects]
+  - **Information Flow:** [How news, gossip, knowledge travels]
+  - **Written Culture:** [Literacy levels, what gets written down]
+  - **Art & Entertainment:** [How people express creativity and find pleasure]
+
+  ## Key Location Profiles
+
+  ### [Primary Location Name]
+  **Physical Description:**
+  - **Overall Appearance:** [What strikes someone seeing it for the first time]
+  - **Architectural Character:** [Building styles, age, condition]
+  - **Layout & Geography:** [How spaces are organized and why]
+  - **Scale & Population:** [Size and density that affects atmosphere]
+
+  **Cultural Significance:**
+  - **Historical Importance:** [Why this place matters and what happened here]
+  - **Current Function:** [How it's used now and by whom]
+  - **Social Dynamics:** [Who belongs here, who doesn't, and why]
+  - **Economic Role:** [How this place fits into broader economic patterns]
+
+  **Atmospheric Qualities:**
+  - **Mood & Feeling:** [The emotional impact of being in this space]
+  - **Sensory Details:** [Specific sights, sounds, smells that make it real]
+  - **Time of Day Variations:** [How it changes from morning to night]
+  - **Seasonal Changes:** [How weather and time affect its character]
+
+  **Story Function:**
+  - **Plot Significance:** [Why important story events happen here]
+  - **Character Connections:** [Which characters have history with this place]
+  - **Thematic Resonance:** [How this location embodies or challenges the story's themes]
+  - **Conflict Opportunities:** [What kinds of problems naturally arise here]
+
+  ### [Secondary Location Name]
+  [Abbreviated version focusing on distinctive features and story function]
+
+  ## World Rules & Constraints
+
+  ### Physical Laws & Limitations
+  **Natural World Rules:**
+  - **Environmental Constraints:** [What the natural world makes difficult or impossible]
+  - **Seasonal Limitations:** [How weather and climate affect plot possibilities]
+  - **Geographic Barriers:** [Mountains, rivers, distances that shape story]
+  - **Resource Scarcities:** [What's hard to get and how this creates conflict]
+
+  **Technological Boundaries:**
+  - **Available Technology:** [What tools and capabilities exist]
+  - **Missing Technology:** [What doesn't exist that modern readers might expect]
+  - **Technology Access:** [Who can use what, and how it's controlled]
+  - **Innovation Pace:** [How quickly things change and who drives change]
+
+  ### Social Rules & Cultural Laws
+
+  **Behavioral Expectations:**
+  - **Social Etiquette:** [Unwritten rules that govern interaction]
+  - **Cultural Taboos:** [What's forbidden and what happens if violated]
+  - **Ritual & Ceremony:** [Formal occasions and their significance]
+  - **Hospitality Codes:** [How strangers and guests are treated]
+
+  **Power & Authority Constraints:**
+  - **Legal Boundaries:** [What the law allows and forbids]
+  - **Social Mobility Rules:** [How people can (or can't) change their status]
+  - **Information Control:** [What knowledge is restricted and by whom]
+  - **Economic Limitations:** [What money can and can't do in this world]
+
+  ## Atmosphere & Mood Creation
+
+  **Environmental Mood Tools:**
+  - **Weather as Story Element:** [How to use climate to enhance scenes]
+  - **Light & Shadow:** [How illumination affects atmosphere and revelation]
+  - **Space & Scale:** [How size relationships create feelings]
+  - **Color & Texture:** [Visual elements that support emotional tone]
+
+  **Cultural Mood Elements:**
+  - **Social Tension Points:** [Where cultural conflicts create atmospheric pressure]
+  - **Tradition vs. Change:** [How cultural stability/instability affects mood]
+  - **Collective Emotions:** [Shared feelings that permeate the social environment]
+  - **Hidden Undercurrents:** [What's not spoken but felt in the community]
+
+  ## Writer's World-Building Toolkit
+
+  **Consistency Maintenance:**
+  - **World Logic Checklist:** [Rules to follow for internal consistency]
+  - **Detail Tracking:** [What to remember about established world elements]
+  - **Research Integration Points:** [Where to weave in authentic historical/cultural details]
+
+  **Scene Enhancement Techniques:**
+  - **Setting as Plot Device:** [How to use environment to advance story]
+  - **Atmosphere Intensification:** [Techniques for deepening mood through setting]
+  - **Character-Environment Interaction:** [How characters should relate to their world]
+
+  **Expansion Guidelines:**
+  - **Detail Addition Priorities:** [What world elements to develop first when expanding]
+  - **Authenticity Preservation:** [How to add details without losing consistency]
+  - **Reader Orientation:** [How much world information to provide when]
+
+  INSTRUCTIONS FOR INCOMPLETE INFORMATION:
+  When the book bible lacks specific setting details:
+  1. Extract atmospheric and thematic needs from provided story elements
+  2. Use genre conventions and reference works to inform environmental choices
+  3. Create settings that enhance character psychology and support plot needs
+  4. Build cultural details that feel authentic to the established tone and period
+  5. Ensure every world-building element serves story function rather than decoration
+
+  Ground all fictional elements in research-based authenticity while ensuring every detail enhances the story's emotional and thematic impact.
+
+validation_rules:
+  - "Must create immersive settings that enhance story atmosphere and theme"
+  - "All cultural and environmental details must feel authentic and internally consistent"
+  - "World-building elements must serve story function, not just provide decoration"
+  - "Should ground fictional elements in realistic historical/geographical research"
+  - "Must provide specific, sensory details that help writers create vivid scenes"
+  - "Should extrapolate intelligently from genre, tone, and reference works when details are sparse"
+  - "Settings must feel lived-in and historically grounded, not artificially constructed"
+
+output_format: "markdown"
+expected_sections:
+  - "Setting Foundation Analysis"
+  - "Primary Setting Architecture"
+  - "Cultural & Social Architecture"
+  - "Key Location Profiles"
+  - "World Rules & Constraints"
+  - "Atmosphere & Mood Creation"
+  - "Writer's World-Building Toolkit" 

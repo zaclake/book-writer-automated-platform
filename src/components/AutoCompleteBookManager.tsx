@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { PlayIcon, PauseIcon, StopIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
+import { useUser } from '@clerk/nextjs'
 
 interface AutoCompleteConfig {
   targetWordCount: number
@@ -50,17 +51,22 @@ interface AutoCompleteJob {
 interface AutoCompleteBookManagerProps {
   onJobStarted?: (jobId: string) => void
   onJobCompleted?: (jobId: string, result: any) => void
+  projectId: string | null
 }
 
 export function AutoCompleteBookManager({ 
   onJobStarted, 
-  onJobCompleted 
+  onJobCompleted,
+  projectId
 }: AutoCompleteBookManagerProps) {
   const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
+  const { user } = useUser()
   const [currentJob, setCurrentJob] = useState<AutoCompleteJob | null>(null)
   const [isStarting, setIsStarting] = useState(false)
+  const [isEstimating, setIsEstimating] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
   const [status, setStatus] = useState('')
+  const [estimation, setEstimation] = useState<any>(null)
   const [progressStream, setProgressStream] = useState<EventSource | null>(null)
   
   const [config, setConfig] = useState<AutoCompleteConfig>({
@@ -75,22 +81,57 @@ export function AutoCompleteBookManager({
   })
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const isInitializedRef = useRef(false)
+  const progressTrackingRef = useRef<string | null>(null)
 
+  // Cleanup function to prevent resource leaks
+  const cleanupProgress = useCallback(() => {
+    setProgressStream(prev => {
+      if (prev) {
+        prev.close()
+      }
+      return null
+    })
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+    progressTrackingRef.current = null
+  }, [])
+
+  // Single effect to handle initialization and job tracking
   useEffect(() => {
-    // Only check for existing job if user is authenticated
-    if (isLoaded && isSignedIn) {
-      checkForExistingJob()
+    const initializeAndTrack = async () => {
+      // Only initialize once when authentication is ready
+      if (isLoaded && isSignedIn && !isInitializedRef.current) {
+        isInitializedRef.current = true
+        await checkForExistingJob()
+      }
+      
+      // Handle progress tracking when job changes
+      if (currentJob?.job_id && ['pending', 'running', 'generating'].includes(currentJob.status)) {
+        // Prevent starting tracking for the same job twice
+        if (progressTrackingRef.current !== currentJob.job_id) {
+          cleanupProgress()
+          progressTrackingRef.current = currentJob.job_id
+          startProgressTracking(currentJob.job_id)
+        }
+      } else {
+        // Clean up when no active job
+        cleanupProgress()
+      }
     }
+
+    initializeAndTrack()
     
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
-      if (progressStream) {
-        progressStream.close()
-      }
-    }
-  }, [isLoaded, isSignedIn])
+    return cleanupProgress
+  }, [isLoaded, isSignedIn, currentJob?.job_id, currentJob?.status, cleanupProgress])
+
+  // Reset initialization flag when user changes
+  useEffect(() => {
+    isInitializedRef.current = false
+    cleanupProgress()
+  }, [user?.id, cleanupProgress])
 
   const checkForExistingJob = async () => {
     try {
@@ -103,7 +144,7 @@ export function AutoCompleteBookManager({
         if (data.jobs && Array.isArray(data.jobs) && data.jobs.length > 0) {
           const job = data.jobs[0]
           setCurrentJob(job)
-          startProgressTracking(job.job_id)
+          // Progress tracking will be handled by the consolidated useEffect
         }
       }
     } catch (error) {
@@ -114,6 +155,16 @@ export function AutoCompleteBookManager({
   const startAutoCompletion = async () => {
     if (!isSignedIn) {
       setStatus('❌ Please sign in to start auto-completion')
+      return
+    }
+
+    if (!projectId) {
+      setStatus('❌ No project selected. Please select a project first.')
+      return
+    }
+
+    if (!user?.id) {
+      setStatus('❌ User not authenticated. Please sign in.')
       return
     }
 
@@ -135,8 +186,8 @@ export function AutoCompleteBookManager({
         },
         body: JSON.stringify({
           config: config,
-          projectPath: process.cwd(),
-          userId: 'current-user'
+          project_id: projectId,
+          user_id: user?.id
         })
       })
 
@@ -154,6 +205,77 @@ export function AutoCompleteBookManager({
       setStatus(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsStarting(false)
+    }
+  }
+
+  const estimateAutoCompletion = async () => {
+    if (!isSignedIn) {
+      setStatus('❌ Please sign in to get cost estimate')
+      return
+    }
+
+    const projectId = localStorage.getItem('lastProjectId')
+    if (!projectId) {
+      setStatus('❌ No project selected - upload or select a Book Bible first')
+      return
+    }
+
+    const bookBible = localStorage.getItem(`bookBible-${projectId}`)
+    if (!bookBible) {
+      setStatus('❌ Book Bible not found - please upload a Book Bible first')
+      return
+    }
+
+    setIsEstimating(true)
+    setStatus('💰 Calculating cost estimate...')
+    setEstimation(null)
+
+    try {
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/auto-complete/estimate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({
+          project_id: projectId,
+          book_bible: bookBible,
+          target_chapters: config.targetChapterCount,
+          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount),
+          quality_threshold: config.minimumQualityScore,
+          starting_chapter: 1
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setEstimation(data.estimation)
+        setStatus(`💰 Estimated total cost: $${data.estimation.estimated_total_cost} for ${data.estimation.total_chapters} chapters`)
+      } else {
+        setStatus(`❌ Estimation failed: ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Auto-complete estimation error:', error)
+      
+      // Provide more specific error messages
+      let errorMessage = 'Unknown error occurred'
+      if (error instanceof Error) {
+        if (error.message.includes('Backend URL not configured')) {
+          errorMessage = 'Backend service not configured. Please check environment settings.'
+        } else if (error.message.includes('fetch')) {
+          errorMessage = 'Unable to connect to backend service. Please try again.'
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'Estimation timed out. Please try again.'
+        } else {
+          errorMessage = error.message
+        }
+      }
+      
+      setStatus(`❌ Estimation Error: ${errorMessage}`)
+    } finally {
+      setIsEstimating(false)
     }
   }
 
@@ -616,18 +738,81 @@ export function AutoCompleteBookManager({
           <div className="text-gray-500 mb-4">
             No active auto-completion job
           </div>
-          <button
-            onClick={startAutoCompletion}
-            disabled={isStarting}
-            className={`flex items-center mx-auto px-6 py-3 rounded-lg font-medium ${
-              isStarting
-                ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                : 'bg-primary-600 text-white hover:bg-primary-700'
-            }`}
-          >
-            <PlayIcon className="w-5 h-5 mr-2" />
-            {isStarting ? 'Starting...' : 'Start Auto-Completion'}
-          </button>
+          
+          {/* Estimation Display */}
+          {estimation && (
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg text-left">
+              <h4 className="font-medium text-blue-900 mb-2">💰 Cost Estimation</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-blue-700">Total Chapters:</span>
+                  <span className="ml-2 font-medium">{estimation.total_chapters}</span>
+                </div>
+                <div>
+                  <span className="text-blue-700">Words per Chapter:</span>
+                  <span className="ml-2 font-medium">{estimation.words_per_chapter.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-blue-700">Total Words:</span>
+                  <span className="ml-2 font-medium">{estimation.total_words.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-blue-700">Total Tokens:</span>
+                  <span className="ml-2 font-medium">{estimation.estimated_total_tokens.toLocaleString()}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-blue-700">Estimated Total Cost:</span>
+                  <span className="ml-2 font-bold text-lg text-blue-900">${estimation.estimated_total_cost}</span>
+                </div>
+                <div>
+                  <span className="text-blue-700">Cost per Chapter:</span>
+                  <span className="ml-2 font-medium">${estimation.estimated_cost_per_chapter}</span>
+                </div>
+                <div>
+                  <span className="text-blue-700">Quality Threshold:</span>
+                  <span className="ml-2 font-medium">{estimation.quality_threshold}%</span>
+                </div>
+              </div>
+              {estimation.notes && estimation.notes.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-blue-200">
+                  <div className="text-xs text-blue-600">
+                    {estimation.notes.map((note: string, index: number) => (
+                      <div key={index}>• {note}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Action Buttons */}
+          <div className="flex justify-center space-x-4">
+            <button
+              onClick={estimateAutoCompletion}
+              disabled={isEstimating}
+              className={`flex items-center px-4 py-2 rounded-lg font-medium ${
+                isEstimating
+                  ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              💰
+              {isEstimating ? 'Estimating...' : 'Estimate Cost'}
+            </button>
+            
+            <button
+              onClick={startAutoCompletion}
+              disabled={isStarting}
+              className={`flex items-center px-6 py-3 rounded-lg font-medium ${
+                isStarting
+                  ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  : 'bg-primary-600 text-white hover:bg-primary-700'
+              }`}
+            >
+              <PlayIcon className="w-5 h-5 mr-2" />
+              {isStarting ? 'Starting...' : 'Start Auto-Completion'}
+            </button>
+          </div>
         </div>
       )}
 

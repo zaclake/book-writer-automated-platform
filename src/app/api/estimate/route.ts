@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
 
 export async function POST(request: NextRequest) {
   try {
-    const { chapter, words, stage } = await request.json()
+    const body = await request.json()
+    const { project_id, chapter_number, words, stage } = body
 
-    if (!chapter || !words) {
+    if (!project_id || !chapter_number || !words) {
       return NextResponse.json(
-        { error: 'Chapter number and word count are required' },
+        { error: 'project_id, chapter_number, and word count are required' },
         { status: 400 }
       )
     }
 
     // Validate inputs
-    if (chapter < 1 || chapter > 200) {
+    if (chapter_number < 1 || chapter_number > 200) {
       return NextResponse.json(
         { error: 'Chapter number must be between 1 and 200' },
         { status: 400 }
@@ -35,71 +35,63 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get the project root path
-    const projectRoot = process.cwd()
-    
-    // Execute cost estimation
-    const command = `cd "${projectRoot}" && python system/llm_orchestrator.py --estimate --chapter ${chapter} --words ${words} --stage ${stage || 'complete'}`
-    
-    console.log(`Executing estimate: ${command}`)
-
-    const output = execSync(command, {
-      encoding: 'utf8',
-      timeout: 30000, // 30 seconds timeout for estimates
-      env: {
-        ...process.env,
-        OPENAI_API_KEY: process.env.OPENAI_API_KEY
-      }
-    })
-
-    // Parse the output to extract results
-    const lines = output.trim().split('\n')
-    const lastLine = lines[lines.length - 1]
-    
-    let result
-    try {
-      result = JSON.parse(lastLine)
-    } catch (e) {
-      // If JSON parsing fails, return basic estimate based on word count
-      const baseTokens = Math.round(words * 1.3) // Rough estimate: 1.3 tokens per word
-      const stageMult = stage === '5-stage' ? 5 : stage === 'spike' ? 1 : 2
-      const totalTokens = baseTokens * stageMult
-      
-      result = {
-        estimated_total_tokens: totalTokens,
-        estimated_total_cost: totalTokens * 0.015 / 1000, // $0.015 per 1K tokens
-        stage: stage || 'complete'
-      }
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      console.error('[estimate] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json({
-      success: true,
-      chapter: chapter,
-      words: words,
-      stage: stage || 'complete',
-      ...result
+    const targetUrl = `${backendBaseUrl}/v2/estimate`
+    console.log('[estimate] Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    // Forward the request body as-is
+    console.log('[estimate] Making request to backend with body:', body)
+    const backendResponse = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
     })
 
+    console.log('[estimate] Backend response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[estimate] Backend error:', errorText)
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
+
+    const data = await backendResponse.json()
+    console.log('[estimate] Backend success, returning data')
+    return NextResponse.json(data)
   } catch (error: any) {
-    console.error('Estimation error:', error)
-    
-    // Handle timeout errors
+    console.error('[estimate] Request failed:', error)
     if (error.message?.includes('timeout')) {
       return NextResponse.json(
         { error: 'Estimation timed out' },
         { status: 408 }
       )
     }
-
-    // Handle Python execution errors
-    if (error.stderr) {
-      console.error('Python stderr:', error.stderr)
-      return NextResponse.json(
-        { error: `Estimation failed: ${error.stderr}` },
-        { status: 500 }
-      )
-    }
-
     return NextResponse.json(
       { error: `Estimation failed: ${error.message}` },
       { status: 500 }

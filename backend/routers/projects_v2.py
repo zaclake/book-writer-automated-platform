@@ -216,20 +216,47 @@ async def create_new_project(
         if request.book_bible_content:
             project_data['book_bible'] = {
                 'content': request.book_bible_content,
+                'must_include_sections': request.must_include_sections,
+                'book_length_tier': request.book_length_tier,
+                'estimated_chapters': request.estimated_chapters or request.target_chapters,
+                'target_word_count': request.target_word_count,
                 'last_modified': datetime.now(timezone.utc),
                 'modified_by': user_id,
                 'version': 1,
-                'word_count': len(request.book_bible_content.split())
+                'word_count': len(request.book_bible_content.split()),
+                'creation_mode': request.creation_mode,
+                'source_data': request.source_data
             }
         
         # Create the project
         project_id = await create_project(project_data)
         
         if not project_id:
+            logger.error(f"Project creation failed", extra={
+                'user_id': user_id,
+                'title': request.title,
+                'genre': request.genre,
+                'creation_mode': request.creation_mode,
+                'book_length_tier': request.book_length_tier
+            })
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create project"
             )
+        
+        logger.info(f"Project created successfully", extra={
+            'project_id': project_id,
+            'user_id': user_id,
+            'title': request.title,
+            'genre': request.genre,
+            'creation_mode': request.creation_mode,
+            'book_length_tier': request.book_length_tier,
+            'target_chapters': request.target_chapters,
+            'word_count_per_chapter': request.word_count_per_chapter,
+            'include_series_bible': request.include_series_bible,
+            'book_bible_length': len(request.book_bible_content) if request.book_bible_content else 0,
+            'must_include_sections_count': len(request.must_include_sections)
+        })
         
         # Generate series bible if requested
         if request.include_series_bible:
@@ -238,6 +265,57 @@ async def create_new_project(
             except Exception as e:
                 logger.warning(f"Failed to generate series bible for project {project_id}: {e}")
                 # Don't fail the project creation, just log the warning
+        
+        # Schedule background reference file generation
+        try:
+            from utils.reference_content_generator import ReferenceContentGenerator
+            from utils.paths import get_project_workspace
+            import asyncio
+            
+            async def generate_references_task():
+                """Background task to generate reference files."""
+                try:
+                    generator = ReferenceContentGenerator()
+                    if generator.is_available() and request.book_bible_content:
+                        project_workspace = get_project_workspace(project_id)
+                        references_dir = project_workspace / "references"
+                        
+                        logger.info(f"Starting background reference generation for project {project_id}")
+                        
+                        # Generate default reference files
+                        results = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            generator.generate_all_references,
+                            request.book_bible_content,
+                            references_dir,
+                            None,  # reference_types (use defaults)
+                            request.include_series_bible
+                        )
+                        
+                        logger.info(f"Generated {len(results)} reference files for project {project_id}")
+                        
+                        # Store reference file metadata in Firestore
+                        db = get_database_adapter()
+                        for ref_type, content in results.items():
+                            if content:
+                                await create_reference_file(
+                                    project_id=project_id,
+                                    filename=f"{ref_type}.md",
+                                    content=content,
+                                    user_id=user_id
+                                )
+                    else:
+                        logger.info(f"Skipping reference generation for project {project_id} - OpenAI not available or no book bible")
+                        
+                except Exception as e:
+                    logger.error(f"Background reference generation failed for project {project_id}: {e}")
+            
+            # Schedule the task to run in background
+            asyncio.create_task(generate_references_task())
+            
+        except Exception as e:
+            logger.warning(f"Failed to schedule reference generation for project {project_id}: {e}")
+            # Don't fail the project creation, just log the warning
         
         if not project_id:
             raise HTTPException(
@@ -275,6 +353,107 @@ async def create_new_project(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create project"
+        )
+
+@router.post("/{project_id}/references/generate")
+async def generate_project_references(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate or regenerate reference files for a project."""
+    try:
+        user_id = current_user.get('sub')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get project to verify ownership and get book bible content
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Check if user owns this project
+        if project.get('metadata', {}).get('owner_id') != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Get book bible content
+        book_bible = project.get('book_bible', {})
+        book_bible_content = book_bible.get('content')
+        if not book_bible_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No book bible content found for this project"
+            )
+        
+        # Generate references
+        from utils.reference_content_generator import ReferenceContentGenerator
+        from utils.paths import get_project_workspace
+        import asyncio
+        
+        generator = ReferenceContentGenerator()
+        if not generator.is_available():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI content generation service not available"
+            )
+        
+        project_workspace = get_project_workspace(project_id)
+        references_dir = project_workspace / "references"
+        include_series_bible = project.get('settings', {}).get('include_series_bible', False)
+        
+        logger.info(f"Generating references for project {project_id}")
+        
+        # Run generation in executor to avoid blocking
+        results = await asyncio.get_event_loop().run_in_executor(
+            None,
+            generator.generate_all_references,
+            book_bible_content,
+            references_dir,
+            None,  # reference_types (use defaults)
+            include_series_bible
+        )
+        
+        # Store reference file metadata in Firestore
+        generated_files = []
+        db = get_database_adapter()
+        for ref_type, content in results.items():
+            if content:
+                filename = f"{ref_type}.md"
+                await create_reference_file(
+                    project_id=project_id,
+                    filename=filename,
+                    content=content,
+                    user_id=user_id
+                )
+                generated_files.append({
+                    'type': ref_type,
+                    'filename': filename,
+                    'size': len(content)
+                })
+        
+        logger.info(f"Generated {len(generated_files)} reference files for project {project_id}")
+        
+        return {
+            'success': True,
+            'message': f'Generated {len(generated_files)} reference files',
+            'files': generated_files
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate references for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate reference files"
         )
 
 @router.get("/{project_id}", response_model=Project)

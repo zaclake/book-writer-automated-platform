@@ -2,12 +2,18 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthToken } from '@/lib/auth'
-import { DocumentTextIcon, PencilIcon, EyeIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { DocumentTextIcon, PencilIcon, EyeIcon, CheckCircleIcon, SparklesIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 
 interface ReferenceFile {
   name: string
   content: string
   lastModified: string
+}
+
+interface GenerationStatus {
+  isGenerating: boolean
+  currentFile?: string
+  message?: string
 }
 
 export function ReferenceFileManager() {
@@ -18,6 +24,7 @@ export function ReferenceFileManager() {
   const [editContent, setEditContent] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [status, setStatus] = useState('')
+  const [generationStatus, setGenerationStatus] = useState<GenerationStatus>({ isGenerating: false })
 
   useEffect(() => {
     // Only fetch if user is authenticated
@@ -49,79 +56,118 @@ export function ReferenceFileManager() {
       })
       if (response.ok) {
         const data = await response.json()
-        setFiles(data.files || [])
+        if (data.success && data.files) {
+          const fileDetails = await Promise.all(
+            data.files.map(async (fileInfo: any) => {
+              try {
+                const fileResponse = await fetch(`/api/references/${fileInfo.name}?project_id=${projectId}`, {
+                  headers: authHeaders
+                })
+                if (fileResponse.ok) {
+                  const fileData = await fileResponse.json()
+                  return {
+                    name: fileData.name,
+                    content: fileData.content,
+                    lastModified: fileData.lastModified
+                  }
+                }
+              } catch (error) {
+                console.error(`Failed to load ${fileInfo.name}:`, error)
+              }
+              return null
+            })
+          )
+          
+          setFiles(fileDetails.filter(Boolean) as ReferenceFile[])
+          setStatus('')
+        } else {
+          setFiles([])
+          setStatus('⚠️ ' + (data.message || 'No reference files found'))
+        }
+      } else {
+        setFiles([])
+        setStatus('❌ Failed to load reference files')
       }
     } catch (error) {
-      console.error('Failed to fetch reference files:', error)
-      setStatus('❌ Failed to load reference files')
+      console.error('Error loading reference files:', error)
+      setFiles([])
+      setStatus('❌ Error loading reference files')
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleFileSelect = async (fileName: string) => {
-    setIsLoading(true)
+    if (!isSignedIn) return
+    
+    const projectId = getProjectId()
+    if (!projectId) return
+
     try {
-      const projectId = getProjectId()
-      if (!projectId) {
-        setStatus('⚠️ No project selected')
-        setIsLoading(false)
-        return
-      }
       const authHeaders = await getAuthHeaders()
       const response = await fetch(`/api/references/${fileName}?project_id=${projectId}`, {
         headers: authHeaders
       })
+      
       if (response.ok) {
-        const data = await response.json()
-        setSelectedFile(data)
-        setEditContent(data.content)
+        const fileData = await response.json()
+        setSelectedFile({
+          name: fileData.name,
+          content: fileData.content,
+          lastModified: fileData.lastModified
+        })
+        setEditContent(fileData.content)
         setIsEditing(false)
+        setStatus('')
+      } else {
+        setStatus('❌ Failed to load file content')
       }
     } catch (error) {
-      console.error('Failed to fetch file content:', error)
-      setStatus('❌ Failed to load file content')
-    } finally {
-      setIsLoading(false)
+      console.error('Error loading file:', error)
+      setStatus('❌ Error loading file')
     }
   }
 
   const handleSave = async () => {
-    if (!selectedFile) return
+    if (!selectedFile || !isSignedIn) return
 
-    setIsLoading(true)
+    const projectId = getProjectId()
+    if (!projectId) return
+
     try {
-      const projectId = getProjectId()
-      if (!projectId) {
-        setStatus('⚠️ No project selected')
-        setIsLoading(false)
-        return
-      }
       const authHeaders = await getAuthHeaders()
       const response = await fetch(`/api/references/${selectedFile.name}?project_id=${projectId}`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders
+          ...authHeaders,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          content: editContent
-        })
+        body: JSON.stringify({ content: editContent })
       })
 
       if (response.ok) {
-        setStatus('✅ File saved successfully')
-        setSelectedFile({ ...selectedFile, content: editContent })
+        const updatedFile = await response.json()
+        setSelectedFile(prev => prev ? {
+          ...prev,
+          content: editContent,
+          lastModified: updatedFile.lastModified
+        } : null)
+        
+        // Update the file in the list
+        setFiles(prev => prev.map(file => 
+          file.name === selectedFile.name 
+            ? { ...file, content: editContent, lastModified: updatedFile.lastModified }
+            : file
+        ))
+        
         setIsEditing(false)
-        fetchReferenceFiles()
+        setStatus('✅ File saved successfully')
       } else {
-        const data = await response.json()
-        setStatus(`❌ Save failed: ${data.error}`)
+        setStatus('❌ Failed to save file')
       }
     } catch (error) {
-      setStatus(`❌ Save error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setIsLoading(false)
+      console.error('Error saving file:', error)
+      setStatus('❌ Error saving file')
     }
   }
 
@@ -130,6 +176,111 @@ export function ReferenceFileManager() {
       setEditContent(selectedFile.content)
     }
     setIsEditing(false)
+  }
+
+  const handleGenerateAllReferences = async () => {
+    if (!isSignedIn) return
+    
+    const projectId = getProjectId()
+    if (!projectId) {
+      setStatus('⚠️ No project selected')
+      return
+    }
+
+    setGenerationStatus({ isGenerating: true, message: 'Generating AI-powered reference content...' })
+    setStatus('')
+
+    try {
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/references/generate', {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ project_id: projectId })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          setStatus(`✅ Generated ${result.generated_files} reference files successfully`)
+          // Refresh the file list
+          await fetchReferenceFiles()
+        } else {
+          setStatus(`⚠️ Generation completed with ${result.failed_files} errors: ${result.message}`)
+          // Still refresh to show any successful files
+          await fetchReferenceFiles()
+        }
+      } else {
+        const errorData = await response.json()
+        if (response.status === 503) {
+          setStatus('⚠️ AI content generation not available - OpenAI API key not configured')
+        } else {
+          setStatus(`❌ Generation failed: ${errorData.detail || 'Unknown error'}`)
+        }
+      }
+    } catch (error) {
+      console.error('Error generating reference content:', error)
+      setStatus('❌ Error generating reference content')
+    } finally {
+      setGenerationStatus({ isGenerating: false })
+    }
+  }
+
+  const handleRegenerateFile = async (fileName: string) => {
+    if (!isSignedIn) return
+    
+    const projectId = getProjectId()
+    if (!projectId) {
+      setStatus('⚠️ No project selected')
+      return
+    }
+
+    setGenerationStatus({ 
+      isGenerating: true, 
+      currentFile: fileName,
+      message: `Regenerating ${fileName}...` 
+    })
+    setStatus('')
+
+    try {
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch(`/api/references/${fileName}/regenerate`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ project_id: projectId })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          setStatus(`✅ Successfully regenerated ${fileName}`)
+          // Refresh the file list and update selected file if it's the current one
+          await fetchReferenceFiles()
+          if (selectedFile?.name === fileName) {
+            await handleFileSelect(fileName)
+          }
+        } else {
+          setStatus(`❌ Failed to regenerate ${fileName}: ${result.message || result.error}`)
+        }
+      } else {
+        const errorData = await response.json()
+        if (response.status === 503) {
+          setStatus('⚠️ AI content generation not available - OpenAI API key not configured')
+        } else {
+          setStatus(`❌ Regeneration failed: ${errorData.detail || 'Unknown error'}`)
+        }
+      }
+    } catch (error) {
+      console.error('Error regenerating reference file:', error)
+      setStatus(`❌ Error regenerating ${fileName}`)
+    } finally {
+      setGenerationStatus({ isGenerating: false })
+    }
   }
 
   const referenceFileTypes = [
@@ -142,9 +293,46 @@ export function ReferenceFileManager() {
 
   return (
     <div className="card">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">
-        Reference Files
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900">
+          Reference Files
+        </h2>
+        
+        {/* Generation Controls */}
+        {isLoaded && isSignedIn && !isLoading && (
+          <div className="flex space-x-2">
+            <button
+              onClick={handleGenerateAllReferences}
+              disabled={generationStatus.isGenerating}
+              className="btn-primary text-sm"
+            >
+              {generationStatus.isGenerating && !generationStatus.currentFile ? (
+                <>
+                  <ArrowPathIcon className="w-4 h-4 mr-1 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="w-4 h-4 mr-1" />
+                  Generate AI Content
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Generation Status */}
+      {generationStatus.isGenerating && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <div className="flex items-center">
+            <ArrowPathIcon className="w-4 h-4 text-blue-600 animate-spin mr-2" />
+            <span className="text-sm text-blue-800">
+              {generationStatus.message || 'Generating content...'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Show loading state while auth is initializing */}
       {!isLoaded && (
@@ -182,6 +370,7 @@ export function ReferenceFileManager() {
           <DocumentTextIcon className="w-12 h-12 mx-auto mb-4 text-gray-400" />
           <p>No reference files found.</p>
           <p className="text-sm mt-2">Upload and initialize a Book Bible to generate reference files.</p>
+          <p className="text-sm mt-1">Or click "Generate AI Content" to create rich reference files.</p>
         </div>
       )}
 
@@ -191,35 +380,54 @@ export function ReferenceFileManager() {
           <div className="grid grid-cols-1 gap-2">
             {referenceFileTypes.map((fileType) => {
               const file = files.find(f => f.name === fileType.name)
+              const isRegenerating = generationStatus.isGenerating && generationStatus.currentFile === fileType.name
+              
               return (
-                <button
-                  key={fileType.name}
-                  onClick={() => file && handleFileSelect(fileType.name)}
-                  className={`flex items-center p-3 rounded-lg border text-left transition-colors ${
-                    selectedFile?.name === fileType.name
-                      ? 'border-primary-300 bg-primary-50'
-                      : file
-                      ? 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                      : 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
-                  }`}
-                  disabled={!file}
-                >
-                  <span className="text-2xl mr-3">{fileType.icon}</span>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-gray-900">{fileType.name}</span>
+                <div key={fileType.name} className="flex items-center">
+                  <button
+                    onClick={() => file && handleFileSelect(fileType.name)}
+                    className={`flex items-center p-3 rounded-lg border text-left transition-colors flex-1 mr-2 ${
+                      selectedFile?.name === fileType.name
+                        ? 'border-primary-300 bg-primary-50'
+                        : file
+                        ? 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        : 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                    }`}
+                    disabled={!file || isRegenerating}
+                  >
+                    <span className="text-2xl mr-3">{fileType.icon}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-900">{fileType.name}</span>
+                        {file && (
+                          <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600">{fileType.description}</p>
                       {file && (
-                        <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Modified: {new Date(file.lastModified).toLocaleDateString()}
+                        </p>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600">{fileType.description}</p>
-                    {file && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Modified: {new Date(file.lastModified).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </button>
+                  </button>
+                  
+                  {/* Regenerate Button */}
+                  {file && (
+                    <button
+                      onClick={() => handleRegenerateFile(fileType.name)}
+                      disabled={generationStatus.isGenerating}
+                      className="btn-secondary text-xs p-2"
+                      title={`Regenerate ${fileType.name} with AI`}
+                    >
+                      {isRegenerating ? (
+                        <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <SparklesIcon className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
+                </div>
               )
             })}
           </div>

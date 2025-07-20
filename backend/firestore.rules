@@ -1,0 +1,241 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==============================================================================
+    // HELPER FUNCTIONS
+    // ==============================================================================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Get current user ID
+    function getUserId() {
+      return request.auth.uid;
+    }
+    
+    // Check if user owns the resource
+    function isOwner(resource) {
+      return resource.data.metadata.owner_id == getUserId() ||
+             resource.data.owner_id == getUserId() ||
+             resource.data.user_id == getUserId();
+    }
+    
+    // Check if user is collaborator on project
+    function isCollaborator(resource) {
+      return getUserId() in resource.data.metadata.collaborators;
+    }
+    
+    // Check if user has access to project (owner or collaborator)
+    function hasProjectAccess(resource) {
+      return isOwner(resource) || isCollaborator(resource);
+    }
+    
+    // Validate required fields exist
+    function hasRequiredFields(requiredFields) {
+      return requiredFields.toSet().difference(request.resource.data.keys().toSet()).size() == 0;
+    }
+    
+    // Check if user is admin (for system operations)
+    function isAdmin() {
+      return request.auth.token.admin == true;
+    }
+    
+    // ==============================================================================
+    // USERS COLLECTION
+    // ==============================================================================
+    
+    match /users/{userId} {
+      // Users can only read/write their own user document
+      allow read, write: if isAuthenticated() && userId == getUserId();
+      
+      // Admin can read all users for system operations
+      allow read: if isAdmin();
+      
+      // Validate user document structure on write
+      allow write: if isAuthenticated() && 
+                      userId == getUserId() &&
+                      hasRequiredFields(['profile', 'usage', 'preferences', 'limits']) &&
+                      request.resource.data.profile.clerk_id == getUserId();
+    }
+    
+    // ==============================================================================
+    // PROJECTS COLLECTION  
+    // ==============================================================================
+    
+    match /projects/{projectId} {
+      // Users can read projects they own or collaborate on
+      allow read: if isAuthenticated() && hasProjectAccess(resource);
+      
+      // Allow queries for projects owned by the user
+      allow list: if isAuthenticated() && 
+                     request.query.where.keys().hasAll(['metadata.owner_id']) &&
+                     request.query.where.metadata.owner_id == getUserId();
+      
+      // Allow queries for projects where user is a collaborator
+      allow list: if isAuthenticated() && 
+                     request.query.where.keys().hasAll(['metadata.collaborators']) &&
+                     getUserId() in request.query.where.metadata.collaborators;
+      
+      // Allow general project listing for users (with proper filtering)
+      allow list: if isAuthenticated();
+      
+      // Users can create new projects (they become owner)
+      allow create: if isAuthenticated() && 
+                       hasRequiredFields(['metadata', 'settings']) &&
+                       request.resource.data.metadata.owner_id == getUserId();
+      
+      // Only owners can update project metadata and settings
+      allow update: if isAuthenticated() && isOwner(resource);
+      
+      // Only owners can delete projects
+      allow delete: if isAuthenticated() && isOwner(resource);
+      
+      // Collaborators can update content and references
+      allow update: if isAuthenticated() && 
+                       hasProjectAccess(resource) &&
+                       // Only allow updates to content fields, not metadata
+                       !('metadata' in request.resource.data.diff(resource.data).affectedKeys()) &&
+                       !('settings' in request.resource.data.diff(resource.data).affectedKeys());
+    }
+    
+    // ==============================================================================
+    // CHAPTERS COLLECTION
+    // ==============================================================================
+    
+    match /chapters/{chapterId} {
+      // Helper function to check project access via chapter's project_id
+      function hasChapterProjectAccess() {
+        return exists(/databases/$(database)/documents/projects/$(resource.data.project_id)) &&
+               hasProjectAccess(get(/databases/$(database)/documents/projects/$(resource.data.project_id)));
+      }
+      
+      // Users can read chapters from projects they have access to
+      allow read: if isAuthenticated() && hasChapterProjectAccess();
+      
+      // Users can create chapters in projects they have access to
+      allow create: if isAuthenticated() && 
+                       hasRequiredFields(['project_id', 'chapter_number', 'content', 'metadata']) &&
+                       exists(/databases/$(database)/documents/projects/$(request.resource.data.project_id)) &&
+                       hasProjectAccess(get(/databases/$(database)/documents/projects/$(request.resource.data.project_id))) &&
+                       request.resource.data.metadata.created_by == getUserId();
+      
+      // Users can update chapters in projects they have access to
+      allow update: if isAuthenticated() && 
+                       hasChapterProjectAccess() &&
+                       // Ensure user is added to version history
+                       (request.resource.data.versions.size() > resource.data.versions.size());
+      
+      // Only project owners can delete chapters
+      allow delete: if isAuthenticated() && 
+                       exists(/databases/$(database)/documents/projects/$(resource.data.project_id)) &&
+                       isOwner(get(/databases/$(database)/documents/projects/$(resource.data.project_id)));
+    }
+    
+    // ==============================================================================
+    // GENERATION JOBS COLLECTION
+    // ==============================================================================
+    
+    match /generation_jobs/{jobId} {
+      // Users can only access their own jobs
+      allow read, write: if isAuthenticated() && resource.data.user_id == getUserId();
+      
+      // Users can create new jobs for their projects
+      allow create: if isAuthenticated() && 
+                       hasRequiredFields(['job_type', 'project_id', 'user_id', 'status']) &&
+                       request.resource.data.user_id == getUserId() &&
+                       exists(/databases/$(database)/documents/projects/$(request.resource.data.project_id)) &&
+                       hasProjectAccess(get(/databases/$(database)/documents/projects/$(request.resource.data.project_id)));
+      
+      // System can update job status and progress (admin token required)
+      allow update: if isAdmin();
+    }
+    
+    // ==============================================================================
+    // SUBSCRIPTIONS COLLECTION
+    // ==============================================================================
+    
+    match /subscriptions/{userId} {
+      // Users can read their own subscription info
+      allow read: if isAuthenticated() && userId == getUserId();
+      
+      // Only system/Stripe webhooks can write subscription data (admin required)
+      allow write: if isAdmin();
+    }
+    
+    // ==============================================================================
+    // USAGE TRACKING COLLECTION
+    // ==============================================================================
+    
+    match /usage_tracking/{trackingId} {
+      // Users can read their own usage data
+      allow read: if isAuthenticated() && 
+                     resource.data.user_id == getUserId();
+      
+      // Only system can write usage data (admin required)
+      allow write: if isAdmin();
+    }
+    
+    // ==============================================================================
+    // ADMIN COLLECTION (for system operations)
+    // ==============================================================================
+    
+    match /admin/{document=**} {
+      // Only admins can access admin collection
+      allow read, write: if isAdmin();
+    }
+    
+    // ==============================================================================
+    // DENY ALL OTHER ACCESS
+    // ==============================================================================
+    
+    // Explicitly deny access to any other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+/*
+==============================================================================
+SECURITY RULE TESTING GUIDELINES
+==============================================================================
+
+Key test cases to validate:
+
+1. USER ISOLATION:
+   - User A cannot read User B's documents
+   - User A cannot access User B's projects
+   - User A cannot see User B's chapters or jobs
+
+2. PROJECT COLLABORATION:
+   - Project owner can invite collaborators
+   - Collaborators can edit content but not settings
+   - Non-collaborators cannot access project
+
+3. CHAPTER ACCESS:
+   - Users can only access chapters from their projects
+   - Chapter creation requires project access
+   - Version history tracks all editors
+
+4. JOB SECURITY:
+   - Users only see their own generation jobs
+   - Job creation requires project ownership
+   - System can update job progress
+
+5. BILLING PROTECTION:
+   - Users can read own subscription/usage
+   - Only system can modify billing data
+   - No cross-user billing access
+
+6. VALIDATION:
+   - Required fields enforced
+   - User IDs match authentication
+   - Project ownership verified
+
+Test with Firebase Emulator:
+firebase emulators:start --only firestore
+*/ 

@@ -4,22 +4,21 @@
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "devCommand": "npm run dev",
-  "regions": ["iad1"],
+
   "functions": {
-    "src/app/api/generate/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/estimate/route.ts": {
+    "src/app/api/**/*.ts": {
       "maxDuration": 30
     },
-    "api/generate.py": {
+    "src/app/api/generate/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/auto-complete/**/route.ts": {
       "maxDuration": 300
     },
-    "api/assess.py": {
-      "maxDuration": 300
+    "src/app/api/prewriting/summary/route.ts": {
+      "maxDuration": 45
     }
   },
-
   "headers": [
     {
       "source": "/api/(.*)",
@@ -35,8 +34,74 @@
         {
           "key": "Access-Control-Allow-Headers",
           "value": "Content-Type, Authorization"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
         }
       ]
+    },
+    {
+      "source": "/api/book-bible/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, max-age=300"
+        }
+      ]
+    },
+    {
+      "source": "/api/chapters/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, max-age=60"
+        }
+      ]
+    },
+    {
+      "source": "/api/user/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, max-age=600"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/dashboard",
+      "permanent": false,
+      "has": [
+        {
+          "type": "cookie",
+          "key": "__session"
+        }
+      ]
+    },
+    {
+      "source": "/",
+      "destination": "/sign-in",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/backend/(.*)",
+      "destination": "https://your-railway-backend.up.railway.app/api/$1"
+    }
+  ],
+  "regions": ["iad1", "sfo1"],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-temp-files",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/sync-offline-data",
+      "schedule": "*/5 * * * *"
     }
   ]
 } 

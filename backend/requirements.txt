@@ -13,6 +13,13 @@ python-dateutil==2.8.2
 asyncio==3.4.3
 pathlib==1.0.1
 
+# AI/ML dependencies for content generation
+openai>=1.0.0
+PyYAML>=6.0
+
+# Firestore integration
+google-cloud-firestore>=2.13.1
+
 # Optional dependencies for production
 gunicorn==21.2.0
 redis==5.0.1

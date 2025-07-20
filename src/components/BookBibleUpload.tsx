@@ -5,7 +5,7 @@ import { DocumentTextIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangl
 import { useAuthToken } from '@/lib/auth'
 
 interface BookBibleUploadProps {
-  onProjectInitialized: () => void
+  onProjectInitialized: (projectId?: string) => void
 }
 
 export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) {
@@ -98,7 +98,8 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         setTimeout(() => {
           setStatus('✅ Book Bible uploaded successfully!')
           setIsUploading(false)
-          onProjectInitialized() // Refresh project status
+          const projectId = data.project_id || localStorage.getItem('lastProjectId')
+          onProjectInitialized(projectId) // Refresh project status
         }, 2000)
       } else {
         setStatus(`❌ Upload failed: ${data.error}`)
@@ -163,17 +164,18 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
       if (response.ok) {
         setStatus('📝 Generating reference files...')
         
-        // Store project_id for project status component
+        // Store project_id and book bible content for project status component
         if (data.project_id) {
           localStorage.setItem('lastProjectId', data.project_id)
-          console.log('Stored project_id in localStorage:', data.project_id)
+          localStorage.setItem(`bookBible-${data.project_id}`, content)
+          console.log('Stored project_id and book bible in localStorage:', data.project_id)
         }
         
         // Give some time for reference generation
         setTimeout(() => {
           setStatus('✅ Project initialized successfully!')
           setIsInitializing(false)
-          onProjectInitialized() // Refresh project status
+          onProjectInitialized(data.project_id) // Refresh project status
         }, 2000)
       } else {
         setStatus(`❌ Initialization failed: ${data.error}`)

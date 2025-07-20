@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync, unlinkSync, statSync } from 'fs'
-import path from 'path'
 
 export async function GET(
   request: NextRequest,
@@ -16,31 +14,77 @@ export async function GET(
       )
     }
 
-    const projectRoot = process.cwd()
-    const chapterFile = path.join(projectRoot, 'chapters', `chapter-${chapterNumber.toString().padStart(2, '0')}.md`)
-
-    try {
-      const content = readFileSync(chapterFile, 'utf8')
-      const stats = statSync(chapterFile)
-
-      return NextResponse.json({
-        success: true,
-        chapter: chapterNumber,
-        content: content,
-        last_modified: stats.mtime.toISOString()
-      })
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return NextResponse.json(
-          { error: `Chapter ${chapterNumber} not found` },
-          { status: 404 }
-        )
-      }
-      throw error
+    // Get project ID from query parameters
+    const url = new URL(request.url)
+    const projectId = url.searchParams.get('project_id')
+    
+    if (!projectId) {
+      return NextResponse.json(
+        { error: 'Project ID is required' },
+        { status: 400 }
+      )
     }
 
+    // Get backend URL
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    
+    if (!backendBaseUrl) {
+      console.error('[chapters/{chapter}] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
+    }
+
+    const targetUrl = `${backendBaseUrl}/v2/chapters/project/${encodeURIComponent(projectId)}/chapter/${chapterNumber}`
+    console.log('[chapters/{chapter}] Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    console.log('[chapters/{chapter}] Making request to backend')
+
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'GET',
+      headers
+    })
+
+    console.log('[chapters/{chapter}] Backend response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[chapters/{chapter}] Backend error:', errorText)
+      
+      // Try to parse as JSON first, fall back to text
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
+
+    const data = await backendResponse.json()
+    console.log('[chapters/{chapter}] Backend success, returning data')
+
+    return NextResponse.json(data)
+
   } catch (error: any) {
-    console.error('Failed to get chapter:', error)
+    console.error('[chapters/{chapter}] Request failed:', error)
     return NextResponse.json(
       { error: `Failed to get chapter: ${error.message}` },
       { status: 500 }
@@ -62,37 +106,77 @@ export async function DELETE(
       )
     }
 
-    const projectRoot = process.cwd()
-    const chapterFile = path.join(projectRoot, 'chapters', `chapter-${chapterNumber.toString().padStart(2, '0')}.md`)
-    const logFile = path.join(projectRoot, 'logs', `chapter_${chapterNumber}_metadata.json`)
-
-    try {
-      // Delete the chapter file
-      unlinkSync(chapterFile)
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return NextResponse.json(
-          { error: `Chapter ${chapterNumber} not found` },
-          { status: 404 }
-        )
-      }
-      throw error
+    // Get project ID from query parameters
+    const url = new URL(request.url)
+    const projectId = url.searchParams.get('project_id')
+    
+    if (!projectId) {
+      return NextResponse.json(
+        { error: 'Project ID is required' },
+        { status: 400 }
+      )
     }
 
-    // Try to delete the log file (optional)
-    try {
-      unlinkSync(logFile)
-    } catch {
-      // Log file doesn't exist, that's fine
+    // Get backend URL
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    
+    if (!backendBaseUrl) {
+      console.error('[chapters/{chapter}] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json({
-      success: true,
-      message: `Chapter ${chapterNumber} deleted successfully`
+    const targetUrl = `${backendBaseUrl}/v2/chapters/project/${encodeURIComponent(projectId)}/chapter/${chapterNumber}`
+    console.log('[chapters/{chapter}] Delete Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    console.log('[chapters/{chapter}] Making delete request to backend')
+
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers
     })
 
+    console.log('[chapters/{chapter}] Backend delete response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[chapters/{chapter}] Backend delete error:', errorText)
+      
+      // Try to parse as JSON first, fall back to text
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
+
+    const data = await backendResponse.json()
+    console.log('[chapters/{chapter}] Backend delete success, returning data')
+
+    return NextResponse.json(data)
+
   } catch (error: any) {
-    console.error('Failed to delete chapter:', error)
+    console.error('[chapters/{chapter}] Delete request failed:', error)
     return NextResponse.json(
       { error: `Failed to delete chapter: ${error.message}` },
       { status: 500 }

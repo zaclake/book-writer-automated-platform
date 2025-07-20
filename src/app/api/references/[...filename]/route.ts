@@ -183,6 +183,10 @@ export async function POST(
   { params }: { params: { filename: string[] } }
 ) {
   console.log('[references/filename] POST request started')
+  console.log('[references/filename] Raw params:', params)
+  console.log('[references/filename] Request URL:', request.url)
+  console.log('[references/filename] Request method:', request.method)
+  console.log('[references/filename] Headers:', Object.fromEntries(request.headers.entries()))
 
   try {
     const filename = params.filename.join('/')
@@ -190,6 +194,7 @@ export async function POST(
 
     // Check if this is a regenerate request
     if (!filename.endsWith('/regenerate')) {
+      console.log('[references/filename] Not a regenerate request, returning 400')
       return NextResponse.json(
         { error: 'POST method only supported for /regenerate endpoints' },
         { status: 400 }
@@ -214,6 +219,7 @@ export async function POST(
     // Get the request body
     const body = await request.json()
     console.log('[references/filename] Request body keys:', Object.keys(body))
+    console.log('[references/filename] Request body:', body)
 
     const targetUrl = `${backendBaseUrl}/references/${actualFilename}/regenerate`
     console.log('[references/filename] Target URL:', targetUrl)
@@ -240,6 +246,7 @@ export async function POST(
     })
 
     console.log('[references/filename] Backend response status:', backendResponse.status)
+    console.log('[references/filename] Backend response headers:', Object.fromEntries(backendResponse.headers.entries()))
 
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text()
@@ -272,6 +279,7 @@ export async function POST(
 
   } catch (error) {
     console.error('[references/filename] POST request failed:', error)
+    console.error('[references/filename] Error stack:', error instanceof Error ? error.stack : 'No stack')
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: {
@@ -281,4 +289,29 @@ export async function POST(
       }}
     )
   }
+}
+
+export async function OPTIONS(
+  request: NextRequest,
+  { params }: { params: { filename: string[] } }
+) {
+  console.log('[references/filename] OPTIONS request - route is accessible!')
+  console.log('[references/filename] OPTIONS params:', params)
+  console.log('[references/filename] OPTIONS URL:', request.url)
+  
+  const filename = params.filename.join('/')
+  console.log('[references/filename] OPTIONS filename:', filename)
+  
+  return NextResponse.json({
+    message: 'Route is accessible',
+    filename: filename,
+    params: params,
+    url: request.url
+  }, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    }
+  })
 }

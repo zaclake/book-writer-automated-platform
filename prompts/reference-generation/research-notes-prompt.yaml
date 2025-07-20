@@ -1,0 +1,110 @@
+name: "Research Notes Reference Generator"
+description: "Generates comprehensive research documentation and fact-checking guidelines from book bible content"
+
+system_prompt: |
+  You are a research specialist and fact-checking expert who helps authors maintain accuracy and authenticity in their writing. Your role is to identify research requirements, organize factual information, and create systematic approaches for maintaining accuracy throughout the writing process.
+
+  Your responsibilities include:
+  1. **Research Identification**: Identifying areas that require factual research and verification
+  2. **Source Organization**: Categorizing and structuring research materials effectively
+  3. **Accuracy Guidelines**: Creating standards for fact-checking and verification
+  4. **Technical Expertise**: Understanding specialized knowledge areas relevant to the story
+  5. **Cultural Sensitivity**: Ensuring respectful and accurate representation of cultures, places, and groups
+  6. **Continuity Tracking**: Maintaining consistency in factual details across chapters
+
+  Generate comprehensive, organized documentation that serves as both a research guide and fact-checking resource throughout the writing process.
+
+user_prompt_template: |
+  Based on this book bible content:
+
+  {book_bible_content}
+
+  Please generate a comprehensive **Research Notes Reference** document that will guide factual accuracy and research throughout the writing process.
+
+  Structure your response with these sections:
+
+  ## Research Requirements Analysis
+  - **High-Priority Research Areas**: Critical topics that require thorough investigation
+  - **Medium-Priority Research**: Important details that need verification
+  - **Low-Priority Research**: Nice-to-have information for authenticity
+  - **Ongoing Research Needs**: Areas requiring continuous fact-checking during writing
+
+  ## Subject Matter Domains
+  - **Historical Elements**: Time periods, events, social conditions requiring accuracy
+  - **Geographic Details**: Locations, climate, geography, local customs
+  - **Technical/Professional Knowledge**: Specialized fields, occupations, industries
+  - **Cultural Considerations**: Ethnicities, religions, social groups, traditions
+  - **Scientific/Medical Information**: Accurate portrayal of sciences, medical conditions, technology
+  - **Legal/Political Systems**: Laws, government structures, legal procedures
+
+  ## Research Organization System
+  - **Primary Sources**: Academic papers, official documents, expert interviews
+  - **Secondary Sources**: Books, documentaries, reputable websites
+  - **Expert Consultations**: Professionals to consult for specialized knowledge
+  - **Experience-Based Research**: Field visits, hands-on learning opportunities
+  - **Fact-Checking Resources**: Reliable sources for verification
+
+  ## Accuracy Standards
+  - **Non-Negotiable Facts**: Elements that must be 100% accurate
+  - **Creative License Areas**: Where artistic interpretation is acceptable
+  - **Sensitivity Guidelines**: Topics requiring extra care and cultural sensitivity
+  - **Verification Process**: Steps for fact-checking before publication
+
+  ## Research Tracking System
+  - **Fact Database Structure**: How to organize and track researched information
+  - **Source Citation Format**: How to properly cite research sources
+  - **Update Protocols**: When and how to update research as new information emerges
+  - **Cross-Reference System**: Linking research to specific scenes and chapters
+
+  ## Chapter-by-Chapter Research Checklist
+  - **Pre-Writing Research**: What to verify before writing each chapter
+  - **In-Writing Fact-Checking**: Real-time verification during the writing process
+  - **Post-Writing Review**: Final accuracy check for completed chapters
+  - **Consistency Verification**: Ensuring factual details remain consistent across chapters
+
+  ## Common Accuracy Pitfalls
+  - **Historical Anachronisms**: Modern elements incorrectly placed in historical settings
+  - **Geographic Impossibilities**: Travel times, distances, climate inconsistencies
+  - **Technical Inaccuracies**: Misrepresentation of professional practices or scientific concepts
+  - **Cultural Stereotypes**: Avoiding harmful or inaccurate cultural representations
+  - **Timeline Contradictions**: Ensuring events occur in logical sequence
+
+  ## Research Resources and Tools
+  - **Recommended Databases**: Specific databases relevant to this story's research needs
+  - **Expert Networks**: Types of professionals to contact for consultation
+  - **Research Tools**: Software, apps, or systems for organizing research
+  - **Fact-Checking Websites**: Reliable online resources for verification
+  - **Reference Libraries**: Physical or digital libraries with relevant collections
+
+  ## Quality Control Process
+  - **Research Validation Steps**: How to verify the credibility of sources
+  - **Expert Review Process**: When to seek professional review of technical content
+  - **Beta Reader Focus**: Training beta readers to identify factual inconsistencies
+  - **Final Accuracy Audit**: Comprehensive fact-checking before publication
+
+  Provide specific, actionable guidance that will help maintain factual accuracy and authenticity throughout the writing process. Focus on practical research organization and verification methods.
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.6
+  max_tokens: 4000
+  top_p: 0.9
+
+validation:
+  required_sections:
+    - "Research Requirements Analysis"
+    - "Subject Matter Domains"
+    - "Research Organization System"
+    - "Accuracy Standards"
+    - "Research Tracking System"
+    - "Chapter-by-Chapter Research Checklist"
+    - "Common Accuracy Pitfalls"
+    - "Research Resources and Tools"
+    - "Quality Control Process"
+  
+  quality_checks:
+    - "Research areas are specific to this story's content"
+    - "Organization system is practical and scalable"
+    - "Accuracy standards are clearly defined"
+    - "Tracking system is detailed and usable"
+    - "Resources are relevant and accessible" 

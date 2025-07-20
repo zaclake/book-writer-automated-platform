@@ -24,61 +24,12 @@ class ReferenceContentGenerator:
             prompts_dir: Directory containing YAML prompt files (defaults to prompts/reference-generation)
         """
         self.client = None
-        # Use absolute path for Railway deployment
+        
         if prompts_dir:
             self.prompts_dir = prompts_dir
         else:
-            # Try multiple possible locations
-            possible_paths = [
-                Path(__file__).parent.parent / "prompts" / "reference-generation",  # Current approach
-                Path("/app/prompts/reference-generation"),  # Direct absolute path
-                Path("/app/reference-generation"),  # ACTUAL location on Railway
-                Path("/app/backend/prompts/reference-generation"),  # In case backend dir is included
-            ]
-            
-            # AGGRESSIVE DEBUGGING - Show everything
-            import os
-            logger.error(f"=== PROMPTS DEBUGGING START ===")
-            logger.error(f"Current working directory: {os.getcwd()}")
-            logger.error(f"__file__ location: {__file__}")
-            logger.error(f"__file__ parent: {Path(__file__).parent}")
-            logger.error(f"__file__ parent.parent: {Path(__file__).parent.parent}")
-            
-            # Show what's in /app
-            app_dir = Path("/app")
-            logger.error(f"/app exists: {app_dir.exists()}")
-            if app_dir.exists():
-                logger.error(f"Contents of /app: {list(app_dir.iterdir())}")
-            
-            # Show what's in /app/prompts if it exists
-            app_prompts = Path("/app/prompts")
-            logger.error(f"/app/prompts exists: {app_prompts.exists()}")
-            if app_prompts.exists():
-                logger.error(f"Contents of /app/prompts: {list(app_prompts.iterdir())}")
-            
-            # Show what's in the relative path
-            rel_prompts = Path(__file__).parent.parent / "prompts"
-            logger.error(f"Relative prompts dir: {rel_prompts}")
-            logger.error(f"Relative prompts exists: {rel_prompts.exists()}")
-            if rel_prompts.exists():
-                logger.error(f"Contents of relative prompts: {list(rel_prompts.iterdir())}")
-            
-            logger.error(f"Trying these paths: {possible_paths}")
-            
-            self.prompts_dir = None
-            for path in possible_paths:
-                logger.error(f"Checking path: {path} - exists: {path.exists()}")
-                if path.exists():
-                    self.prompts_dir = path
-                    logger.error(f"SUCCESS: Using prompts directory: {self.prompts_dir}")
-                    break
-            
-            if self.prompts_dir is None:
-                # Default to the first path and let it fail with proper error
-                self.prompts_dir = possible_paths[0]
-                logger.error(f"FAILED: No prompts directory found, defaulting to: {self.prompts_dir}")
-            
-            logger.error(f"=== PROMPTS DEBUGGING END ===")
+            # Simple path resolution
+            self.prompts_dir = Path(__file__).parent.parent / "prompts" / "reference-generation"
         
         # Initialize OpenAI client if API key is available
         api_key = os.getenv('OPENAI_API_KEY')
@@ -103,37 +54,44 @@ class ReferenceContentGenerator:
             
         Raises:
             FileNotFoundError: If prompt file doesn't exist
-            yaml.YAMLError: If prompt file is invalid YAML
         """
+        # Simple fallback for missing prompt files
+        fallback_prompt = {
+            'name': f'{reference_type.title()} Reference Generator',
+            'system_prompt': f'You are an expert {reference_type} specialist. Create comprehensive {reference_type} documentation based on the book bible.',
+            'user_prompt_template': f'Based on this book bible content:\n\n{{book_bible_content}}\n\nCreate detailed {reference_type} documentation. Format as markdown.',
+            'model_config': {'model': 'gpt-4', 'temperature': 0.7, 'max_tokens': 3000}
+        }
+        
         prompt_file = self.prompts_dir / f"{reference_type}-prompt.yaml"
         
-        # Debug: Log directory contents
-        logger.info(f"Prompts directory: {self.prompts_dir}")
-        logger.info(f"Prompts directory exists: {self.prompts_dir.exists()}")
-        if self.prompts_dir.exists():
-            logger.info(f"Files in prompts directory: {list(self.prompts_dir.iterdir())}")
-        logger.info(f"Looking for prompt file: {prompt_file}")
+        if prompt_file.exists():
+            try:
+                with open(prompt_file, 'r', encoding='utf-8') as f:
+                    prompt_config = yaml.safe_load(f)
+                
+                # Validate required fields
+                required_fields = ['name', 'system_prompt', 'user_prompt_template', 'model_config']
+                for field in required_fields:
+                    if field not in prompt_config:
+                        logger.warning(f"Missing field {field} in prompt config, using fallback")
+                        return fallback_prompt
+                
+                return prompt_config
+                
+            except Exception as e:
+                logger.warning(f"Error loading prompt file {prompt_file}: {e}, using fallback")
+                return fallback_prompt
         
-        if not prompt_file.exists():
-            raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
-        
-        try:
-            with open(prompt_file, 'r', encoding='utf-8') as f:
-                prompt_config = yaml.safe_load(f)
-            
-            # Validate required fields
-            required_fields = ['name', 'system_prompt', 'user_prompt_template', 'model_config']
-            for field in required_fields:
-                if field not in prompt_config:
-                    raise ValueError(f"Missing required field in prompt config: {field}")
-            
-            return prompt_config
-            
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Invalid YAML in prompt file {prompt_file}: {e}")
+        # Use fallback if file doesn't exist
+        logger.info(f"Prompt file not found: {prompt_file}, using fallback")
+        return fallback_prompt
     
     def generate_content(self, reference_type: str, book_bible_content: str, 
-                        additional_context: Optional[Dict[str, Any]] = None) -> str:
+                        additional_context: Optional[Dict[str, Any]] = None,
+                        book_length_tier: Optional[str] = None,
+                        estimated_chapters: Optional[int] = None,
+                        target_word_count: Optional[int] = None) -> str:
         """
         Generate content for a specific reference file type.
         
@@ -164,11 +122,27 @@ class ReferenceContentGenerator:
         system_prompt = prompt_config['system_prompt']
         user_prompt_template = prompt_config['user_prompt_template']
         
-        # Prepare user prompt with book bible content
+        # Prepare user prompt with book bible content and book specifications
         context = {
             'book_bible_content': book_bible_content,
             **(additional_context or {})
         }
+        
+        # Add book length context if provided
+        if book_length_tier or estimated_chapters or target_word_count:
+            book_specs = []
+            if book_length_tier:
+                book_specs.append(f"Book Length Category: {book_length_tier.replace('_', ' ').title()}")
+            if estimated_chapters:
+                book_specs.append(f"Estimated Chapters: {estimated_chapters}")
+            if target_word_count:
+                book_specs.append(f"Target Word Count: {target_word_count:,} words")
+            
+            context['book_specifications'] = "\n".join(book_specs)
+            
+            # Update book bible content to include specifications
+            if book_specs:
+                context['book_bible_content'] = f"{book_bible_content}\n\n## Book Specifications\n{context['book_specifications']}"
         
         try:
             user_prompt = user_prompt_template.format(**context)
@@ -181,17 +155,23 @@ class ReferenceContentGenerator:
             {"role": "user", "content": user_prompt}
         ]
         
-        # Make API request
+        # Make API request with timeout
         try:
-            logger.info(f"Generating content for {reference_type} using {model_config.get('model', 'gpt-4o')}")
+            import time
+            start_time = time.time()
+            logger.info(f"Starting OpenAI API request for {reference_type} using {model_config.get('model', 'gpt-4o')}")
             
             response = self.client.chat.completions.create(
                 model=model_config.get('model', 'gpt-4o'),
                 messages=messages,
                 temperature=model_config.get('temperature', 0.7),
                 max_tokens=model_config.get('max_tokens', 4000),
-                top_p=model_config.get('top_p', 0.9)
+                top_p=model_config.get('top_p', 0.9),
+                timeout=90  # 90 second timeout for OpenAI API calls
             )
+            
+            duration = time.time() - start_time
+            logger.info(f"OpenAI API request completed for {reference_type} in {duration:.2f} seconds")
             
             generated_content = response.choices[0].message.content
             
@@ -211,8 +191,24 @@ class ReferenceContentGenerator:
             return generated_content
             
         except Exception as e:
-            logger.error(f"OpenAI API request failed for {reference_type}: {e}")
-            raise Exception(f"Content generation failed: {e}")
+            # Handle specific timeout and API errors
+            error_message = str(e)
+            
+            if "timeout" in error_message.lower():
+                logger.error(f"OpenAI API request timed out for {reference_type}: {e}")
+                raise Exception(f"Content generation timed out after 90 seconds. Please try again later.")
+            elif "rate_limit" in error_message.lower():
+                logger.error(f"OpenAI API rate limit exceeded for {reference_type}: {e}")
+                raise Exception(f"OpenAI API rate limit exceeded. Please wait a moment and try again.")
+            elif "quota" in error_message.lower():
+                logger.error(f"OpenAI API quota exceeded for {reference_type}: {e}")
+                raise Exception(f"OpenAI API quota exceeded. Please check your API usage.")
+            elif "authentication" in error_message.lower():
+                logger.error(f"OpenAI API authentication failed for {reference_type}: {e}")
+                raise Exception(f"OpenAI API authentication failed. Please check your API key.")
+            else:
+                logger.error(f"OpenAI API request failed for {reference_type}: {e}")
+                raise Exception(f"Content generation failed: {e}")
     
     def _validate_content_sections(self, content: str, expected_sections: List[str]) -> List[str]:
         """
@@ -243,7 +239,11 @@ class ReferenceContentGenerator:
     
     def generate_all_references(self, book_bible_content: str, 
                                references_dir: Path,
-                               reference_types: Optional[List[str]] = None) -> Dict[str, Any]:
+                               reference_types: Optional[List[str]] = None,
+                               book_length_tier: Optional[str] = None,
+                               estimated_chapters: Optional[int] = None,
+                               target_word_count: Optional[int] = None,
+                               include_series_bible: bool = False) -> Dict[str, Any]:
         """
         Generate content for all reference file types.
         
@@ -260,7 +260,14 @@ class ReferenceContentGenerator:
         
         # Default reference types
         if reference_types is None:
-            reference_types = ['characters', 'outline', 'world-building', 'style-guide', 'plot-timeline']
+            reference_types = [
+                'characters', 'outline', 'world-building', 'style-guide', 'plot-timeline',
+                'themes-and-motifs', 'research-notes', 'target-audience-profile'
+            ]
+        
+        # Add series bible if requested
+        if include_series_bible and 'series-bible' not in reference_types:
+            reference_types.append('series-bible')
         
         results = {}
         references_dir.mkdir(parents=True, exist_ok=True)
@@ -269,8 +276,14 @@ class ReferenceContentGenerator:
             try:
                 logger.info(f"Generating content for {ref_type}")
                 
-                # Generate content
-                content = self.generate_content(ref_type, book_bible_content)
+                # Generate content with book specifications
+                content = self.generate_content(
+                    ref_type, 
+                    book_bible_content,
+                    book_length_tier=book_length_tier,
+                    estimated_chapters=estimated_chapters,
+                    target_word_count=target_word_count
+                )
                 
                 # Determine filename
                 filename_map = {
@@ -278,7 +291,11 @@ class ReferenceContentGenerator:
                     'outline': 'outline.md',
                     'world-building': 'world-building.md',
                     'style-guide': 'style-guide.md',
-                    'plot-timeline': 'plot-timeline.md'
+                    'plot-timeline': 'plot-timeline.md',
+                    'themes-and-motifs': 'themes-and-motifs.md',
+                    'research-notes': 'research-notes.md',
+                    'target-audience-profile': 'target-audience-profile.md',
+                    'series-bible': 'series-bible.md'
                 }
                 
                 filename = filename_map.get(ref_type, f"{ref_type}.md")
@@ -319,6 +336,8 @@ class ReferenceContentGenerator:
             Dictionary with regeneration result
         """
         try:
+            logger.info(f"Starting regeneration of {reference_type} reference")
+            
             # Generate new content
             content = self.generate_content(reference_type, book_bible_content)
             
@@ -328,7 +347,11 @@ class ReferenceContentGenerator:
                 'outline': 'outline.md', 
                 'world-building': 'world-building.md',
                 'style-guide': 'style-guide.md',
-                'plot-timeline': 'plot-timeline.md'
+                'plot-timeline': 'plot-timeline.md',
+                'themes-and-motifs': 'themes-and-motifs.md',
+                'research-notes': 'research-notes.md',
+                'target-audience-profile': 'target-audience-profile.md',
+                'series-bible': 'series-bible.md'
             }
             
             filename = filename_map.get(reference_type, f"{reference_type}.md")

@@ -7,6 +7,49 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 
+def _normalize_heading(heading: str) -> str:
+    """
+    Normalize heading text by removing emojis, special formatting, and standardizing text.
+    
+    Args:
+        heading: Raw heading text from markdown
+        
+    Returns:
+        Normalized heading suitable for section mapping
+    """
+    # Remove emojis (Unicode ranges for comprehensive emoji coverage)
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "\U00002702-\U000027B0"  # dingbats
+        "\U000024C2-\U0001F251"  # enclosed characters
+        "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
+        "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-A
+        "\U00002600-\U000026FF"  # miscellaneous symbols
+        "\U0000FE00-\U0000FE0F"  # variation selectors
+        "\U0001F018-\U0001F270"  # various symbols
+        "\U00000080-\U000000FF"  # latin-1 supplement (includes ©, ®)
+        "]+", flags=re.UNICODE
+    )
+    normalized = emoji_pattern.sub('', heading)
+    
+    # Remove markdown formatting
+    normalized = re.sub(r'\*\*(.+?)\*\*', r'\1', normalized)  # bold
+    normalized = re.sub(r'\*(.+?)\*', r'\1', normalized)      # italic
+    normalized = re.sub(r'`(.+?)`', r'\1', normalized)        # code
+    normalized = re.sub(r'_(.+?)_', r'\1', normalized)        # underscore
+    
+    # Remove special characters and normalize spacing
+    normalized = re.sub(r'[^\w\s-]', '', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized)
+    normalized = normalized.strip().lower()
+    
+    return normalized
+
+
 def generate_reference_files(book_bible_text: str, references_dir: Path) -> List[str]:
     """
     Parse book-bible.md content and generate individual reference files.
@@ -24,27 +67,83 @@ def generate_reference_files(book_bible_text: str, references_dir: Path) -> List
     # Split content by top-level headings (## sections)
     sections = _parse_sections(book_bible_text)
     
-    # Map section names to filenames
+    # Enhanced section mapping with more comprehensive keywords
     section_mapping = {
+        # Character-related
         'characters': 'characters.md',
         'character': 'characters.md',
+        'character development': 'characters.md',
+        'characterdevelopment': 'characters.md',
+        'protagonists': 'characters.md',
+        'protagonist': 'characters.md',
+        'antagonists': 'characters.md',
+        'antagonist': 'characters.md',
+        'supporting characters': 'characters.md',
+        'cast': 'characters.md',
+        'people': 'characters.md',
+        
+        # Plot/Outline related
         'outline': 'outline.md',
         'plot': 'outline.md',
         'story': 'outline.md',
         'structure': 'outline.md',
+        'narrative structure': 'outline.md',
+        'story structure': 'outline.md',
+        'plot structure': 'outline.md',
+        'beats': 'outline.md',
+        'story beats': 'outline.md',
+        'plot beats': 'outline.md',
+        'acts': 'outline.md',
+        'chapters': 'outline.md',
+        
+        # World-building related
         'world': 'world-building.md',
         'worldbuilding': 'world-building.md',
+        'world building': 'world-building.md',
         'world-building': 'world-building.md',
         'setting': 'world-building.md',
+        'settings': 'world-building.md',
+        'locations': 'world-building.md',
+        'location': 'world-building.md',
+        'environment': 'world-building.md',
+        'environments': 'world-building.md',
+        'geography': 'world-building.md',
+        'society': 'world-building.md',
+        'culture': 'world-building.md',
+        'rules': 'world-building.md',
+        
+        # Style/Writing related
         'style': 'style-guide.md',
         'voice': 'style-guide.md',
         'tone': 'style-guide.md',
         'writing': 'style-guide.md',
+        'style technique': 'style-guide.md',
+        'style and technique': 'style-guide.md',
+        'prose style': 'style-guide.md',
+        'narrative voice': 'style-guide.md',
+        'writing style': 'style-guide.md',
+        'technique': 'style-guide.md',
+        'pov': 'style-guide.md',
+        'point of view': 'style-guide.md',
+        'perspective': 'style-guide.md',
+        
+        # Timeline/Theme related
         'theme': 'plot-timeline.md',
         'themes': 'plot-timeline.md',
         'timeline': 'plot-timeline.md',
+        'plot timeline': 'plot-timeline.md',
+        'story timeline': 'plot-timeline.md',
+        'chronology': 'plot-timeline.md',
+        'sequence': 'plot-timeline.md',
+        'thematic': 'plot-timeline.md',
+        
+        # Research/Notes
         'research': 'research-notes.md',
-        'notes': 'research-notes.md'
+        'notes': 'research-notes.md',
+        'inspiration': 'research-notes.md',
+        'references': 'research-notes.md',
+        'background': 'research-notes.md',
+        'sources': 'research-notes.md'
     }
     
     created_files = []
@@ -55,9 +154,22 @@ def generate_reference_files(book_bible_text: str, references_dir: Path) -> List
         if not content.strip():
             continue
             
-        # Determine target filename
-        section_key = section_name.lower().replace(' ', '').replace('-', '')
-        filename = section_mapping.get(section_key, 'misc-notes.md')
+        # Normalize the section name for better matching
+        normalized_section = _normalize_heading(section_name)
+        
+        # Try exact match first, then partial matches
+        filename = section_mapping.get(normalized_section, None)
+        
+        # If no exact match, try partial matching for compound headings
+        if not filename:
+            for key, file in section_mapping.items():
+                if key in normalized_section or normalized_section in key:
+                    filename = file
+                    break
+        
+        # Default to misc-notes.md if still no match
+        if not filename:
+            filename = 'misc-notes.md'
         
         # Accumulate content for each file (in case multiple sections map to same file)
         if filename not in file_contents:

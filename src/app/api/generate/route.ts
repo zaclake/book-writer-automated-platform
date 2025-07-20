@@ -1,18 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export async function POST(request: NextRequest) {
-  try {
-    const { chapter, words, stage, projectId, userId } = await request.json()
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
-    if (!chapter || !words || !projectId || !userId) {
+export async function POST(request: NextRequest) {
+  console.log('[generate] POST request started')
+  
+  try {
+    const body = await request.json()
+    const { project_id, chapter_number, words, stage } = body
+    console.log('[generate] Request body:', { project_id, chapter_number, words, stage })
+
+    if (!project_id || !chapter_number || !words) {
+      console.log('[generate] Missing required fields')
       return NextResponse.json(
-        { error: 'Chapter number, word count, project ID, and user ID are required' },
+        { error: 'project_id, chapter_number, and words are required' },
         { status: 400 }
       )
     }
 
     // Validate inputs
-    if (chapter < 1 || chapter > 200) {
+    if (chapter_number < 1 || chapter_number > 200) {
       return NextResponse.json(
         { error: 'Chapter number must be between 1 and 200' },
         { status: 400 }
@@ -34,25 +42,99 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For now, return a simple success response for deployment testing
-    return NextResponse.json({
-      success: true,
-      message: 'Chapter generation initiated',
-      chapter,
-      words,
-      stage: stage || 'complete',
-      projectId,
-      userId
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    console.log('[generate] Backend URL from env:', backendBaseUrl)
+
+    if (!backendBaseUrl) {
+      console.error('[generate] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
+    }
+
+    const targetUrl = `${backendBaseUrl}/v2/chapters/generate`
+    console.log('[generate] Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    console.log('[generate] Authorization header:', authHeader ? `${authHeader.substring(0, 30)}...` : 'MISSING')
+
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    // Forward the request body as-is (it's already in the correct format)
+    console.log('[generate] Making request to backend with body:', body)
+
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
     })
 
-  } catch (error: any) {
-    console.error('Generation error:', error)
-    
+    console.log('[generate] Backend response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[generate] Backend error:', errorText)
+      
+      // Try to parse as JSON first, fall back to text
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
+
+    const data = await backendResponse.json()
+    console.log('[generate] Backend success, returning data')
+
+    return NextResponse.json(data, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    })
+
+  } catch (error) {
+    console.error('[generate] Request failed:', error)
     return NextResponse.json(
-      { error: `Generation failed: ${error.message}` },
-      { status: 500 }
+      { error: 'Internal server error' },
+      { status: 500, headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }}
     )
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  console.log('[generate] OPTIONS request')
+  
+  return NextResponse.json({
+    message: 'Generate route is accessible'
+  }, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    }
+  })
 }
 
  
