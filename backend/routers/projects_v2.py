@@ -15,7 +15,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from models.firestore_models import (
     Project, CreateProjectRequest, UpdateProjectRequest, 
     ProjectListResponse, ProjectMetadata, ProjectSettings,
-    BookBible, ReferenceFile
+    BookBible, ReferenceFile, BookLengthTier
 )
 from database_integration import (
     get_user_projects, create_project, get_project,
@@ -214,8 +214,65 @@ async def create_new_project(
         
         # Add book bible if provided
         if request.book_bible_content:
+            # Try to expand content with OpenAI if source data is available
+            final_content = request.book_bible_content
+            if request.source_data and request.creation_mode in ['quickstart', 'guided']:
+                try:
+                    # Check if OpenAI expansion is enabled
+                    import os
+                    openai_enabled = os.getenv('ENABLE_OPENAI_EXPANSION', 'true').lower() == 'true'
+                    
+                    if openai_enabled:
+                        from utils.reference_content_generator import ReferenceContentGenerator
+                        from models.firestore_models import BookBible
+                        
+                        generator = ReferenceContentGenerator()
+                        if generator.is_available():
+                            logger.info(f"Expanding {request.creation_mode} content with OpenAI for project")
+                            
+                            # Get book length specs
+                            if request.book_length_tier:
+                                try:
+                                    tier_enum = BookLengthTier(request.book_length_tier)
+                                    book_specs = BookBible.get_book_length_specs(tier_enum)
+                                except ValueError:
+                                    # Fallback if invalid tier
+                                    book_specs = {
+                                        'chapter_count_target': request.target_chapters,
+                                        'word_count_target': request.target_word_count or 75000,
+                                        'avg_words_per_chapter': request.word_count_per_chapter
+                                    }
+                            else:
+                                # Default specs
+                                book_specs = {
+                                    'chapter_count_target': request.target_chapters,
+                                    'word_count_target': request.target_word_count or 75000,
+                                    'avg_words_per_chapter': request.word_count_per_chapter
+                                }
+                            
+                            # Expand the content
+                            expanded_content = generator.expand_book_bible(
+                                source_data=request.source_data,
+                                creation_mode=request.creation_mode,
+                                book_specs=book_specs
+                            )
+                            
+                            if expanded_content and len(expanded_content) > len(final_content):
+                                final_content = expanded_content
+                                logger.info(f"Successfully expanded book bible from {len(request.book_bible_content)} to {len(expanded_content)} characters")
+                            else:
+                                logger.warning("OpenAI expansion failed or produced shorter content, using original")
+                        else:
+                            logger.info("OpenAI not available, using template content")
+                    else:
+                        logger.info("OpenAI expansion disabled via ENABLE_OPENAI_EXPANSION=false")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to expand book bible content with OpenAI: {e}, using template content")
+                    # Continue with original content if expansion fails
+            
             project_data['book_bible'] = {
-                'content': request.book_bible_content,
+                'content': final_content,
                 'must_include_sections': request.must_include_sections,
                 'book_length_tier': request.book_length_tier,
                 'estimated_chapters': request.estimated_chapters or request.target_chapters,
@@ -223,9 +280,10 @@ async def create_new_project(
                 'last_modified': datetime.now(timezone.utc),
                 'modified_by': user_id,
                 'version': 1,
-                'word_count': len(request.book_bible_content.split()),
+                'word_count': len(final_content.split()),
                 'creation_mode': request.creation_mode,
-                'source_data': request.source_data
+                'source_data': request.source_data,
+                'ai_expanded': final_content != request.book_bible_content
             }
         
         # Create the project
@@ -342,6 +400,7 @@ async def create_new_project(
                     'genre': request.genre,
                     'include_series_bible': request.include_series_bible
                 }
+                # Note: book_bible.source_data not included in response for privacy
             },
             'message': 'Project created successfully'
         }
@@ -685,6 +744,126 @@ async def add_collaborator(
         return {
             'message': 'Collaborator added successfully'
         }
+        
+    except Exception as e:
+        logger.error(f"Failed to add collaborator to project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add collaborator"
+        )
+
+@router.post("/expand-book-bible")
+async def expand_book_bible_content(
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Expand QuickStart or Guided wizard data into comprehensive book bible."""
+    try:
+        user_id = current_user.get('sub')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Validate request data
+        source_data = request.get('source_data')
+        creation_mode = request.get('creation_mode')
+        book_specs = request.get('book_specs', {})
+        
+        if not source_data or not creation_mode:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source_data and creation_mode are required"
+            )
+        
+        if creation_mode not in ['quickstart', 'guided']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="creation_mode must be 'quickstart' or 'guided'"
+            )
+        
+        # Check if OpenAI expansion is enabled
+        import os
+        openai_enabled = os.getenv('ENABLE_OPENAI_EXPANSION', 'true').lower() == 'true'
+        
+        if not openai_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI expansion is disabled via environment configuration."
+            )
+        
+        # Initialize content generator
+        from utils.reference_content_generator import ReferenceContentGenerator
+        generator = ReferenceContentGenerator()
+        
+        if not generator.is_available():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service is not available. Check API key configuration."
+            )
+        
+        logger.info(f"Expanding book bible content", extra={
+            'user_id': user_id,
+            'creation_mode': creation_mode,
+            'source_data_keys': list(source_data.keys()) if isinstance(source_data, dict) else 'not_dict'
+            # Note: source_data values intentionally omitted from logs for privacy
+        })
+        
+        # Set default book specs if not provided
+        default_specs = {
+            'chapter_count_target': book_specs.get('target_chapters', 25),
+            'word_count_target': book_specs.get('target_word_count', 75000),
+            'avg_words_per_chapter': book_specs.get('word_count_per_chapter', 3000)
+        }
+        
+        # Expand the content
+        import time
+        start_time = time.time()
+        
+        expanded_content = generator.expand_book_bible(
+            source_data=source_data,
+            creation_mode=creation_mode,
+            book_specs=default_specs
+        )
+        
+        expansion_time = time.time() - start_time
+        word_count = len(expanded_content.split()) if expanded_content else 0
+        
+        logger.info(f"Successfully expanded book bible content", extra={
+            'user_id': user_id,
+            'creation_mode': creation_mode,
+            'expansion_time': expansion_time,
+            'output_length': len(expanded_content) if expanded_content else 0,
+            'word_count': word_count
+            # Note: source_data intentionally omitted from logs for privacy
+        })
+        
+        return {
+            'success': True,
+            'expanded_content': expanded_content,
+            'expansion_time': expansion_time,
+            'word_count': word_count,
+            'metadata': {
+                'creation_mode': creation_mode,
+                'book_specs': default_specs,
+                'ai_generated': True,
+                'generated_at': datetime.now(timezone.utc).isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to expand book bible content: {e}", extra={
+            'user_id': current_user.get('sub'),
+            'creation_mode': request.get('creation_mode'),
+            'error': str(e)
+        })
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to expand book bible content"
+        )
         
     except HTTPException:
         raise

@@ -326,6 +326,139 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export async function POST(request: NextRequest) {
+  try {
+    // Try both auth methods to ensure compatibility
+    let userId: string | null = null
+    let authToken: string | null = null
+    
+    try {
+      const user = await currentUser()
+      userId = user?.id || null
+      if (userId) {
+        const { getToken } = auth()
+        authToken = await getToken()
+      }
+    } catch (currentUserError) {
+      console.log('currentUser() failed, trying auth():', currentUserError)
+      try {
+        const authResult = await auth()
+        userId = authResult.userId
+        authToken = await authResult.getToken()
+      } catch (authError) {
+        console.error('Both auth methods failed:', authError)
+      }
+    }
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (!authToken) {
+      return NextResponse.json({ error: 'Failed to get auth token' }, { status: 401 })
+    }
+
+    const bookBibleData: BookBibleData = await request.json()
+
+    // Validate required fields
+    if (!bookBibleData.title || !bookBibleData.content) {
+      return NextResponse.json(
+        { error: 'Title and content are required' },
+        { status: 400 }
+      )
+    }
+
+    // Validate creation mode
+    if (!['quickstart', 'guided', 'paste'].includes(bookBibleData.creation_mode)) {
+      return NextResponse.json(
+        { error: 'Invalid creation mode' },
+        { status: 400 }
+      )
+    }
+
+    // Generate expanded book bible content if needed
+    let finalContent = bookBibleData.content
+    if (bookBibleData.creation_mode !== 'paste' && bookBibleData.source_data) {
+      try {
+        finalContent = await generateExpandedBookBible(
+          bookBibleData.source_data, 
+          bookBibleData.creation_mode
+        )
+      } catch (error) {
+        console.error('Failed to expand book bible:', error)
+        // Fall back to original content if expansion fails
+      }
+    }
+
+    // Get user preferences for project settings
+    const defaultSettings = {
+      target_chapters: bookBibleData.target_chapters || 25,
+      word_count_per_chapter: bookBibleData.word_count_per_chapter || 2000,
+      involvement_level: 'balanced',
+      purpose: 'personal',
+      book_length_tier: bookBibleData.book_length_tier || 'standard_novel',
+      estimated_chapters: bookBibleData.estimated_chapters,
+      target_word_count: bookBibleData.target_word_count,
+      include_series_bible: bookBibleData.include_series_bible || false
+    }
+
+    // Create project data
+    const projectData = {
+      title: bookBibleData.title,
+      genre: bookBibleData.genre,
+      book_bible_content: finalContent,
+      must_include_sections: bookBibleData.must_include_sections,
+      settings: {
+        ...defaultSettings,
+        genre: bookBibleData.genre,
+        target_chapters: bookBibleData.target_chapters,
+        word_count_per_chapter: bookBibleData.word_count_per_chapter
+      },
+      owner_id: userId,
+      created_at: new Date().toISOString(),
+      status: 'active'
+    }
+
+    // Create project in backend (Firestore)
+    const projectId = await createProjectInBackend(projectData, authToken)
+
+    // In production, this would also:
+    // 1. Generate reference files (characters, outline, world-building, style-guide, plot-timeline, 
+    //    themes-and-motifs, research-notes, target-audience-profile, and optionally series-bible)
+    // 2. Initialize project state tracking with book length specifications
+    // 3. Set up pattern database
+    // 4. Create initial quality baselines based on target word count and chapter structure
+
+    console.log(`Book Bible created successfully for user ${userId}:`, {
+      projectId,
+      title: bookBibleData.title,
+      mode: bookBibleData.creation_mode,
+      contentLength: finalContent.length,
+      mustIncludeCount: bookBibleData.must_include_sections.length
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: 'Book Bible created successfully',
+      project: {
+        id: projectId,
+        title: bookBibleData.title,
+        genre: bookBibleData.genre,
+        status: 'active',
+        created_at: projectData.created_at,
+        settings: projectData.settings
+      }
+    })
+
+  } catch (error) {
+    console.error('POST /api/book-bible/create error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Try both auth methods to ensure compatibility

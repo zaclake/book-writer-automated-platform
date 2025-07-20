@@ -7,8 +7,9 @@ An intelligent book writing platform that automatically generates complete books
 ### Prerequisites
 - Node.js 18+ 
 - Python 3.11+
-- OpenAI API Key
+- OpenAI API Key (required for AI-powered book bible expansion)
 - Clerk Account (for authentication)
+- Firebase/Firestore project (for data storage)
 
 ### Local Development
 
@@ -35,6 +36,43 @@ cd backend
 cp env.example .env
 ```
 
+**Required Environment Variables:**
+
+**Frontend (.env.local):**
+```bash
+# OpenAI Configuration
+OPENAI_API_KEY=sk-proj-your-openai-api-key-here
+ENABLE_OPENAI_EXPANSION=true  # Toggle AI features
+
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your-key
+CLERK_SECRET_KEY=sk_test_your-key
+
+# Backend URL
+NEXT_PUBLIC_BACKEND_URL=https://your-backend-url.railway.app
+```
+
+**Backend (.env):**
+```bash
+# API Keys
+OPENAI_API_KEY=your_openai_api_key_here
+ENABLE_OPENAI_EXPANSION=true  # Enable/disable AI expansion
+
+# Clerk Authentication
+CLERK_SECRET_KEY=your_clerk_secret_key_here
+CLERK_JWT_ISSUER=your_clerk_jwt_issuer_here
+
+# Firestore Configuration
+USE_FIRESTORE=true
+GOOGLE_CLOUD_PROJECT=your-project-id
+SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+
+# AI Content Generation
+DEFAULT_AI_MODEL=gpt-4o
+DEFAULT_AI_TEMPERATURE=0.7
+DEFAULT_AI_MAX_TOKENS=4000
+```
+
 3. **Run the development servers:**
 ```bash
 # Terminal 1: Backend
@@ -46,6 +84,107 @@ npm run dev
 ```
 
 4. **Visit http://localhost:3000**
+
+## 📖 **Book Bible Creation System**
+
+The platform features a comprehensive book bible creation wizard with three modes:
+
+### Creation Modes
+
+#### 🚀 **QuickStart Mode**
+Perfect for writers with a basic story concept:
+- **Title & Genre**: Core book information
+- **Brief Premise**: One-sentence story summary
+- **Main Character**: Protagonist description
+- **Setting**: Time and place
+- **Central Conflict**: Primary story tension
+
+The AI expands these basics into a full book bible with character profiles, plot structure, themes, and chapter outlines.
+
+#### 🎯 **Guided Mode**
+For detailed story planning:
+- **Comprehensive Premise**: Full story concept
+- **Character Details**: Main and supporting characters
+- **Setting Elements**: Detailed time/place descriptions
+- **Themes & Tone**: Story elements and writing style
+- **Plot Points**: Key story beats and structure
+
+Creates a cohesive, detailed book bible synthesizing all elements.
+
+#### 📝 **Paste-In Mode**
+For existing content:
+- Import pre-written book bible content
+- Automatic formatting and structure validation
+- Integration with project management system
+
+### AI-Powered Expansion
+
+When enabled, the system uses OpenAI GPT-4o to:
+- **Expand Character Profiles**: Detailed backstories, motivations, and arcs
+- **Develop World-Building**: Rich setting details, cultures, and history
+- **Structure Plot**: Three-act structure with chapter-by-chapter breakdown
+- **Define Themes**: Core themes and how they develop throughout the story
+- **Create Writing Guidelines**: Tone, voice, and style consistency
+
+### Book Length Tiers
+
+Choose from predefined book lengths:
+- **Novella**: ~40,000 words, 15 chapters
+- **Standard Novel**: ~75,000 words, 25 chapters  
+- **Epic Novel**: ~120,000 words, 40 chapters
+
+Each tier automatically calculates chapter counts, word targets, and pacing guidelines.
+
+## 🔌 **API Endpoints**
+
+### Book Bible Creation
+
+**Create Project with Book Bible**
+```
+POST /api/book-bible/create
+```
+
+**Expand Book Bible Content**
+```
+POST /api/book-bible/expand
+```
+
+**Backend Project Management**
+```
+POST /v2/projects/                     # Create new project
+GET  /v2/projects/{id}                 # Get project details
+POST /v2/projects/{id}/references/generate  # Generate reference files
+POST /v2/projects/expand-book-bible    # Expand content with AI
+```
+
+### Environment Configuration
+
+**ENABLE_OPENAI_EXPANSION**
+- `true` (default): AI expansion enabled
+- `false`: Use template content only
+
+This flag controls whether the system uses OpenAI to expand QuickStart/Guided content or falls back to static templates.
+
+## 🧪 **Testing**
+
+### Run Tests
+```bash
+# Frontend tests
+npm test
+
+# Backend tests
+cd backend
+pytest
+
+# Integration tests
+npm run test:integration
+```
+
+### Key Test Suites
+- **Book Bible Creation Flow**: End-to-end wizard testing
+- **OpenAI LLM Expansion**: AI service functionality
+- **API Authentication**: Clerk integration testing
+- **Firestore Rules**: Security validation
 
 ## 🛠️ **Recent Critical Bug Fixes**
 

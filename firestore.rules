@@ -39,6 +39,26 @@ service cloud.firestore {
       return requiredFields.toSet().difference(request.resource.data.keys().toSet()).size() == 0;
     }
     
+    // Validate book bible structure and new fields
+    function isValidBookBible(bookBible) {
+      return bookBible is map &&
+             'content' in bookBible &&
+             bookBible.content is string &&
+             bookBible.content.size() > 0 &&
+             'last_modified' in bookBible &&
+             'modified_by' in bookBible &&
+             'version' in bookBible &&
+             bookBible.version is number &&
+             // New optional fields validation
+             (!('creation_mode' in bookBible) || bookBible.creation_mode in ['quickstart', 'guided', 'paste']) &&
+             (!('book_length_tier' in bookBible) || bookBible.book_length_tier is string) &&
+             (!('ai_expanded' in bookBible) || bookBible.ai_expanded is bool) &&
+             (!('source_data' in bookBible) || bookBible.source_data is map) &&
+             (!('must_include_sections' in bookBible) || bookBible.must_include_sections is list) &&
+             (!('estimated_chapters' in bookBible) || bookBible.estimated_chapters is number) &&
+             (!('target_word_count' in bookBible) || bookBible.target_word_count is number);
+    }
+    
     // Check if user is admin (for system operations)
     function isAdmin() {
       return request.auth.token.admin == true;
@@ -86,10 +106,14 @@ service cloud.firestore {
       // Users can create new projects (they become owner)
       allow create: if isAuthenticated() && 
                        hasRequiredFields(['metadata', 'settings']) &&
-                       request.resource.data.metadata.owner_id == getUserId();
+                       request.resource.data.metadata.owner_id == getUserId() &&
+                       // Validate book bible if present
+                       (!('book_bible' in request.resource.data) || isValidBookBible(request.resource.data.book_bible));
       
       // Only owners can update project metadata and settings
-      allow update: if isAuthenticated() && isOwner(resource);
+      allow update: if isAuthenticated() && isOwner(resource) &&
+                       // Validate book bible if being updated
+                       (!('book_bible' in request.resource.data) || isValidBookBible(request.resource.data.book_bible));
       
       // Only owners can delete projects
       allow delete: if isAuthenticated() && isOwner(resource);
@@ -99,7 +123,9 @@ service cloud.firestore {
                        hasProjectAccess(resource) &&
                        // Only allow updates to content fields, not metadata
                        !('metadata' in request.resource.data.diff(resource.data).affectedKeys()) &&
-                       !('settings' in request.resource.data.diff(resource.data).affectedKeys());
+                       !('settings' in request.resource.data.diff(resource.data).affectedKeys()) &&
+                       // Validate book bible if being updated
+                       (!('book_bible' in request.resource.data) || isValidBookBible(request.resource.data.book_bible));
     }
     
     // ==============================================================================
@@ -235,6 +261,12 @@ Key test cases to validate:
    - Required fields enforced
    - User IDs match authentication
    - Project ownership verified
+
+7. BOOK BIBLE SECURITY:
+   - Book bible schema validation enforced
+   - New AI expansion fields validated
+   - Source data and creation mode secured
+   - Only valid creation modes allowed
 
 Test with Firebase Emulator:
 firebase emulators:start --only firestore

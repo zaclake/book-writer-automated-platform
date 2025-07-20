@@ -42,6 +42,204 @@ class ReferenceContentGenerator:
         """Check if content generation is available (API key configured)."""
         return self.client is not None
     
+    def expand_book_bible(self, source_data: dict, creation_mode: str, book_specs: dict) -> str:
+        """
+        Expand QuickStart or Guided wizard data into a comprehensive book bible using OpenAI.
+        
+        Args:
+            source_data: Data from QuickStart or Guided wizard
+            creation_mode: 'quickstart' or 'guided'
+            book_specs: Book length specifications (target_chapters, word_count, etc.)
+            
+        Returns:
+            Expanded book bible content as markdown
+        """
+        if not self.is_available():
+            raise Exception("OpenAI API not available. Check OPENAI_API_KEY configuration.")
+        
+        try:
+            # Build the expansion prompt based on creation mode
+            if creation_mode == 'quickstart':
+                return self._expand_quickstart_data(source_data, book_specs)
+            elif creation_mode == 'guided':
+                return self._expand_guided_data(source_data, book_specs)
+            else:
+                raise ValueError(f"Unsupported creation mode: {creation_mode}")
+                
+        except Exception as e:
+            logger.error(f"Failed to expand book bible for mode {creation_mode}: {e}")
+            raise
+    
+    def _expand_quickstart_data(self, data: dict, book_specs: dict) -> str:
+        """Expand QuickStart data into full book bible."""
+        system_prompt = """You are an expert story development assistant. Your task is to take basic story elements and expand them into a comprehensive book bible that will guide the writing of a full novel.
+
+You must create a detailed, professional book bible that includes:
+1. Expanded character profiles with motivations, backstories, and arcs
+2. Rich world-building with specific details about setting, culture, and rules  
+3. Detailed plot structure with three-act breakdown and chapter outline
+4. Themes and motifs woven throughout the story
+5. Writing style guidelines and tone consistency
+6. Conflict escalation and resolution planning
+
+The book bible should be comprehensive enough for a writer to begin crafting chapters immediately."""
+
+        user_prompt = f"""Please expand the following basic story elements into a comprehensive book bible:
+
+**Title:** {data.get('title', 'Untitled')}
+**Genre:** {data.get('genre', 'Fiction')}
+**Brief Premise:** {data.get('brief_premise', 'Not provided')}
+**Main Character:** {data.get('main_character', 'Not provided')}
+**Setting:** {data.get('setting', 'Not provided')}
+**Central Conflict:** {data.get('conflict', 'Not provided')}
+
+**Book Specifications:**
+- Target Chapters: {book_specs.get('chapter_count_target', 25)}
+- Target Word Count: {book_specs.get('word_count_target', 75000):,} words
+- Words per Chapter: {book_specs.get('avg_words_per_chapter', 3000)}
+
+Create a detailed book bible in markdown format that includes:
+
+## Story Overview
+- Expanded premise with deeper thematic elements
+- Genre-specific conventions and expectations
+
+## Character Development
+- Detailed main character profile with background, motivations, flaws, and character arc
+- Supporting characters and their relationships
+- Character growth throughout the story
+
+## World Building
+- Expanded setting details with specific locations
+- Cultural, social, and historical context
+- Rules and constraints of this world
+
+## Plot Structure
+- Three-act structure breakdown
+- Major plot points and turning points
+- Chapter-by-chapter outline with key scenes
+- Conflict escalation and resolution
+
+## Themes and Motifs
+- Central themes explored in the story
+- Recurring motifs and symbols
+- How themes develop across chapters
+
+## Writing Guidelines
+- Tone and voice consistency
+- Point of view and narrative style
+- Genre-specific elements to include
+
+Generate comprehensive, specific content that gives a writer everything needed to begin writing chapters immediately."""
+
+        return self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
+    
+    def _expand_guided_data(self, data: dict, book_specs: dict) -> str:
+        """Expand Guided wizard data into full book bible."""
+        system_prompt = """You are an expert story development assistant. Your task is to take detailed story planning information and synthesize it into a comprehensive, professional book bible for novel writing.
+
+You must create a cohesive book bible that weaves together all the provided elements into a unified vision, expanding where needed and ensuring consistency throughout. The book bible should be detailed enough for immediate chapter writing."""
+
+        user_prompt = f"""Please synthesize and expand the following detailed story elements into a comprehensive book bible:
+
+**Title:** {data.get('title', 'Untitled')}
+**Genre:** {data.get('genre', 'Fiction')}
+**Premise:** {data.get('premise', 'Not provided')}
+**Main Characters:** {data.get('main_characters', 'Not provided')}
+**Setting Time:** {data.get('setting_time', 'Not provided')}
+**Setting Place:** {data.get('setting_place', 'Not provided')}
+**Central Conflict:** {data.get('central_conflict', 'Not provided')}
+**Themes:** {data.get('themes', 'Not provided')}
+**Target Audience:** {data.get('target_audience', 'Not provided')}
+**Tone:** {data.get('tone', 'Not provided')}
+**Key Plot Points:** {data.get('key_plot_points', 'Not provided')}
+
+**Book Specifications:**
+- Target Chapters: {book_specs.get('chapter_count_target', 25)}
+- Target Word Count: {book_specs.get('word_count_target', 75000):,} words
+- Words per Chapter: {book_specs.get('avg_words_per_chapter', 3000)}
+
+Create a detailed, cohesive book bible in markdown format that includes:
+
+## Story Overview
+- Unified premise incorporating all provided elements
+- Genre analysis and reader expectations
+
+## Character Profiles
+- Expanded character descriptions with psychological depth
+- Character relationships and dynamics
+- Character arcs and development throughout the story
+
+## World and Setting
+- Detailed world-building combining time and place elements
+- Cultural, historical, and environmental context
+- Specific locations and their significance
+
+## Plot Architecture
+- Comprehensive plot structure incorporating provided plot points
+- Three-act breakdown with clear progression
+- Detailed chapter outline with scene descriptions
+- Conflict development and resolution path
+
+## Thematic Framework
+- Deep exploration of provided themes
+- How themes manifest in plot, character, and setting
+- Thematic consistency throughout chapters
+
+## Voice and Style Guide
+- Tone implementation guidelines based on target audience
+- Narrative voice and point of view decisions
+- Style consistency for the specified tone: "{data.get('tone', 'Not specified')}"
+
+## Writing Direction
+- Scene-by-scene guidance for opening chapters
+- Pacing and rhythm guidelines
+- Key scenes that must be included
+
+Ensure all elements work together cohesively and provide specific, actionable guidance for writing."""
+
+        return self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
+    
+    def _make_openai_request(self, system_prompt: str, user_prompt: str, request_type: str) -> str:
+        """Make OpenAI API request with proper error handling."""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            import time
+            start_time = time.time()
+            logger.info(f"Starting OpenAI API request for {request_type}")
+            
+            response = self.client.chat.completions.create(
+                model='gpt-4o',
+                messages=messages,
+                temperature=0.7,
+                max_tokens=4000,
+                top_p=0.9,
+                timeout=120  # 2 minute timeout for complex requests
+            )
+            
+            duration = time.time() - start_time
+            content = response.choices[0].message.content
+            
+            logger.info(f"OpenAI API request completed for {request_type} in {duration:.2f}s, generated {len(content)} characters")
+            
+            if not content or len(content.strip()) < 200:
+                raise Exception("Generated content is too short or empty")
+            
+            return content
+            
+        except Exception as e:
+            logger.error(f"OpenAI API request failed for {request_type}: {e}")
+            if "timeout" in str(e).lower():
+                raise Exception("Content generation timed out. Please try again.")
+            elif "rate_limit" in str(e).lower():
+                raise Exception("API rate limit exceeded. Please try again in a moment.")
+            else:
+                raise Exception(f"Content generation failed: {str(e)}")
+    
     def load_prompt(self, reference_type: str) -> Dict[str, Any]:
         """
         Load YAML prompt configuration for a specific reference type.
