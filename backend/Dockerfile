@@ -15,28 +15,29 @@ RUN apt-get update && apt-get install -y \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# Copy backend requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (this will now include the system directory)
+# Copy only the backend code to /app (not the entire project)
 COPY . .
 
-# Create non-root user
+# Ensure start.sh has execute permissions
+RUN chmod +x start.sh
+
+# Create necessary directories first (as root)
+RUN mkdir -p temp_projects logs
+
+# Create non-root user and change ownership
 RUN adduser --disabled-password --gecos '' appuser && \
     chown -R appuser:appuser /app
-USER appuser
 
-# Create necessary directories
-RUN mkdir -p temp_projects logs
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Command to run the application with tini and gunicorn for production
+# Command to run the application with tini and start script
 ENTRYPOINT ["tini", "--"]
-CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-"] 
+CMD ["./start.sh"] 

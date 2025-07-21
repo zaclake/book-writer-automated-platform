@@ -62,7 +62,7 @@ async def list_project_chapters(
 ):
     """Get all chapters for a specific project."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -147,7 +147,7 @@ async def create_new_chapter(
 ):
     """Create a new chapter in a project."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -276,7 +276,7 @@ async def get_chapter_details(
 ):
     """Get detailed information about a specific chapter."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -359,7 +359,7 @@ async def update_chapter(
 ):
     """Update a chapter and create a new version."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -469,7 +469,7 @@ async def add_chapter_version(
 ):
     """Add a new version to a chapter."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -549,7 +549,7 @@ async def get_chapter_versions(
 ):
     """Get all versions of a chapter."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -624,7 +624,7 @@ async def get_chapter_statistics(
 ):
     """Get statistics for a specific chapter."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -702,7 +702,7 @@ async def get_chapter_by_number(
 ):
     """Get chapter by project ID and chapter number."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -778,7 +778,7 @@ async def update_chapter_by_number(
 ):
     """Update chapter by project ID and chapter number."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

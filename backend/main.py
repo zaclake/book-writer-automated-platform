@@ -214,7 +214,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS and security headers
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,https://bookwriterautomated-f9vhlimib-zaclakes-projects.vercel.app').split(',')
+cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,https://www.writerbloom.com,https://bookwriterautomated-f9vhlimib-zaclakes-projects.vercel.app,https://bookwriterautomated-ngt27g4wu-zaclakes-projects.vercel.app,https://bookwriterautomated-hia787cms-zaclakes-projects.vercel.app').split(',')
 
 app.add_middleware(
     CORSMiddleware,

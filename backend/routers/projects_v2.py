@@ -143,7 +143,7 @@ async def list_user_projects(
 ):
     """Get all projects for the authenticated user."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -184,7 +184,7 @@ async def create_new_project(
 ):
     """Create a new project for the authenticated user."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -419,7 +419,7 @@ async def generate_project_references(
 ):
     """Generate or regenerate reference files for a project."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -520,7 +520,7 @@ async def get_project_details(
 ):
     """Get detailed information about a specific project."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -568,7 +568,7 @@ async def update_project(
 ):
     """Update an existing project."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -650,7 +650,7 @@ async def migrate_filesystem_project(
 ):
     """Migrate an existing filesystem project to Firestore."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -692,7 +692,7 @@ async def add_collaborator(
 ):
     """Add a collaborator to a project."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -757,7 +757,7 @@ async def expand_book_bible_content(
 ):
     """Expand QuickStart or Guided wizard data into comprehensive book bible."""
     try:
-        user_id = current_user.get('sub')
+        user_id = current_user.get('user_id')
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -854,7 +854,7 @@ async def expand_book_bible_content(
         raise
     except Exception as e:
         logger.error(f"Failed to expand book bible content: {e}", extra={
-            'user_id': current_user.get('sub'),
+            'user_id': current_user.get('user_id'),
             'creation_mode': request.get('creation_mode'),
             'error': str(e)
         })

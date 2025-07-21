@@ -7,12 +7,15 @@ Provides CRUD operations aligned with the commercial architecture schema.
 import logging
 import os
 import uuid
+import json
+import tempfile
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, asdict
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 from google.api_core.exceptions import NotFound, PermissionDenied
+from google.oauth2 import service_account
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -74,28 +77,92 @@ class FirestoreService:
     """
     
     def __init__(self, project_id: Optional[str] = None):
-        """Initialize Firestore client."""
+        """Initialize Firestore client with proper credential handling."""
+        self.db = None
+        self.available = False
+        environment = os.getenv('ENVIRONMENT', 'production')
+        
         try:
-            # Check if running in production environment without credentials
-            import os
-            environment = os.getenv('ENVIRONMENT', 'production')
+            # Try to initialize Firestore with proper credential handling
+            credentials = None
             
-            if project_id:
-                self.db = firestore.Client(project=project_id)
-            else:
-                self.db = firestore.Client()
-            logger.info("Firestore service initialized successfully")
-            self.available = True
+            # Method 1: SERVICE_ACCOUNT_JSON environment variable (for Railway)
+            service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
+            if service_account_json:
+                try:
+                    logger.info("Attempting to initialize Firestore with SERVICE_ACCOUNT_JSON")
+                    service_account_info = json.loads(service_account_json)
+                    credentials = service_account.Credentials.from_service_account_info(service_account_info)
+                    
+                    # Use project_id from service account if not provided
+                    if not project_id:
+                        project_id = service_account_info.get('project_id')
+                    
+                    if project_id:
+                        self.db = firestore.Client(project=project_id, credentials=credentials)
+                    else:
+                        self.db = firestore.Client(credentials=credentials)
+                        
+                    logger.info(f"✅ Firestore initialized successfully with SERVICE_ACCOUNT_JSON (project: {project_id})")
+                    self.available = True
+                    return
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse SERVICE_ACCOUNT_JSON: {e}")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Firestore with SERVICE_ACCOUNT_JSON: {e}")
+            
+            # Method 2: GOOGLE_APPLICATION_CREDENTIALS file path
+            creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            if creds_path and os.path.exists(creds_path):
+                try:
+                    logger.info(f"Attempting to initialize Firestore with credentials file: {creds_path}")
+                    credentials = service_account.Credentials.from_service_account_file(creds_path)
+                    
+                    if project_id:
+                        self.db = firestore.Client(project=project_id, credentials=credentials)
+                    else:
+                        self.db = firestore.Client(credentials=credentials)
+                    
+                    logger.info(f"✅ Firestore initialized successfully with credentials file")
+                    self.available = True
+                    return
+                except Exception as e:
+                    logger.error(f"Failed to initialize Firestore with credentials file: {e}")
+            
+            # Method 3: Try default credentials (for local development or GCP environment)
+            try:
+                logger.info("Attempting to initialize Firestore with default credentials")
+                if project_id:
+                    self.db = firestore.Client(project=project_id)
+                else:
+                    # Try to get project_id from environment
+                    project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+                    if project_id:
+                        self.db = firestore.Client(project=project_id)
+                    else:
+                        self.db = firestore.Client()
+                
+                logger.info("✅ Firestore initialized successfully with default credentials")
+                self.available = True
+                return
+            except Exception as e:
+                logger.error(f"Failed to initialize Firestore with default credentials: {e}")
+            
+            # If we get here, all methods failed
+            raise Exception("All Firestore initialization methods failed")
+            
         except Exception as e:
             logger.error(f"Failed to initialize Firestore: {e}")
             
-            # In production without credentials, create a mock service
+            # In production without credentials, create a fallback mode
             if environment == 'production':
-                logger.warning("Firestore unavailable in production - using fallback mode")
+                logger.warning("⚠️ Firestore unavailable in production - using fallback mode")
+                logger.warning("To enable Firestore, set SERVICE_ACCOUNT_JSON environment variable with your service account JSON")
                 self.db = None
                 self.available = False
             else:
-                # In development, fail fast
+                # In development, fail fast to surface configuration issues
+                logger.error("❌ Firestore initialization failed in development mode")
                 raise
     
     # =====================================================================
