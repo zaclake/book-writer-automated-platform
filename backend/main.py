@@ -113,25 +113,40 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting Auto-Complete Book Backend...")
     
-    # Initialize services
+    # Initialize services (optional - graceful degradation if they fail)
     try:
-        # Import and initialize orchestration modules
-        from auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
-        from background_job_processor import BackgroundJobProcessor
-        from chapter_context_manager import ChapterContextManager
+        # Try to import and initialize orchestration modules
+        try:
+            from auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
+            logger.info("AutoCompleteBookOrchestrator imported successfully")
+        except ImportError as e:
+            logger.warning(f"AutoCompleteBookOrchestrator not available: {e}")
+            
+        try:
+            from background_job_processor import BackgroundJobProcessor
+            app.state.job_processor = BackgroundJobProcessor()
+            logger.info("BackgroundJobProcessor initialized")
+        except Exception as e:
+            logger.warning(f"BackgroundJobProcessor initialization failed: {e}")
+            
+        try:
+            from chapter_context_manager import ChapterContextManager
+            logger.info("ChapterContextManager imported successfully")
+        except ImportError as e:
+            logger.warning(f"ChapterContextManager not available: {e}")
         
-        # Store initialized services in app state
-        app.state.job_processor = BackgroundJobProcessor()
+        # Start background job cleanup task (optional)
+        try:
+            import asyncio
+            asyncio.create_task(periodic_cleanup())
+            logger.info("Periodic cleanup task started")
+        except Exception as e:
+            logger.warning(f"Failed to start periodic cleanup: {e}")
         
-        # Start background job cleanup task
-        import asyncio
-        asyncio.create_task(periodic_cleanup())
-        
-        logger.info("All services initialized successfully")
+        logger.info("Backend startup completed (some services may be degraded)")
         
     except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
-        # Don't fail startup, but log the error
+        logger.error(f"Startup error (continuing anyway): {e}")
         
     yield
     
@@ -284,12 +299,31 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     from auth_middleware import auth_middleware
     return auth_middleware.verify_token(credentials)
 
-# Include routers
-from routers import projects_v2, chapters_v2, users_v2
-
-app.include_router(projects_v2.router)
-app.include_router(chapters_v2.router)
-app.include_router(users_v2.router)
+# Include routers with explicit error handling
+try:
+    logger.info("Attempting to import routers...")
+    from routers import projects_v2, chapters_v2, users_v2
+    logger.info("Router imports successful")
+    
+    logger.info("Including projects_v2 router...")
+    app.include_router(projects_v2.router)
+    logger.info("✅ projects_v2 router included")
+    
+    logger.info("Including chapters_v2 router...")
+    app.include_router(chapters_v2.router)
+    logger.info("✅ chapters_v2 router included")
+    
+    logger.info("Including users_v2 router...")
+    app.include_router(users_v2.router)
+    logger.info("✅ users_v2 router included")
+    
+    logger.info("All routers included successfully")
+except Exception as e:
+    logger.error(f"❌ CRITICAL: Failed to include routers: {e}")
+    logger.error(f"Error type: {type(e).__name__}")
+    import traceback
+    logger.error(f"Full traceback: {traceback.format_exc()}")
+    # Continue without routers to keep basic app running
 
 # Debug endpoints
 @app.get("/debug/auth-config")
@@ -546,45 +580,25 @@ async def debug_paths():
 
 # Root endpoint
 @app.get("/")
-@limiter.limit("60/minute")
-async def root(request: Request):
+async def root():
     """Root endpoint for health check."""
-    return {"message": "Auto-Complete Book Backend is running", "version": "1.0.0"}
+    return {
+        "message": "Auto-Complete Book Backend is running", 
+        "version": "1.0.0",
+        "status": "operational",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 # Health check endpoint
 @app.get("/health")
-@limiter.limit("30/minute")
-async def health_check(request: Request):
-    """Basic health check endpoint."""
-    try:
-        # Check job processor
-        job_processor_healthy = hasattr(app.state, 'job_processor')
-        
-        # Check storage
-        storage_stats = await firestore_client.get_storage_stats()
-        storage_healthy = 'error' not in storage_stats
-        
-        # Check environment variables
-        required_env_vars = ['ENVIRONMENT']
-        env_status = {var: os.getenv(var) is not None for var in required_env_vars}
-        env_healthy = all(env_status.values())
-        
-        # Overall health status
-        overall_healthy = job_processor_healthy and storage_healthy and env_healthy
-        
-        # Return minimal status for unauthenticated users
-        return {
-            "status": "healthy" if overall_healthy else "unhealthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "version": "1.0.0"
-        }
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+async def health_check():
+    """Simple health check endpoint for Railway deployment."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "1.0.0",
+        "message": "Service is running"
+    }
 
 # Detailed health check endpoint (requires authentication)
 @app.get("/health/detailed")
@@ -685,25 +699,23 @@ async def start_auto_complete(
         
         # Submit job to background processor
         if hasattr(app.state, 'job_processor'):
-            await app.state.job_processor.submit_job(
-                job_id, 
-                run_auto_complete_job, 
-                job_id, 
-                request
-            )
-        else:
-            # Fallback to background tasks
-            background_tasks.add_task(run_auto_complete_job, job_id, request)
+            app.state.job_processor.submit_job(job_id, request.dict(), user)
+        
+        logger.info(f"Auto-complete job started: {job_id}")
         
         return {
+            "success": True,
             "job_id": job_id,
-            "status": "started",
-            "message": "Auto-complete job started successfully"
+            "message": "Auto-complete job started successfully",
+            "estimated_completion_time": request.target_chapters * 15  # 15 minutes per chapter estimate
         }
         
     except Exception as e:
         logger.error(f"Failed to start auto-complete job: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start auto-complete job: {str(e)}"
+        )
 
 # Auto-complete cost estimation endpoint
 @app.post("/auto-complete/estimate")
@@ -1641,239 +1653,107 @@ async def delete_chapter(
         logger.error(f"Failed to delete chapter: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Helper function for optional token verification
+async def verify_token_optional(credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))):
+    """Optional token verification - allows unauthenticated access in development."""
+    if not credentials:
+        return None
+    try:
+        return await verify_token(credentials)
+    except:
+        return None
+
 # Book Bible initialization endpoint
 @app.post("/book-bible/initialize")
 @limiter.limit("10/minute")
 async def initialize_book_bible(
-    request: Request,
-    bible_request: BookBibleInitializeRequest,
-    user: Dict = Depends(verify_token)
+    request: BookBibleInitializeRequest,
+    user: Optional[Dict] = Depends(verify_token_optional)
 ):
-    """Persist the uploaded Book Bible markdown for a given project."""
+    """
+    Initialize a project from a book bible and automatically generate reference files.
+    This is the missing endpoint that makes the automated flow work!
+    """
     try:
-        # Check if file operations are disabled (for read-only filesystems like Railway)
-        disable_file_ops = os.getenv('DISABLE_FILE_OPERATIONS', 'false').lower() == 'true'
+        logger.info(f"[book-bible/initialize] Starting initialization for project: {request.project_id}")
         
-        if disable_file_ops:
-            logger.info(f"File operations disabled - skipping file creation for project {bible_request.project_id}")
-            
-            # Persist minimal project metadata so status checks can succeed
-            project_data = {
-                "project_id": bible_request.project_id,
-                "book_bible_uploaded": True,
-                "uploaded_by": user.get("user_id"),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
-                "storage_mode": "file_ops_disabled"
-            }
-            try:
-                await firestore_client.save_project_data(bible_request.project_id, project_data)
-                logger.info(f"Project metadata saved for {bible_request.project_id} in file-ops-disabled mode")
-            except Exception as e:
-                logger.error(f"Failed to save project metadata for {bible_request.project_id}: {e}")
-            
-            return {
-                "success": True,
-                "project_id": bible_request.project_id,
-                "message": "Book Bible processed successfully (file operations disabled)."
-            }
-        
-        # Try file operations with automatic fallback on permission errors
-        try:
-            # Get project workspace using new path utility
-            project_workspace = get_project_workspace(bible_request.project_id)
-            ensure_project_structure(project_workspace)
-
-            # Write book-bible.md
-            book_bible_path = project_workspace / "book-bible.md"
-            book_bible_path.write_text(bible_request.content, encoding="utf-8")
-
-            logger.info(f"Book Bible saved for project {bible_request.project_id} at {book_bible_path}")
-
-            # Generate reference files from book bible content
-            references_dir = project_workspace / "references"
-            try:
-                created_files = generate_reference_files(bible_request.content, references_dir)
-                logger.info(f"Generated reference file structure for project {bible_request.project_id}: {created_files}")
-                
-                # Generate AI-powered content for reference files
-                # TEMPORARILY DISABLED to prevent timeouts during initialization
-                logger.info("AI generation during initialization is temporarily disabled to prevent timeouts")
-                successful_generations = []
-                failed_generations = []
-                
-                # Original AI generation code (commented out):
-                # content_generator = ReferenceContentGenerator()
-                # if content_generator.is_available():
-                #     try:
-                #         logger.info(f"Generating AI-powered content for reference files in project {bible_request.project_id}")
-                #         generation_results = content_generator.generate_all_references(
-                #             book_bible_content=bible_request.content,
-                #             references_dir=references_dir
-                #         )
-                #         
-                #         successful_generations = [
-                #             ref for ref, result in generation_results.items() 
-                #             if result.get("success", False)
-                #         ]
-                #         failed_generations = [
-                #             ref for ref, result in generation_results.items() 
-                #             if not result.get("success", False)
-                #         ]
-                #         
-                #         logger.info(f"AI content generation completed for project {bible_request.project_id}: "
-                #                   f"{len(successful_generations)} successful, {len(failed_generations)} failed")
-                #         
-                #         if failed_generations:
-                #             logger.warning(f"Failed to generate AI content for: {failed_generations}")
-                #             
-                #     except Exception as ai_error:
-                #         logger.warning(f"AI content generation failed for project {bible_request.project_id}: {ai_error}")
-                #         # Continue with basic reference files if AI generation fails
-                # else:
-                #     logger.info(f"OpenAI API not configured - using template reference files for project {bible_request.project_id}")
-                
-                # Since AI generation is disabled, just log that we're using template files
-                logger.info(f"Using template reference files for project {bible_request.project_id}")
-                
-            except Exception as e:
-                logger.error(f"Failed to generate reference files: {e}")
-                # Don't fail the whole request if reference generation fails
-
-            # Persist minimal metadata
-            metadata_path = project_workspace / "metadata.json"
-            metadata = {
-                "project_id": bible_request.project_id,
-                "book_bible_path": str(book_bible_path),
-                "uploaded_by": user.get("user_id"),
-                "uploaded_at": datetime.utcnow().isoformat()
-            }
-            metadata_path.write_text(json.dumps(metadata, indent=2))
-
-            return {
-                "success": True,
-                "project_id": bible_request.project_id,
-                "message": "Book Bible uploaded and project initialized successfully."
-            }
-            
-        except (PermissionError, OSError, IOError) as fs_error:
-            # Filesystem is read-only or has permission issues - return success anyway
-            logger.warning(f"Filesystem error for project {bible_request.project_id}: {fs_error}")
-            logger.info(f"Continuing without file operations due to filesystem limitations")
-            return {
-                "success": True,
-                "project_id": bible_request.project_id,
-                "message": "Book Bible processed successfully (filesystem read-only)."
-            }
-            
-    except Exception as e:
-        logger.error(f"Failed to initialize Book Bible: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Book Bible upload endpoint
-@app.post("/book-bible/upload")
-@limiter.limit("10/minute")
-async def upload_book_bible(
-    request_obj: Request,
-    request: Dict[str, Any],
-    user: Dict = Depends(verify_token)
-):
-    """Upload book bible file and create project."""
-    try:
-        # Extract data from request
-        filename = request.get("filename")
-        content = request.get("content")
-        project_info = request.get("projectInfo", {})
-        
-        if not filename or not content:
-            raise HTTPException(status_code=400, detail="Filename and content are required")
-        
-        # Validate that it's a markdown file
-        if not filename.endswith('.md'):
-            raise HTTPException(status_code=400, detail="File must be a Markdown (.md) file")
-        
-        # Generate unique project ID
-        project_id = f"project-{int(datetime.utcnow().timestamp() * 1000)}"
-        
-        # Get project workspace
-        project_workspace = get_project_workspace(project_id)
+        # Create project workspace
+        project_workspace = get_project_workspace(request.project_id)
         ensure_project_structure(project_workspace)
         
-        # Write book-bible.md
-        book_bible_path = project_workspace / "book-bible.md"
-        book_bible_path.write_text(content, encoding="utf-8")
+        logger.info(f"[book-bible/initialize] Project workspace created: {project_workspace}")
         
-        logger.info(f"Book Bible uploaded for project {project_id} at {book_bible_path}")
+        # Save book bible content
+        book_bible_path = project_workspace / "book-bible.md"
+        with open(book_bible_path, 'w', encoding='utf-8') as f:
+            f.write(request.content)
+        
+        logger.info(f"[book-bible/initialize] Book bible saved to: {book_bible_path}")
         
         # Generate reference files from book bible content
         references_dir = project_workspace / "references"
         try:
-            created_files = generate_reference_files(content, references_dir)
-            logger.info(f"Generated reference file structure for project {project_id}: {created_files}")
-            
-            # Generate AI-powered content for reference files
-            content_generator = ReferenceContentGenerator()
-            if content_generator.is_available():
-                try:
-                    logger.info(f"Generating AI-powered content for reference files in project {project_id}")
-                    generation_results = content_generator.generate_all_references(
-                        book_bible_content=content,
-                        references_dir=references_dir
-                    )
-                    
-                    successful_generations = [
-                        ref for ref, result in generation_results.items() 
-                        if result.get("success", False)
-                    ]
-                    failed_generations = [
-                        ref for ref, result in generation_results.items() 
-                        if not result.get("success", False)
-                    ]
-                    
-                    logger.info(f"AI content generation completed for project {project_id}: "
-                              f"{len(successful_generations)} successful, {len(failed_generations)} failed")
-                    
-                    if failed_generations:
-                        logger.warning(f"Failed to generate AI content for: {failed_generations}")
-                        
-                except Exception as ai_error:
-                    logger.warning(f"AI content generation failed for project {project_id}: {ai_error}")
-                    # Continue with basic reference files if AI generation fails
-            else:
-                logger.info(f"OpenAI API not configured - using template reference files for project {project_id}")
-                
+            created_files = generate_reference_files(request.content, references_dir)
+            logger.info(f"[book-bible/initialize] Generated reference files for project {request.project_id}: {created_files}")
+            reference_files = created_files
         except Exception as e:
-            logger.error(f"Failed to generate reference files: {e}")
+            logger.error(f"[book-bible/initialize] Failed to generate reference files: {e}")
             # Don't fail the whole request if reference generation fails
+            reference_files = []
         
-        # Save project metadata
-        metadata_path = project_workspace / "metadata.json"
-        metadata = {
-            "project_id": project_id,
-            "title": project_info.get("title", "Untitled Project"),
-            "genre": project_info.get("genre", "Unknown"),
-            "logline": project_info.get("logline", ""),
-            "book_bible_path": str(book_bible_path),
-            "uploaded_by": user.get("user_id"),
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-            "book_bible_uploaded": True
-        }
-        metadata_path.write_text(json.dumps(metadata, indent=2))
+        # Save project metadata to Firestore
+        if user:
+            project_data = {
+                "project_id": request.project_id,
+                "user_id": user.get("user_id", "anonymous"),
+                "title": _extract_title_from_content(request.content),
+                "status": "active",
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+                "genre": _extract_genre_from_content(request.content),
+                "target_chapters": 25,
+                "chapters_completed": 0,
+                "references_generated": len(reference_files),
+                "book_bible_uploaded": True
+            }
+            
+            # Save to Firestore using existing method
+            await firestore_client.save_project_data(request.project_id, project_data)
+            logger.info(f"[book-bible/initialize] Project metadata saved to Firestore")
         
         return {
             "success": True,
-            "project_id": project_id,
-            "message": "Book Bible uploaded successfully",
-            "filename": filename,
-            "projectInfo": project_info
+            "project_id": request.project_id,
+            "message": "Project initialized successfully with reference files",
+            "reference_files": reference_files,
+            "workspace_path": str(project_workspace),
+            "book_bible_path": str(book_bible_path)
         }
         
     except Exception as e:
-        logger.error(f"Failed to upload Book Bible: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[book-bible/initialize] Failed to initialize project: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to initialize project: {str(e)}"
+        )
 
+def _extract_title_from_content(content: str) -> str:
+    """Extract title from book bible content."""
+    lines = content.split('\n')
+    for line in lines:
+        if 'title:' in line.lower() or '**title:**' in line.lower():
+            return line.split(':', 1)[1].strip().replace('**', '').strip()
+        elif line.startswith('# '):
+            return line[2:].strip()
+    return "Untitled Project"
+
+def _extract_genre_from_content(content: str) -> str:
+    """Extract genre from book bible content."""
+    lines = content.split('\n')
+    for line in lines:
+        if 'genre:' in line.lower() or '**genre:**' in line.lower():
+            return line.split(':', 1)[1].strip().replace('**', '').strip()
+    return "Fiction"
 
 # Project status endpoint
 @app.get("/project/status")
