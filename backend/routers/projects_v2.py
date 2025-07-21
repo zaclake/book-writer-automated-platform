@@ -9,7 +9,7 @@ import html
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from models.firestore_models import (
@@ -27,6 +27,58 @@ from auth_middleware import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])
 security = HTTPBearer()
+
+async def generate_references_background(
+    project_id: str,
+    book_bible_content: str,
+    include_series_bible: bool,
+    user_id: str
+):
+    """Generate reference files in the background after project creation."""
+    try:
+        logger.info(f"Starting background reference generation for project {project_id}")
+        
+        from utils.reference_content_generator import ReferenceContentGenerator
+        from utils.paths import get_project_workspace
+        
+        generator = ReferenceContentGenerator()
+        if not generator.is_available():
+            logger.warning(f"Reference generator not available for project {project_id}")
+            return
+        
+        project_workspace = get_project_workspace(project_id)
+        references_dir = project_workspace / "references"
+        
+        # Generate default reference files
+        import asyncio
+        results = await asyncio.get_event_loop().run_in_executor(
+            None,
+            generator.generate_all_references,
+            book_bible_content,
+            references_dir,
+            None,  # reference_types (use defaults)
+            include_series_bible
+        )
+        
+        logger.info(f"Generated {len(results)} reference files for project {project_id}")
+        
+        # Store reference file metadata in Firestore
+        for ref_type, content in results.items():
+            if content:
+                try:
+                    await create_reference_file(
+                        project_id=project_id,
+                        filename=f"{ref_type}.md",
+                        content=content,
+                        user_id=user_id
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to store reference file {ref_type} for project {project_id}: {e}")
+        
+        logger.info(f"Successfully generated and stored reference files for project {project_id}")
+        
+    except Exception as e:
+        logger.error(f"Background reference generation failed for project {project_id}: {e}")
 
 def _sanitize_text_for_markdown(text: str) -> str:
     """Sanitize user input for safe inclusion in markdown content."""
@@ -180,6 +232,7 @@ async def list_user_projects(
 @router.post("/", response_model=dict)
 async def create_new_project(
     request: CreateProjectRequest,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user)
 ):
     """Create a new project for the authenticated user."""
@@ -324,56 +377,34 @@ async def create_new_project(
                 logger.warning(f"Failed to generate series bible for project {project_id}: {e}")
                 # Don't fail the project creation, just log the warning
 
-        # Generate reference files synchronously
+        # Start reference generation in background (non-blocking)
         references_generated = False
         reference_files = []
+        
         try:
             from utils.reference_content_generator import ReferenceContentGenerator
-            from utils.paths import get_project_workspace
             
             generator = ReferenceContentGenerator()
             if generator.is_available() and request.book_bible_content:
-                project_workspace = get_project_workspace(project_id)
-                references_dir = project_workspace / "references"
+                logger.info(f"Scheduling background reference generation for project {project_id}")
                 
-                logger.info(f"Starting synchronous reference generation for project {project_id}")
-                
-                # Generate default reference files synchronously
-                import asyncio
-                results = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    generator.generate_all_references,
+                # Start reference generation in background
+                background_tasks.add_task(
+                    generate_references_background,
+                    project_id,
                     request.book_bible_content,
-                    references_dir,
-                    None,  # reference_types (use defaults)
-                    request.include_series_bible
+                    request.include_series_bible,
+                    user_id
                 )
                 
-                logger.info(f"Generated {len(results)} reference files for project {project_id}")
-                
-                # Store reference file metadata in Firestore
-                db = get_database_adapter()
-                for ref_type, content in results.items():
-                    if content:
-                        await create_reference_file(
-                            project_id=project_id,
-                            filename=f"{ref_type}.md",
-                            content=content,
-                            user_id=user_id
-                        )
-                        reference_files.append({
-                            'type': ref_type,
-                            'filename': f"{ref_type}.md",
-                            'size': len(content)
-                        })
-                
-                references_generated = True
-                logger.info(f"Successfully generated and stored {len(reference_files)} reference files for project {project_id}")
+                # References will be generated in background
+                references_generated = True  # Indicates generation was scheduled
+                logger.info(f"Background reference generation scheduled for project {project_id}")
             else:
                 logger.info(f"Skipping reference generation for project {project_id} - OpenAI not available or no book bible")
                         
         except Exception as e:
-            logger.error(f"Reference generation failed for project {project_id}: {e}")
+            logger.error(f"Failed to schedule reference generation for project {project_id}: {e}")
             # Don't fail the project creation, just log the error
             references_generated = False
         
@@ -400,7 +431,7 @@ async def create_new_project(
             },
             'references_generated': references_generated,
             'reference_files': reference_files,
-            'message': 'Project created successfully' + (' with references' if references_generated else '')
+            'message': 'Project created successfully' + (' - references generating in background' if references_generated else '')
         }
         
     except HTTPException:
