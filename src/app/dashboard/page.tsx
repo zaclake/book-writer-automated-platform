@@ -2,32 +2,31 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/nextjs'
-import { ChapterGenerationForm } from '@/components/ChapterGenerationForm'
-import { ChapterList } from '@/components/ChapterList'
-import { QualityMetrics } from '@/components/QualityMetrics'
-import { CostTracker } from '@/components/CostTracker'
-import { SystemStatus } from '@/components/SystemStatus'
+import { useRouter } from 'next/navigation'
 import { BookBibleUpload } from '@/components/BookBibleUpload'
-import { ReferenceFileManager } from '@/components/ReferenceFileManager'
-import { ProjectStatus } from '@/components/ProjectStatus'
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
 import OnboardingFlow from '@/components/OnboardingFlow'
-import { useUserProjects, useProjectChapters, useProject } from '@/hooks/useFirestore'
+import { useUserProjects, useProject } from '@/hooks/useFirestore'
+import { 
+  PencilIcon, 
+  BookOpenIcon, 
+  DocumentTextIcon,
+  PlusCircleIcon,
+  ArrowRightIcon,
+  CheckCircleIcon
+} from '@heroicons/react/24/outline'
 
 export default function Dashboard() {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth()
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [metrics, setMetrics] = useState(null)
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [projectInitialized, setProjectInitialized] = useState(false)
+  const router = useRouter()
   const [authReady, setAuthReady] = useState(false)
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingComplete, setOnboardingComplete] = useState(false)
+  const [showProjectCreation, setShowProjectCreation] = useState(false)
 
   // Real-time Firestore hooks
   const { projects, loading: projectsLoading } = useUserProjects()
-  const { chapters, loading: chaptersLoading } = useProjectChapters(currentProjectId)
   const { project: currentProject } = useProject(currentProjectId)
 
   // Track when auth is ready
@@ -42,9 +41,6 @@ export default function Dashboard() {
     const checkOnboardingStatus = async () => {
       if (authReady && isSignedIn && userId) {
         try {
-          console.log('🔍 Checking onboarding status...')
-          
-          // Check if user has completed onboarding
           const response = await fetch('/api/users/v2/onboarding', {
             headers: {
               'Authorization': `Bearer ${await getToken()}`
@@ -54,24 +50,14 @@ export default function Dashboard() {
           if (response.ok) {
             const data = await response.json()
             const completed = data.completed || false
-            console.log(`📋 Onboarding status: ${completed ? 'completed' : 'pending'}`)
-            
             setOnboardingComplete(completed)
             setShowOnboarding(!completed)
-          } else if (response.status === 404 || response.status === 401) {
-            // User profile doesn't exist yet or auth issue, show onboarding
-            console.log('📋 No onboarding data found, showing onboarding flow')
-            setOnboardingComplete(false)
-            setShowOnboarding(true)
           } else {
-            console.warn(`⚠️ Unexpected response status: ${response.status}`)
-            // Default to showing onboarding for safety
             setOnboardingComplete(false)
             setShowOnboarding(true)
           }
         } catch (error) {
-          console.error('❌ Error checking onboarding status:', error)
-          // Default to showing onboarding for new users
+          console.error('Error checking onboarding status:', error)
           setOnboardingComplete(false)
           setShowOnboarding(true)
         }
@@ -87,11 +73,9 @@ export default function Dashboard() {
       const savedProjectId = localStorage.getItem('lastProjectId')
       
       if (savedProjectId && projects.find(p => p.id === savedProjectId)) {
-        // Use saved project if it exists
         setCurrentProjectId(savedProjectId)
       } else {
-        // Use the most recent project
-        const latestProject = projects[0] // Projects are ordered by updated_at desc
+        const latestProject = projects[0]
         if (latestProject) {
           setCurrentProjectId(latestProject.id)
           localStorage.setItem('lastProjectId', latestProject.id)
@@ -100,69 +84,16 @@ export default function Dashboard() {
     }
   }, [authReady, isSignedIn, projects])
 
-  // Fetch metrics (keeping this as API call for now since it's calculated data)
-  useEffect(() => {
-    if (authReady && isSignedIn && currentProjectId) {
-      fetchMetrics()
-    }
-  }, [refreshTrigger, authReady, isSignedIn, currentProjectId])
-
-  const getAuthHeaders = async (): Promise<Record<string, string>> => {
-    if (!isLoaded || !isSignedIn) {
-      return {}
-    }
-    
-    try {
-      const token = await getToken()
-      return token ? { Authorization: `Bearer ${token}` } : {}
-    } catch (error) {
-      console.error('Failed to get auth token:', error)
-      return {}
-    }
-  }
-
-  const fetchMetrics = async () => {
-    try {
-      const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/metrics', {
-        headers: authHeaders
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setMetrics(data)
-      }
-    } catch (error) {
-      console.error('Failed to fetch metrics:', error)
-    }
-  }
-
-  const handleGenerationComplete = () => {
-    setIsGenerating(false)
-    setRefreshTrigger(prev => prev + 1)
-  }
-
   const handleProjectInitialized = (projectId?: string) => {
-    setProjectInitialized(true)
     if (projectId) {
       setCurrentProjectId(projectId)
       localStorage.setItem('lastProjectId', projectId)
     }
-    setRefreshTrigger(prev => prev + 1)
-  }
-
-  const handleAutoCompleteJobStarted = (jobId: string) => {
-    console.log('Auto-complete job started:', jobId)
-    setRefreshTrigger(prev => prev + 1)
-  }
-
-  const handleAutoCompleteJobCompleted = (jobId: string, result: any) => {
-    console.log('Auto-complete job completed:', jobId, result)
-    setRefreshTrigger(prev => prev + 1)
+    setShowProjectCreation(false)
   }
 
   const handleOnboardingComplete = async () => {
     try {
-      // Verify onboarding was actually saved on the server
       const response = await fetch('/api/users/v2/onboarding', {
         headers: {
           'Authorization': `Bearer ${await getToken()}`
@@ -174,41 +105,43 @@ export default function Dashboard() {
         if (data.completed) {
           setOnboardingComplete(true)
           setShowOnboarding(false)
-          console.log('✅ Onboarding completed and verified')
-        } else {
-          console.warn('⚠️ Onboarding completion not confirmed by server')
-          // Don't hide onboarding if server doesn't confirm completion
         }
-      } else {
-        console.error('❌ Failed to verify onboarding completion')
-        // Don't hide onboarding if we can't verify
       }
     } catch (error) {
       console.error('Error verifying onboarding completion:', error)
-      // Fallback to optimistic update
       setOnboardingComplete(true)
       setShowOnboarding(false)
+    }
+  }
+
+  const navigateToWriting = () => {
+    if (currentProjectId) {
+      router.push(`/project/${currentProjectId}/chapters`)
+    }
+  }
+
+  const navigateToReferences = () => {
+    if (currentProjectId) {
+      router.push(`/project/${currentProjectId}/references`)
+    }
+  }
+
+  const navigateToOverview = () => {
+    if (currentProjectId) {
+      router.push(`/project/${currentProjectId}/overview`)
     }
   }
 
   // Show loading state while auth is initializing
   if (!authReady) {
     return (
-      <div className="px-4 py-6 sm:px-0">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Chapter Generation Dashboard
-          </h1>
-          <p className="mt-2 text-lg text-gray-600">
-            AI-powered book writing with automated quality assessment
-          </p>
-        </div>
-        <div className="text-center py-8">
+      <div className="min-h-screen bg-clean flex items-center justify-center">
+        <div className="text-center">
           <div className="animate-pulse">
             <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
             <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
           </div>
-          <p className="mt-4 text-sm text-gray-500">Loading authentication...</p>
+          <p className="mt-4 text-sm text-gray-500">Starting your writing workspace...</p>
         </div>
       </div>
     )
@@ -217,27 +150,18 @@ export default function Dashboard() {
   // Show sign-in prompt if user is not authenticated
   if (!isSignedIn) {
     return (
-      <div className="px-4 py-6 sm:px-0">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Chapter Generation Dashboard
+      <div className="min-h-screen bg-clean flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto px-6">
+          <BookOpenIcon className="w-16 h-16 text-blue-600 mx-auto mb-6" />
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">
+            Welcome to WriterBloom
           </h1>
-          <p className="mt-2 text-lg text-gray-600">
-            AI-powered book writing with automated quality assessment
+          <p className="text-lg text-gray-600 mb-8">
+            Your AI-powered writing companion for creating beautiful, professional books.
           </p>
-        </div>
-        <div className="text-center py-16">
-          <div className="max-w-md mx-auto">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              Please sign in to continue
-            </h2>
-            <p className="text-gray-600 mb-6">
-              You need to be authenticated to access the book writing dashboard and its features.
-            </p>
-            <p className="text-sm text-gray-500">
-              Click the &ldquo;Sign In&rdquo; button in the top right corner to get started.
-            </p>
-          </div>
+          <p className="text-sm text-gray-500">
+            Sign in to begin your writing journey
+          </p>
         </div>
       </div>
     )
@@ -251,224 +175,199 @@ export default function Dashboard() {
   // Show loading state while projects are loading
   if (projectsLoading) {
     return (
-      <div className="px-4 py-6 sm:px-0">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Chapter Generation Dashboard
-          </h1>
-          <p className="mt-2 text-lg text-gray-600">
-            AI-powered book writing with automated quality assessment
-          </p>
-        </div>
-        <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-          <p className="mt-4 text-sm text-gray-500">Loading your projects...</p>
+      <div className="min-h-screen bg-clean flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-500">Loading your projects...</p>
         </div>
       </div>
     )
   }
 
+  // Main Dashboard - Clean and Writing-Focused
   return (
-    <div className="px-4 py-6 sm:px-0">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Chapter Generation Dashboard
-        </h1>
-        <p className="mt-2 text-lg text-gray-600">
-          AI-powered book writing with automated quality assessment
-        </p>
-        
-        {/* Real-time sync indicator */}
-        {(projectsLoading || chaptersLoading) && (
-          <div className="mt-2 flex items-center text-sm text-blue-600">
-            <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse mr-2"></div>
-            Syncing data...
+    <div className="min-h-screen bg-clean">
+      {/* Clean Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-6 py-8">
+          <div className="text-center">
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">
+              WriterBloom
+            </h1>
+            <p className="text-lg text-gray-600">
+              Your creative writing studio
+            </p>
           </div>
-        )}
-        
-        {/* Current project indicator */}
-        {currentProject && (
-          <div className="mt-2 text-sm text-gray-600">
-            Current project: <span className="font-medium">{currentProject.metadata?.title || `Project ${currentProject.id}`}</span>
-            <span className="mx-2">•</span>
-            <span className="text-green-600">{chapters.length} chapters</span>
-          </div>
-        )}
-
-        {/* Project Selector */}
-        {projects.length > 0 && (
-          <div className="mt-4 flex items-center space-x-4">
-            <label htmlFor="project-select" className="text-sm font-medium text-gray-700">
-              Switch Project:
-            </label>
-            <select
-              id="project-select"
-              value={currentProjectId || ''}
-              onChange={(e) => {
-                const newProjectId = e.target.value
-                setCurrentProjectId(newProjectId)
-                localStorage.setItem('lastProjectId', newProjectId)
-              }}
-              className="block w-64 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.metadata?.title || `Project ${project.id}`} 
-                  {project.progress && ` (${project.progress.chapters_completed || 0} chapters)`}
-                </option>
-              ))}
-            </select>
-            
-            {/* Real-time status indicator */}
-            <div className="flex items-center text-xs text-gray-500">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></div>
-              Live sync enabled
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
-      {/* Status Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-        <div className="lg:col-span-1">
-          <ProjectStatus projectId={currentProjectId} />
-        </div>
-        <div className="lg:col-span-1">
-          <CostTracker metrics={metrics} />
-        </div>
-        <div className="lg:col-span-1">
-          {/* Real-time Projects Overview */}
-          <div className="card">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Projects Overview
-              {projectsLoading && (
-                <span className="ml-2 text-sm text-blue-600">
-                  <div className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
-                </span>
-              )}
+      <div className="max-w-4xl mx-auto px-6 py-12">
+        {/* No Project State */}
+        {projects.length === 0 ? (
+          <div className="text-center py-16">
+            <DocumentTextIcon className="w-24 h-24 text-gray-300 mx-auto mb-8" />
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+              Start Your First Book
             </h2>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Projects</span>
-                <span className="font-semibold text-lg">{projects.length}</span>
+            <p className="text-gray-600 mb-8 max-w-lg mx-auto">
+              Create your first project by uploading a book bible or starting from scratch. 
+              Our AI will help you generate reference materials and begin writing immediately.
+            </p>
+            
+            <button
+              onClick={() => setShowProjectCreation(true)}
+              className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              <PlusCircleIcon className="w-5 h-5 mr-2" />
+              Create Your First Project
+            </button>
+          </div>
+        ) : (
+          /* Project Dashboard */
+          <div className="space-y-12">
+            {/* Current Project Header */}
+            <div className="text-center">
+              <div className="flex items-center justify-center space-x-4 mb-6">
+                <select
+                  value={currentProjectId || ''}
+                  onChange={(e) => {
+                    const newProjectId = e.target.value
+                    setCurrentProjectId(newProjectId)
+                    localStorage.setItem('lastProjectId', newProjectId)
+                  }}
+                  className="text-2xl font-semibold text-gray-900 bg-transparent border-none focus:ring-0 cursor-pointer hover:text-blue-600 transition-colors"
+                >
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.metadata?.title || `Project ${project.id}`}
+                    </option>
+                  ))}
+                </select>
+                
+                <button
+                  onClick={() => setShowProjectCreation(true)}
+                  className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                  title="Create new project"
+                >
+                  <PlusCircleIcon className="w-6 h-6" />
+                </button>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Active Projects</span>
-                <span className="font-semibold text-lg text-green-600">
-                  {projects.filter(p => p.metadata?.status === 'active').length}
-                </span>
+              
+              {currentProject && (
+                <div className="text-gray-600">
+                  {currentProject.settings?.genre && (
+                    <span className="inline-block px-3 py-1 bg-gray-100 rounded-full text-sm mr-2">
+                      {currentProject.settings.genre}
+                    </span>
+                  )}
+                  <span className="text-sm">
+                    {currentProject.progress?.chapters_completed || 0} chapters written
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Primary Actions - Clean and Focused */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Start Writing */}
+              <button
+                onClick={navigateToWriting}
+                disabled={!currentProjectId}
+                className="group p-8 bg-white border-2 border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-lg transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <PencilIcon className="w-8 h-8 text-blue-600" />
+                  <ArrowRightIcon className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  Start Writing
+                </h3>
+                <p className="text-gray-600">
+                  Enter the clean writing workspace and focus on your story
+                </p>
+              </button>
+
+              {/* Review References */}
+              <button
+                onClick={navigateToReferences}
+                disabled={!currentProjectId}
+                className="group p-8 bg-white border-2 border-gray-200 rounded-xl hover:border-green-300 hover:shadow-lg transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <BookOpenIcon className="w-8 h-8 text-green-600" />
+                  <ArrowRightIcon className="w-5 h-5 text-gray-400 group-hover:text-green-600 transition-colors" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  Story References
+                </h3>
+                <p className="text-gray-600">
+                  Review characters, plot, and world-building materials
+                </p>
+              </button>
+
+              {/* Project Overview */}
+              <button
+                onClick={navigateToOverview}
+                disabled={!currentProjectId}
+                className="group p-8 bg-white border-2 border-gray-200 rounded-xl hover:border-purple-300 hover:shadow-lg transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <DocumentTextIcon className="w-8 h-8 text-purple-600" />
+                  <ArrowRightIcon className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  Project Settings
+                </h3>
+                <p className="text-gray-600">
+                  Manage your project settings and automation
+                </p>
+              </button>
+            </div>
+
+            {/* Auto-Complete Section */}
+            {currentProjectId && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-8">
+                <div className="max-w-2xl mx-auto text-center mb-8">
+                  <h3 className="text-2xl font-semibold text-gray-900 mb-4">
+                    AI Auto-Complete
+                  </h3>
+                  <p className="text-gray-600">
+                    Let our AI write entire chapters automatically while you focus on the creative direction
+                  </p>
+                </div>
+                
+                <AutoCompleteBookManager 
+                  onJobStarted={() => {}}
+                  onJobCompleted={() => {}}
+                  projectId={currentProjectId}
+                />
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Chapters</span>
-                <span className="font-semibold text-lg text-blue-600">
-                  {projects.reduce((total, p) => total + (p.progress?.chapters_completed || 0), 0)}
-                </span>
+            )}
+          </div>
+        )}
+
+        {/* Project Creation Modal */}
+        {showProjectCreation && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-semibold text-gray-900">
+                  Create New Project
+                </h2>
+                <button
+                  onClick={() => setShowProjectCreation(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Current Project</span>
-                <span className="font-semibold text-sm text-purple-600">
-                  {chapters.length} chapters
-                </span>
-              </div>
+              
+              <BookBibleUpload onProjectInitialized={handleProjectInitialized} />
             </div>
           </div>
-        </div>
-        <div className="lg:col-span-1">
-          <QualityMetrics metrics={metrics} />
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button
-            onClick={() => window.location.href = '/profile'}
-            className="p-4 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all text-left"
-          >
-            <div className="text-2xl mb-2">👤</div>
-            <div className="font-medium text-gray-900">User Profile</div>
-            <div className="text-sm text-gray-600">Manage preferences</div>
-          </button>
-          
-          <button
-            onClick={() => {
-              if (currentProjectId) {
-                window.location.href = `/project/${currentProjectId}/chapters`
-              }
-            }}
-            className="p-4 bg-white border border-gray-200 rounded-lg hover:border-green-300 hover:shadow-md transition-all text-left"
-            disabled={!currentProjectId}
-          >
-            <div className="text-2xl mb-2">📝</div>
-            <div className="font-medium text-gray-900">Chapter Editor</div>
-            <div className="text-sm text-gray-600">Write & edit chapters</div>
-          </button>
-          
-          <button
-            onClick={() => {
-              if (currentProjectId) {
-                window.location.href = `/project/${currentProjectId}/references`
-              }
-            }}
-            className="p-4 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:shadow-md transition-all text-left"
-            disabled={!currentProjectId}
-          >
-            <div className="text-2xl mb-2">🗂️</div>
-            <div className="font-medium text-gray-900">References</div>
-            <div className="text-sm text-gray-600">Characters & world-building</div>
-          </button>
-          
-          <button
-            onClick={() => {
-              if (currentProjectId) {
-                window.location.href = `/project/${currentProjectId}/overview`
-              }
-            }}
-            className="p-4 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-md transition-all text-left"
-            disabled={!currentProjectId}
-          >
-            <div className="text-2xl mb-2">📊</div>
-            <div className="font-medium text-gray-900">Project Management</div>
-            <div className="text-sm text-gray-600">Overview & settings</div>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        {/* Left Column - Book Bible Upload, Auto-Complete & Generation */}
-        <div className="xl:col-span-1 space-y-6">
-          <BookBibleUpload onProjectInitialized={handleProjectInitialized} />
-          
-          <AutoCompleteBookManager 
-            onJobStarted={handleAutoCompleteJobStarted}
-            onJobCompleted={handleAutoCompleteJobCompleted}
-            projectId={currentProjectId}
-          />
-          
-          <ChapterGenerationForm
-            onGenerationStart={() => setIsGenerating(true)}
-            onGenerationComplete={handleGenerationComplete}
-            isGenerating={isGenerating}
-          />
-        </div>
-
-        {/* Middle Column - Reference Files */}
-        <div className="xl:col-span-1">
-          <ReferenceFileManager />
-        </div>
-
-        {/* Right Column - Chapter List */}
-        <div className="xl:col-span-2">
-          <ChapterList 
-            chapters={chapters}
-            loading={chaptersLoading}
-            onRefresh={() => setRefreshTrigger(prev => prev + 1)}
-            projectId={currentProjectId}
-          />
-        </div>
+        )}
       </div>
     </div>
   )
