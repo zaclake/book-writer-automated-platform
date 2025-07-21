@@ -76,14 +76,27 @@ class FirestoreService:
     def __init__(self, project_id: Optional[str] = None):
         """Initialize Firestore client."""
         try:
+            # Check if running in production environment without credentials
+            import os
+            environment = os.getenv('ENVIRONMENT', 'production')
+            
             if project_id:
                 self.db = firestore.Client(project=project_id)
             else:
                 self.db = firestore.Client()
             logger.info("Firestore service initialized successfully")
+            self.available = True
         except Exception as e:
             logger.error(f"Failed to initialize Firestore: {e}")
-            raise
+            
+            # In production without credentials, create a mock service
+            if environment == 'production':
+                logger.warning("Firestore unavailable in production - using fallback mode")
+                self.db = None
+                self.available = False
+            else:
+                # In development, fail fast
+                raise
     
     # =====================================================================
     # USER OPERATIONS

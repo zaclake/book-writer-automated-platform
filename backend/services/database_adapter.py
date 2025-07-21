@@ -29,7 +29,12 @@ class DatabaseAdapter:
         if use_firestore:
             try:
                 self.firestore = FirestoreService(project_id=firestore_project_id)
-                logger.info("Database adapter initialized with Firestore")
+                # Check if Firestore is actually available
+                if hasattr(self.firestore, 'available') and not self.firestore.available:
+                    logger.warning("Firestore service initialized but not available, falling back to local storage")
+                    self.use_firestore = False
+                else:
+                    logger.info("Database adapter initialized with Firestore")
             except Exception as e:
                 logger.error(f"Failed to initialize Firestore, falling back to local storage: {e}")
                 self.use_firestore = False
