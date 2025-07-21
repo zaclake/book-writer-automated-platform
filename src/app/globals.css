@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&family=Inter:wght@300..900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -6,8 +8,29 @@
   * {
     @apply border-gray-300;
   }
+  
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply text-gray-900;
+    background-color: #FAFAFA;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  }
+  
+  /* Clean Mode Typography */
+  .writing-font {
+    font-family: 'Literata', 'Charter', Georgia, serif;
+  }
+  
+  .reading-font {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  }
+  
+  /* Optimal reading width */
+  .content-width {
+    max-width: 70ch;
+  }
+  
+  .content-width-narrow {
+    max-width: 60ch;
   }
 }
 
@@ -22,6 +45,110 @@
   
   .btn-secondary {
     @apply inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+  
+  /* Clean Mode Components */
+  .clean-editor {
+    @apply writing-font bg-transparent text-gray-900 leading-relaxed;
+    font-size: 18px;
+    line-height: 1.7;
+  }
+  
+  .clean-editor:focus {
+    @apply outline-none;
+  }
+  
+  /* Sticky positioning utilities */
+  .sticky-top {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  
+  .sticky-bottom {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+  }
+  
+  .floating-bottom {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+  }
+  
+  /* Background variations */
+  .bg-clean {
+    background-color: #FAFAFA;
+  }
+  
+  .bg-clean-white {
+    background-color: #FFFFFF;
+  }
+  
+  /* Text constraining for readability */
+  .prose-clean {
+    @apply content-width mx-auto px-4;
+  }
+  
+  .prose-clean-narrow {
+    @apply content-width-narrow mx-auto px-4;
+  }
+  
+  /* Sidebar overlay */
+  .sidebar-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-50 z-40;
+  }
+  
+  .sidebar-panel {
+    @apply fixed top-0 right-0 h-full bg-white border-l border-gray-200 shadow-lg z-50;
+    transform: translateX(100%);
+    transition: transform 0.3s ease-in-out;
+  }
+  
+  .sidebar-panel.open {
+    transform: translateX(0);
+  }
+  
+  /* Focus states for writing */
+  .focus-mode {
+    @apply bg-clean;
+  }
+  
+  .focus-mode .clean-editor {
+    @apply bg-transparent;
+  }
+  
+  /* Chapter navigation */
+  .chapter-nav {
+    @apply flex items-center space-x-2 text-sm;
+  }
+  
+  .chapter-nav select {
+    @apply px-3 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+  
+  /* Status indicators */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+  
+  .status-dot.active {
+    @apply bg-green-500;
+  }
+  
+  .status-dot.inactive {
+    @apply bg-gray-400;
+  }
+  
+  .status-dot.warning {
+    @apply bg-orange-500;
+  }
+  
+  .status-dot.error {
+    @apply bg-red-500;
   }
 }
 
@@ -42,5 +169,59 @@
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Responsive typography scaling */
+@media (max-width: 768px) {
+  .clean-editor {
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  
+  .content-width {
+    max-width: 100%;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .clean-editor {
+    @apply text-black;
+  }
+  
+  .bg-clean {
+    background-color: #FFFFFF;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-panel {
+    transition: none;
+  }
+  
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 } 

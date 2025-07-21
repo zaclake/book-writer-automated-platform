@@ -27,6 +27,7 @@ export default function CreateProjectPage() {
 
       // The BookBibleCreator component only creates the book bible content.
       // We need to create the actual project by calling the create API.
+      // This now includes synchronous reference generation.
       const response = await fetch('/api/book-bible/create', {
         method: 'POST',
         headers: {
@@ -52,8 +53,14 @@ export default function CreateProjectPage() {
       if (response.ok) {
         const result = await response.json()
         if (result.project?.id) {
-          // Redirect to the new project's overview page
-          router.push(`/project/${result.project.id}/overview`)
+          // Check if references were generated
+          if (result.references_generated) {
+            // Redirect to the reference review page
+            router.push(`/project/${result.project.id}/references`)
+          } else {
+            // If no references generated, redirect to overview with a note
+            router.push(`/project/${result.project.id}/overview?note=no-references`)
+          }
         } else {
           // Fallback to dashboard
           router.push('/dashboard')

@@ -323,63 +323,59 @@ async def create_new_project(
             except Exception as e:
                 logger.warning(f"Failed to generate series bible for project {project_id}: {e}")
                 # Don't fail the project creation, just log the warning
-        
-        # Schedule background reference file generation
+
+        # Generate reference files synchronously
+        references_generated = False
+        reference_files = []
         try:
             from utils.reference_content_generator import ReferenceContentGenerator
             from utils.paths import get_project_workspace
-            import asyncio
             
-            async def generate_references_task():
-                """Background task to generate reference files."""
-                try:
-                    generator = ReferenceContentGenerator()
-                    if generator.is_available() and request.book_bible_content:
-                        project_workspace = get_project_workspace(project_id)
-                        references_dir = project_workspace / "references"
-                        
-                        logger.info(f"Starting background reference generation for project {project_id}")
-                        
-                        # Generate default reference files
-                        results = await asyncio.get_event_loop().run_in_executor(
-                            None,
-                            generator.generate_all_references,
-                            request.book_bible_content,
-                            references_dir,
-                            None,  # reference_types (use defaults)
-                            request.include_series_bible
+            generator = ReferenceContentGenerator()
+            if generator.is_available() and request.book_bible_content:
+                project_workspace = get_project_workspace(project_id)
+                references_dir = project_workspace / "references"
+                
+                logger.info(f"Starting synchronous reference generation for project {project_id}")
+                
+                # Generate default reference files synchronously
+                import asyncio
+                results = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    generator.generate_all_references,
+                    request.book_bible_content,
+                    references_dir,
+                    None,  # reference_types (use defaults)
+                    request.include_series_bible
+                )
+                
+                logger.info(f"Generated {len(results)} reference files for project {project_id}")
+                
+                # Store reference file metadata in Firestore
+                db = get_database_adapter()
+                for ref_type, content in results.items():
+                    if content:
+                        await create_reference_file(
+                            project_id=project_id,
+                            filename=f"{ref_type}.md",
+                            content=content,
+                            user_id=user_id
                         )
+                        reference_files.append({
+                            'type': ref_type,
+                            'filename': f"{ref_type}.md",
+                            'size': len(content)
+                        })
+                
+                references_generated = True
+                logger.info(f"Successfully generated and stored {len(reference_files)} reference files for project {project_id}")
+            else:
+                logger.info(f"Skipping reference generation for project {project_id} - OpenAI not available or no book bible")
                         
-                        logger.info(f"Generated {len(results)} reference files for project {project_id}")
-                        
-                        # Store reference file metadata in Firestore
-                        db = get_database_adapter()
-                        for ref_type, content in results.items():
-                            if content:
-                                await create_reference_file(
-                                    project_id=project_id,
-                                    filename=f"{ref_type}.md",
-                                    content=content,
-                                    user_id=user_id
-                                )
-                    else:
-                        logger.info(f"Skipping reference generation for project {project_id} - OpenAI not available or no book bible")
-                        
-                except Exception as e:
-                    logger.error(f"Background reference generation failed for project {project_id}: {e}")
-            
-            # Schedule the task to run in background
-            asyncio.create_task(generate_references_task())
-            
         except Exception as e:
-            logger.warning(f"Failed to schedule reference generation for project {project_id}: {e}")
-            # Don't fail the project creation, just log the warning
-        
-        if not project_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create project"
-            )
+            logger.error(f"Reference generation failed for project {project_id}: {e}")
+            # Don't fail the project creation, just log the error
+            references_generated = False
         
         # Track usage
         await track_usage(user_id, {
@@ -402,7 +398,9 @@ async def create_new_project(
                 }
                 # Note: book_bible.source_data not included in response for privacy
             },
-            'message': 'Project created successfully'
+            'references_generated': references_generated,
+            'reference_files': reference_files,
+            'message': 'Project created successfully' + (' with references' if references_generated else '')
         }
         
     except HTTPException:

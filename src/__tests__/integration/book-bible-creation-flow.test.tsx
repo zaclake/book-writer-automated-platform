@@ -436,4 +436,193 @@ Act III: Confrontation in quantum space
       )
     })
   })
+
+  describe('One-Step Project Initialization Flow', () => {
+    it('should create project and redirect to references page when references are generated', async () => {
+      const mockOnComplete = jest.fn()
+      
+      // Mock successful API response with references generated
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          project: {
+            id: 'test-project-123',
+            title: 'Test Novel',
+            genre: 'Fantasy',
+            status: 'active',
+            created_at: new Date().toISOString(),
+            settings: {
+              target_chapters: 25,
+              word_count_per_chapter: 3000,
+              genre: 'Fantasy',
+              include_series_bible: false
+            }
+          },
+          references_generated: true,
+          reference_files: [
+            { type: 'characters', filename: 'characters.md', size: 1500 },
+            { type: 'outline', filename: 'outline.md', size: 2000 },
+            { type: 'world-building', filename: 'world-building.md', size: 1800 },
+            { type: 'style-guide', filename: 'style-guide.md', size: 1200 },
+            { type: 'plot-timeline', filename: 'plot-timeline.md', size: 1600 }
+          ],
+          message: 'Project created successfully with references'
+        })
+      })
+
+      render(<BookBibleCreator onComplete={mockOnComplete} />)
+
+      // Select QuickStart mode
+      const quickStartCard = screen.getByText('⚡ QuickStart')
+      fireEvent.click(quickStartCard)
+
+      // Fill out QuickStart form
+      const titleInput = screen.getByLabelText(/title/i)
+      const premiseInput = screen.getByLabelText(/premise/i)
+      const characterInput = screen.getByLabelText(/main character/i)
+      const settingInput = screen.getByLabelText(/setting/i)
+      const conflictInput = screen.getByLabelText(/conflict/i)
+
+      fireEvent.change(titleInput, { target: { value: 'Test Novel' } })
+      fireEvent.change(premiseInput, { target: { value: 'A young hero discovers magical powers' } })
+      fireEvent.change(characterInput, { target: { value: 'Alex, a 16-year-old student' } })
+      fireEvent.change(settingInput, { target: { value: 'Modern-day magical academy' } })
+      fireEvent.change(conflictInput, { target: { value: 'Ancient evil threatens the world' } })
+
+      // Submit the form
+      const createButton = screen.getByText(/create book bible/i)
+      fireEvent.click(createButton)
+
+      await waitFor(() => {
+        expect(mockOnComplete).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: 'Test Novel',
+            genre: 'Fiction',
+            target_chapters: expect.any(Number),
+            word_count_per_chapter: expect.any(Number),
+            content: expect.stringContaining('Test Novel'),
+            creation_mode: 'quickstart'
+          })
+        )
+      })
+
+      // Verify API was called with correct data
+      expect(global.fetch).toHaveBeenCalledWith('/api/book-bible/create', 
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer mock-auth-token'
+          }),
+          body: expect.stringContaining('Test Novel')
+        })
+      )
+    })
+
+    it('should handle reference generation failure gracefully', async () => {
+      const mockOnComplete = jest.fn()
+      
+      // Mock API response with references generation failed
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          project: {
+            id: 'test-project-456',
+            title: 'Test Novel',
+            genre: 'Fantasy',
+            status: 'active',
+            created_at: new Date().toISOString(),
+            settings: {
+              target_chapters: 25,
+              word_count_per_chapter: 3000,
+              genre: 'Fantasy',
+              include_series_bible: false
+            }
+          },
+          references_generated: false,
+          reference_files: [],
+          message: 'Project created successfully'
+        })
+      })
+
+      render(<BookBibleCreator onComplete={mockOnComplete} />)
+
+      // Select QuickStart mode and fill form (same as above)
+      const quickStartCard = screen.getByText('⚡ QuickStart')
+      fireEvent.click(quickStartCard)
+
+      const titleInput = screen.getByLabelText(/title/i)
+      const premiseInput = screen.getByLabelText(/premise/i)
+      const characterInput = screen.getByLabelText(/main character/i)
+      const settingInput = screen.getByLabelText(/setting/i)
+      const conflictInput = screen.getByLabelText(/conflict/i)
+
+      fireEvent.change(titleInput, { target: { value: 'Test Novel' } })
+      fireEvent.change(premiseInput, { target: { value: 'A young hero discovers magical powers' } })
+      fireEvent.change(characterInput, { target: { value: 'Alex, a 16-year-old student' } })
+      fireEvent.change(settingInput, { target: { value: 'Modern-day magical academy' } })
+      fireEvent.change(conflictInput, { target: { value: 'Ancient evil threatens the world' } })
+
+      const createButton = screen.getByText(/create book bible/i)
+      fireEvent.click(createButton)
+
+      await waitFor(() => {
+        expect(mockOnComplete).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: 'Test Novel',
+            creation_mode: 'quickstart'
+          })
+        )
+      })
+
+      // Should still create project even if references fail
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('should include series bible option in request when enabled', async () => {
+      const mockOnComplete = jest.fn()
+      
+      ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          project: { id: 'test-project-789' },
+          references_generated: true,
+          reference_files: [],
+          message: 'Project created successfully with references'
+        })
+      })
+
+      render(<BookBibleCreator onComplete={mockOnComplete} />)
+
+      // Select QuickStart mode
+      const quickStartCard = screen.getByText('⚡ QuickStart')
+      fireEvent.click(quickStartCard)
+
+      // Enable series bible
+      const seriesBibleCheckbox = screen.getByLabelText(/series bible/i)
+      fireEvent.click(seriesBibleCheckbox)
+
+      // Fill out form
+      const titleInput = screen.getByLabelText(/title/i)
+      const premiseInput = screen.getByLabelText(/premise/i)
+      
+      fireEvent.change(titleInput, { target: { value: 'Series Book 1' } })
+      fireEvent.change(premiseInput, { target: { value: 'First book in epic series' } })
+
+      const createButton = screen.getByText(/create book bible/i)
+      fireEvent.click(createButton)
+
+      await waitFor(() => {
+        expect(mockOnComplete).toHaveBeenCalled()
+      })
+
+      // Verify series bible option was included
+      const apiCall = (global.fetch as jest.Mock).mock.calls[0]
+      const requestBody = JSON.parse(apiCall[1].body)
+      expect(requestBody.include_series_bible).toBe(true)
+    })
+  })
 }) 
