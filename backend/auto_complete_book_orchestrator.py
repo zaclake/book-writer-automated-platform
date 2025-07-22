@@ -241,8 +241,8 @@ class AutoCompleteBookOrchestrator:
             # Build context for this chapter
             context = self._build_chapter_context(job.chapter_number)
             
-            # Use real LLM orchestrator for chapter generation
-            chapter_content = await self._generate_real_chapter_content(job.chapter_number, context)
+            # Generate chapter using LLM with reference files
+            chapter_content = await self._generate_chapter_with_references(job.chapter_number, context)
             
             # Save chapter to file
             chapter_file = self.chapters_dir / f"chapter-{job.chapter_number:02d}.md"
@@ -308,6 +308,24 @@ class AutoCompleteBookOrchestrator:
         if book_bible_file.exists():
             with open(book_bible_file, 'r', encoding='utf-8') as f:
                 context['book_bible'] = f.read()
+        
+        # Add reference files if available
+        references_dir = self.project_path / "references"
+        if references_dir.exists():
+            reference_files = {
+                'characters': 'characters.md',
+                'outline': 'outline.md',
+                'plot_timeline': 'plot-timeline.md',
+                'world_building': 'world-building.md',
+                'style_guide': 'style-guide.md'
+            }
+            
+            for ref_type, filename in reference_files.items():
+                ref_file = references_dir / filename
+                if ref_file.exists():
+                    with open(ref_file, 'r', encoding='utf-8') as f:
+                        context[f'{ref_type}_reference'] = f.read()
+                    self.logger.info(f"Loaded reference file: {filename}")
         
         return context
     
@@ -425,6 +443,50 @@ The narrative unfolds as the characters face new challenges and developments. Ea
             content = content.replace("[Content continues for approximately", f"{padding}\n\n[Content continues for approximately")
         
         return content
+    
+    async def _generate_chapter_with_references(self, chapter_number: int, context: Dict[str, Any]) -> str:
+        """Generate chapter using LLM orchestrator with reference files included."""
+        try:
+            # Import the LLM orchestrator
+            import sys
+            from pathlib import Path
+            
+            # Add system directory to path for importing
+            parent_dir = Path(__file__).parent.parent
+            system_dir = parent_dir / "system"
+            
+            if str(system_dir) not in sys.path:
+                sys.path.insert(0, str(system_dir))
+            
+            from llm_orchestrator import LLMOrchestrator, RetryConfig
+            
+            # Initialize LLM orchestrator
+            retry_config = RetryConfig(max_retries=3)
+            orchestrator = LLMOrchestrator(retry_config=retry_config)
+            
+            target_words = context.get('target_words', 3800)
+            
+            self.logger.info(f"Generating Chapter {chapter_number} with reference files using LLM orchestrator")
+            
+            # Generate chapter using the LLM system with enhanced context
+            result = orchestrator.generate_chapter(
+                chapter_number=chapter_number,
+                target_words=target_words,
+                stage="complete"
+            )
+            
+            if result.success:
+                self.logger.info(f"Successfully generated Chapter {chapter_number} with {len(result.content.split())} words")
+                return result.content
+            else:
+                self.logger.error(f"LLM generation failed for Chapter {chapter_number}: {result.error}")
+                # Fallback to basic content generation if LLM fails
+                return self._generate_fallback_content(chapter_number, context)
+                
+        except Exception as e:
+            self.logger.error(f"Error in chapter generation for Chapter {chapter_number}: {e}")
+            # Fallback to basic content generation
+            return self._generate_fallback_content(chapter_number, context)
     
     async def _assess_chapter_quality(self, chapter_content: str, chapter_number: int) -> Dict[str, Any]:
         """Assess chapter quality (simplified version)."""
