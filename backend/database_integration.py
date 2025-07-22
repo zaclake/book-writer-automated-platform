@@ -7,7 +7,7 @@ Provides database adapter instances and convenience functions for the applicatio
 import os
 import logging
 from typing import Dict, List, Optional, Any
-from services.database_adapter import DatabaseAdapter
+from backend.services.database_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
 

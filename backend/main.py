@@ -95,14 +95,14 @@ class BookBibleInitializeRequest(BaseModel):
     content: str = Field(..., min_length=100, max_length=50000, description="Book bible markdown content")
 
 # Import Firestore client
-from firestore_client import firestore_client
+from backend.firestore_client import firestore_client
 
 # Import path utilities
-from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
-from utils.reference_parser import generate_reference_files
+from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+from backend.utils.reference_parser import generate_reference_files
 
 # Import reference content generator
-from utils.reference_content_generator import ReferenceContentGenerator
+from backend.utils.reference_content_generator import ReferenceContentGenerator
 
 # Global job update events for SSE optimization
 job_update_events: Dict[str, asyncio.Event] = {}
@@ -292,17 +292,17 @@ async def add_security_headers_and_logging(request, call_next):
 # Security
 security = HTTPBearer()
 
-from auth_middleware import get_current_user, security
+from backend.auth_middleware import get_current_user, security
 
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verify JWT token using Clerk authentication."""
-    from auth_middleware import auth_middleware
+    from backend.auth_middleware import auth_middleware
     return auth_middleware.verify_token(credentials)
 
 # Include routers with explicit error handling
 try:
     logger.info("Attempting to import routers...")
-    from routers import projects_v2, chapters_v2, users_v2
+    from backend.routers import projects_v2, chapters_v2, users_v2
     logger.info("Router imports successful")
     
     logger.info("Including projects_v2 router...")
@@ -385,7 +385,7 @@ async def debug_auth_status():
 async def test_file_operations():
     """Test if file operations work in current deployment environment."""
     try:
-        from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+        from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
         import tempfile
         import json
         
@@ -525,7 +525,7 @@ async def test_file_operations():
 @app.get("/debug/database-status")
 async def debug_database_status():
     """Debug endpoint to check database configuration and status."""
-    from database_integration import get_database_adapter
+    from backend.database_integration import get_database_adapter
     
     # Get database adapter
     try:
@@ -795,7 +795,7 @@ async def estimate_auto_complete_cost(
         sys.path.insert(0, str(parent_dir))
         
         try:
-            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
         except ImportError as e:
             logger.warning(f"LLMOrchestrator not available, using fallback estimation: {e}")
             
@@ -1126,7 +1126,7 @@ async def estimate_cost(
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         
         try:
-            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
         except ImportError:
             # Fallback to simple estimation if LLMOrchestrator is not available
             logger.warning("LLMOrchestrator not available, using fallback estimation")
@@ -1239,7 +1239,7 @@ async def generate_chapter(
                 sys.path.insert(0, dir_path)
         
         try:
-            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
             logger.info("Successfully imported LLMOrchestrator")
         except ImportError as e:
             logger.error(f"Failed to import LLMOrchestrator: {e}")
@@ -1758,7 +1758,7 @@ async def initialize_book_bible(
         # Save project to Firestore using the v2 system
         if user:
             try:
-                from database_integration import create_project
+                from backend.database_integration import create_project
                 
                 # Extract metadata from book bible content
                 title = _extract_title_from_content(request.content)
@@ -1830,7 +1830,7 @@ async def initialize_book_bible(
                     # Save reference files to Firestore
                     if reference_files:
                         try:
-                            from database_integration import create_reference_file
+                            from backend.database_integration import create_reference_file
                             for ref_type, ref_path in reference_files.items():
                                 if os.path.exists(ref_path):
                                     with open(ref_path, 'r', encoding='utf-8') as f:
@@ -2453,7 +2453,7 @@ async def debug_sophisticated_system():
         
         # Test imports
         try:
-            from system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
             debug_info["llm_orchestrator_import"] = "success"
         except Exception as e:
             debug_info["llm_orchestrator_import"] = f"failed: {e}"
@@ -2639,7 +2639,7 @@ async def generate_single_chapter(
                     
                     # Try to save to database
                     try:
-                        from database_integration import create_chapter
+                        from backend.database_integration import create_chapter
                         chapter_id = await create_chapter(chapter_data)
                         logger.info(f"Chapter {chapter_request.chapter_number} saved to database with ID: {chapter_id}")
                     except Exception as db_error:
@@ -2724,7 +2724,7 @@ The chapter is approximately {chapter_request.words} words and follows the {chap
     
     # Try to save to database
     try:
-        from database_integration import create_chapter
+        from backend.database_integration import create_chapter
         chapter_data = {
             'project_id': chapter_request.project_id,
             'chapter_number': chapter_request.chapter_number,

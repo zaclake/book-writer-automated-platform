@@ -12,17 +12,17 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from models.firestore_models import (
+from backend.models.firestore_models import (
     Project, CreateProjectRequest, UpdateProjectRequest, 
     ProjectListResponse, ProjectMetadata, ProjectSettings,
     BookBible, ReferenceFile, BookLengthTier
 )
-from database_integration import (
+from backend.database_integration import (
     get_user_projects, create_project, get_project,
     migrate_project_from_filesystem, track_usage,
     get_database_adapter, create_reference_file
 )
-from auth_middleware import get_current_user
+from backend.auth_middleware import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])
@@ -277,7 +277,7 @@ async def create_new_project(
                     
                     if openai_enabled:
                         from utils.reference_content_generator import ReferenceContentGenerator
-                        from models.firestore_models import BookBible
+                        from backend.models.firestore_models import BookBible
                         
                         generator = ReferenceContentGenerator()
                         if generator.is_available():
@@ -647,7 +647,7 @@ async def update_project(
             })
         
         # Perform the update
-        from database_integration import get_database_adapter
+        from backend.database_integration import get_database_adapter
         db = get_database_adapter()
         success = await db.firestore.update_project(project_id, updates) if db.use_firestore else True
         
@@ -757,7 +757,7 @@ async def add_collaborator(
             current_collaborators.append(collaborator_user_id)
             
             # Update project
-            from database_integration import get_database_adapter
+            from backend.database_integration import get_database_adapter
             db = get_database_adapter()
             success = await db.firestore.update_project(
                 project_id, 
