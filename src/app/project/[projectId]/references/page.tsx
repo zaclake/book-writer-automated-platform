@@ -129,12 +129,19 @@ export default function ReferenceReviewPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [status, setStatus] = useState('')
+  const [hasLoaded, setHasLoaded] = useState(false)
+
+  // Reset hasLoaded when projectId changes
+  useEffect(() => {
+    setHasLoaded(false)
+  }, [projectId])
 
   useEffect(() => {
-    if (isSignedIn && projectId) {
+    if (isSignedIn && projectId && !loading && !hasLoaded) {
+      console.log('[useEffect] Loading reference files for projectId:', projectId)
       loadReferenceFiles()
     }
-  }, [isSignedIn, projectId])
+  }, [isSignedIn, projectId, hasLoaded])
 
   const loadReferenceFiles = async () => {
     setLoading(true)
@@ -163,11 +170,20 @@ export default function ReferenceReviewPage() {
               lastModified: fileData.lastModified,
               approved: false // Default to not approved
             }
-          } else {
-            // File doesn't exist yet - create placeholder
+          } else if (response.status === 404) {
+            // File doesn't exist yet - create placeholder (don't log as error)
+            console.log(`[loadReferenceFiles] ${tab.filename} not found (404) - creating placeholder`)
             filesData[tab.id] = {
               name: tab.filename,
               content: `# ${tab.label}\n\n*This reference file has not been generated yet.*\n\nClick "Generate References" to create AI-powered content for this section.`,
+              approved: false
+            }
+          } else {
+            // Other error
+            console.error(`[loadReferenceFiles] Error loading ${tab.filename}: ${response.status} ${response.statusText}`)
+            filesData[tab.id] = {
+              name: tab.filename,
+              content: `# ${tab.label}\n\n*Error loading this reference file (${response.status}).*`,
               approved: false
             }
           }
@@ -182,6 +198,7 @@ export default function ReferenceReviewPage() {
       }
       
       setFiles(filesData)
+      setHasLoaded(true)
     } catch (error) {
       console.error('Error loading reference files:', error)
       setStatus('❌ Failed to load reference files')
