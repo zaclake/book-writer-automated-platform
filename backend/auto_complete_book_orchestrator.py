@@ -518,37 +518,83 @@ The narrative unfolds as the characters face new challenges and developments. Ea
     async def _save_chapter_to_database(self, chapter_number: int, chapter_content: str, context: Dict[str, Any]):
         """Save chapter to database/Firestore."""
         try:
-            from database_integration import get_database_adapter
+            from database_integration import create_chapter
+            from datetime import datetime, timezone
             
-            db = get_database_adapter()
-            if db.use_firestore:
-                # Prepare chapter data for Firestore
-                chapter_data = {
-                    'project_id': context.get('project_id'),
-                    'chapter_number': chapter_number,
-                    'title': f"Chapter {chapter_number}",
-                    'content': chapter_content,
+            # Get user_id from context or job data
+            user_id = context.get('user_id') or self.config.user_id if hasattr(self.config, 'user_id') else None
+            project_id = context.get('project_id') or self.config.project_id if hasattr(self.config, 'project_id') else None
+            
+            if not project_id:
+                self.logger.error("No project_id available for chapter save")
+                return
+            
+            if not user_id:
+                self.logger.warning("No user_id available, trying to save chapter anyway")
+                user_id = "unknown"
+            
+            # Prepare chapter data in the format expected by the new database layer
+            chapter_data = {
+                'project_id': project_id,
+                'chapter_number': chapter_number,
+                'title': f"Chapter {chapter_number}",
+                'content': chapter_content,
+                'metadata': {
                     'word_count': len(chapter_content.split()),
-                    'status': 'completed',
-                    'metadata': {
-                        'generation_method': 'llm_orchestrator',
-                        'target_words': context.get('target_words', 3800),
-                        'generated_at': datetime.utcnow().isoformat()
-                    }
+                    'target_word_count': context.get('target_words', 3800),
+                    'created_by': user_id,
+                    'stage': 'complete',
+                    'generation_time': context.get('generation_time', 0.0),
+                    'retry_attempts': context.get('retry_attempts', 0),
+                    'model_used': context.get('model_used', 'gpt-4o'),
+                    'tokens_used': context.get('tokens_used', {'prompt': 0, 'completion': 0, 'total': 0}),
+                    'cost_breakdown': context.get('cost_breakdown', {'input_cost': 0.0, 'output_cost': 0.0, 'total_cost': 0.0}),
+                    'generation_method': 'auto_complete_orchestrator',
+                    'generated_at': datetime.now(timezone.utc).isoformat()
+                },
+                'quality_scores': {
+                    'engagement_score': context.get('quality_score', 0.0),
+                    'overall_rating': context.get('quality_score', 0.0),
+                    'craft_scores': {
+                        'prose': 0.0,
+                        'character': 0.0,
+                        'story': 0.0,
+                        'emotion': 0.0,
+                        'freshness': 0.0
+                    },
+                    'pattern_violations': [],
+                    'improvement_suggestions': []
+                },
+                'versions': [{
+                    'version_number': 1,
+                    'content': chapter_content,
+                    'timestamp': datetime.now(timezone.utc),
+                    'reason': 'auto_generation',
+                    'user_id': user_id,
+                    'changes_summary': f'Auto-generated chapter {chapter_number}'
+                }],
+                'context_data': {
+                    'character_states': context.get('character_states', {}),
+                    'plot_threads': context.get('plot_threads', []),
+                    'world_state': context.get('world_state', {}),
+                    'timeline_position': context.get('timeline_position'),
+                    'previous_chapter_summary': context.get('previous_chapter_summary', '')
                 }
-                
-                # Save to Firestore
-                result = await db.firestore.create_chapter(chapter_data)
-                if result:
-                    self.logger.info(f"Chapter {chapter_number} saved to Firestore: {result.get('id', 'unknown')}")
-                else:
-                    self.logger.warning(f"Failed to save Chapter {chapter_number} to Firestore")
+            }
+            
+            # Save using the database integration layer
+            chapter_id = await create_chapter(chapter_data)
+            if chapter_id:
+                self.logger.info(f"Chapter {chapter_number} saved to database: {chapter_id}")
+                return chapter_id
             else:
-                self.logger.info(f"Firestore not enabled, Chapter {chapter_number} saved to local storage only")
+                self.logger.warning(f"Failed to save Chapter {chapter_number} to database")
+                return None
                 
         except Exception as e:
             self.logger.error(f"Error saving Chapter {chapter_number} to database: {e}")
             # Don't fail the chapter generation if database save fails
+            return None
     
     def pause_auto_completion(self) -> bool:
         """Pause the auto-completion process."""

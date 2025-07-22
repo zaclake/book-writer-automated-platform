@@ -73,10 +73,16 @@ async def track_usage(user_id: str, usage_data: Dict[str, Any]) -> bool:
 
 async def create_reference_file(project_id: str, filename: str, content: str, user_id: str) -> Optional[str]:
     """Create a reference file for a project."""
-    # For now, just log this as the method might not be fully implemented
-    logger.info(f"Creating reference file {filename} for project {project_id}")
-    # This is a placeholder - in a full implementation, this would store the reference file
-    return f"ref_{project_id}_{filename}"
+    reference_data = {
+        'project_id': project_id,
+        'filename': filename,
+        'content': content,
+        'created_by': user_id,
+        'file_type': 'reference',
+        'is_auto_generated': False
+    }
+    adapter = get_database_adapter()
+    return await adapter.create_reference_file(reference_data)
 
 async def migrate_project_from_filesystem(project_path: str, user_id: str) -> Optional[str]:
     """Migrate a project from filesystem to database."""

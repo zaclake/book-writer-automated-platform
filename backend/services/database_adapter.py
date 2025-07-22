@@ -351,6 +351,55 @@ class DatabaseAdapter:
                 return False
     
     # =====================================================================
+    # REFERENCE FILE OPERATIONS
+    # =====================================================================
+    
+    async def create_reference_file(self, reference_data: Dict[str, Any]) -> Optional[str]:
+        """Create a reference file."""
+        if self.use_firestore:
+            return await self.firestore.create_reference_file(reference_data)
+        else:
+            # Local storage fallback
+            try:
+                project_id = reference_data.get('project_id')
+                filename = reference_data.get('filename', 'untitled.md')
+                content = reference_data.get('content', '')
+                
+                if not project_id:
+                    logger.error("project_id is required for reference file creation")
+                    return None
+                
+                # Create project references directory
+                project_refs_dir = self.local_storage_path / 'projects' / project_id / 'references'
+                project_refs_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Write content to file
+                ref_file_path = project_refs_dir / filename
+                with open(ref_file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                # Create metadata file
+                metadata = {
+                    'reference_id': str(uuid.uuid4()),
+                    'filename': filename,
+                    'created_by': reference_data.get('created_by', ''),
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'file_size': len(content),
+                    'word_count': len(content.split())
+                }
+                
+                meta_file_path = project_refs_dir / f"{filename}.meta.json"
+                with open(meta_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                logger.info(f"Reference file {filename} created locally for project {project_id}")
+                return metadata['reference_id']
+                
+            except Exception as e:
+                logger.error(f"Failed to create reference file locally: {e}")
+                return None
+
+    # =====================================================================
     # HEALTH CHECK
     # =====================================================================
     

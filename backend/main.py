@@ -643,6 +643,17 @@ async def health_check():
         "message": "Service is running"
     }
 
+# Status endpoint alias for backwards compatibility
+@app.get("/status")
+async def status_check():
+    """Status endpoint alias - returns same as /health for compatibility."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "1.0.0",
+        "message": "Service is running"
+    }
+
 # Detailed health check endpoint (requires authentication)
 @app.get("/health/detailed")
 async def detailed_health_check(user: Dict = Depends(verify_token)):

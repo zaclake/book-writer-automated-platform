@@ -252,7 +252,7 @@ class FirestoreService:
     # =====================================================================
     
     async def create_project(self, project_data: Dict[str, Any]) -> Optional[str]:
-        """Create a new project document."""
+        """Create a new project document under user collection."""
         try:
             project_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc)
@@ -260,6 +260,11 @@ class FirestoreService:
             # Ensure required metadata
             if 'metadata' not in project_data:
                 project_data['metadata'] = {}
+                
+            # Extract user_id from metadata (must be provided)
+            user_id = project_data['metadata'].get('owner_id')
+            if not user_id:
+                raise ValueError("owner_id is required in project metadata")
             
             project_data['metadata'].update({
                 'project_id': project_id,
@@ -303,11 +308,12 @@ class FirestoreService:
                     'tone_consistency': {}
                 }
             
-            # Save to Firestore
-            doc_ref = self.db.collection('projects').document(project_id)
+            # Save to user-scoped collection
+            doc_ref = self.db.collection('users').document(user_id)\
+                             .collection('projects').document(project_id)
             doc_ref.set(project_data)
             
-            logger.info(f"Project {project_id} created successfully")
+            logger.info(f"Project {project_id} created successfully for user {user_id}")
             return project_id
             
         except Exception as e:
@@ -315,9 +321,41 @@ class FirestoreService:
             return None
     
     async def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
-        """Get project document by ID."""
+        """Get project document by ID (searches across all users for backwards compatibility)."""
         try:
+            # First try to find the project by searching across users
+            # This is less efficient but maintains backwards compatibility
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            for user_doc in users:
+                user_id = user_doc.id
+                project_ref = self.db.collection('users').document(user_id)\
+                                   .collection('projects').document(project_id)
+                project_doc = project_ref.get()
+                
+                if project_doc.exists:
+                    return project_doc.to_dict()
+            
+            # If not found in user-scoped collections, try the old root collection
+            # for backwards compatibility during migration
             doc_ref = self.db.collection('projects').document(project_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get project {project_id}: {e}")
+            return None
+    
+    async def get_user_project(self, user_id: str, project_id: str) -> Optional[Dict[str, Any]]:
+        """Get project document by user ID and project ID (more efficient)."""
+        try:
+            doc_ref = self.db.collection('users').document(user_id)\
+                             .collection('projects').document(project_id)
             doc = doc_ref.get()
             
             if doc.exists:
@@ -325,27 +363,37 @@ class FirestoreService:
             return None
             
         except Exception as e:
-            logger.error(f"Failed to get project {project_id}: {e}")
+            logger.error(f"Failed to get project {project_id} for user {user_id}: {e}")
             return None
     
     async def get_user_projects(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all projects for a user (owned or collaborator)."""
+        """Get all projects for a user from user-scoped collection."""
         try:
             projects = []
             
-            # Get owned projects
-            query = self.db.collection('projects').where(
-                filter=FieldFilter('metadata.owner_id', '==', user_id)
-            )
-            owned_docs = query.stream()
-            projects.extend([doc.to_dict() for doc in owned_docs])
+            # Get projects from user-scoped collection
+            projects_ref = self.db.collection('users').document(user_id)\
+                                  .collection('projects')
+            project_docs = projects_ref.stream()
+            projects.extend([doc.to_dict() for doc in project_docs])
             
-            # Get collaborative projects
-            query = self.db.collection('projects').where(
-                filter=FieldFilter('metadata.collaborators', 'array_contains', user_id)
-            )
-            collab_docs = query.stream()
-            projects.extend([doc.to_dict() for doc in collab_docs])
+            # For backwards compatibility, also check old root collection for user's projects
+            # during migration period
+            try:
+                query = self.db.collection('projects').where(
+                    filter=FieldFilter('metadata.owner_id', '==', user_id)
+                )
+                legacy_docs = query.stream()
+                legacy_projects = [doc.to_dict() for doc in legacy_docs]
+                
+                # Add legacy projects that aren't already in the new structure
+                for legacy_project in legacy_projects:
+                    project_id = legacy_project.get('metadata', {}).get('project_id')
+                    if project_id and not any(p.get('metadata', {}).get('project_id') == project_id for p in projects):
+                        projects.append(legacy_project)
+                        
+            except Exception as e:
+                logger.warning(f"Failed to fetch legacy projects for user {user_id}: {e}")
             
             return projects
             
@@ -401,10 +449,36 @@ class FirestoreService:
     # =====================================================================
     
     async def create_chapter(self, chapter_data: Dict[str, Any]) -> Optional[str]:
-        """Create a new chapter document."""
+        """Create a new chapter document under user/project structure."""
         try:
             chapter_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc)
+            
+            # Get project_id to find the user
+            project_id = chapter_data.get('project_id')
+            if not project_id:
+                raise ValueError("project_id is required for chapter creation")
+            
+            # Find the user who owns this project
+            user_id = None
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            for user_doc in users:
+                temp_user_id = user_doc.id
+                project_ref = self.db.collection('users').document(temp_user_id)\
+                                   .collection('projects').document(project_id)
+                project_doc = project_ref.get()
+                
+                if project_doc.exists:
+                    user_id = temp_user_id
+                    break
+            
+            # If not found in user-scoped collections, try to get user from chapter metadata
+            if not user_id:
+                user_id = chapter_data.get('metadata', {}).get('created_by')
+                if not user_id:
+                    raise ValueError(f"Cannot determine user_id for project {project_id}")
             
             # Ensure required fields
             chapter_data['chapter_id'] = chapter_id
@@ -427,11 +501,13 @@ class FirestoreService:
             if 'context_data' not in chapter_data:
                 chapter_data['context_data'] = {}
             
-            # Save to Firestore
-            doc_ref = self.db.collection('chapters').document(chapter_id)
+            # Save to user-scoped collection under project
+            doc_ref = self.db.collection('users').document(user_id)\
+                             .collection('projects').document(project_id)\
+                             .collection('chapters').document(chapter_id)
             doc_ref.set(chapter_data)
             
-            logger.info(f"Chapter {chapter_id} created successfully")
+            logger.info(f"Chapter {chapter_id} created successfully for project {project_id} (user {user_id})")
             return chapter_id
             
         except Exception as e:
@@ -453,14 +529,49 @@ class FirestoreService:
             return None
     
     async def get_project_chapters(self, project_id: str) -> List[Dict[str, Any]]:
-        """Get all chapters for a project, ordered by chapter number."""
+        """Get all chapters for a project from user-scoped collections."""
         try:
-            query = self.db.collection('chapters').where(
-                filter=FieldFilter('project_id', '==', project_id)
-            ).order_by('chapter_number')
+            chapters = []
             
-            docs = query.stream()
-            chapters = [doc.to_dict() for doc in docs]
+            # Find the user who owns this project and get chapters
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            for user_doc in users:
+                user_id = user_doc.id
+                project_ref = self.db.collection('users').document(user_id)\
+                                   .collection('projects').document(project_id)
+                project_doc = project_ref.get()
+                
+                if project_doc.exists:
+                    # Found the project, now get its chapters
+                    chapters_ref = self.db.collection('users').document(user_id)\
+                                          .collection('projects').document(project_id)\
+                                          .collection('chapters')
+                    
+                    # Order by chapter_number if available
+                    try:
+                        query = chapters_ref.order_by('chapter_number')
+                        docs = query.stream()
+                    except Exception:
+                        # If no index for chapter_number, just get all chapters
+                        docs = chapters_ref.stream()
+                    
+                    chapters = [doc.to_dict() for doc in docs]
+                    break
+            
+            # For backwards compatibility during migration, also check old root collection
+            if not chapters:
+                try:
+                    query = self.db.collection('chapters').where(
+                        filter=FieldFilter('project_id', '==', project_id)
+                    ).order_by('chapter_number')
+                    
+                    docs = query.stream()
+                    chapters = [doc.to_dict() for doc in docs]
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to get chapters from legacy collection for project {project_id}: {e}")
             
             return chapters
             
@@ -697,6 +808,125 @@ class FirestoreService:
             logger.error(f"Failed to track usage for user {user_id}: {e}")
             return False
     
+    # =====================================================================
+    # REFERENCE FILE OPERATIONS
+    # =====================================================================
+    
+    async def create_reference_file(self, reference_data: Dict[str, Any]) -> Optional[str]:
+        """Create a reference file document under user/project structure."""
+        try:
+            reference_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc)
+            
+            project_id = reference_data.get('project_id')
+            if not project_id:
+                raise ValueError("project_id is required for reference file creation")
+            
+            # Find the user who owns this project
+            user_id = None
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            for user_doc in users:
+                temp_user_id = user_doc.id
+                project_ref = self.db.collection('users').document(temp_user_id)\
+                                   .collection('projects').document(project_id)
+                project_doc = project_ref.get()
+                
+                if project_doc.exists:
+                    user_id = temp_user_id
+                    break
+            
+            # If not found in user-scoped collections, try to get user from reference data
+            if not user_id:
+                user_id = reference_data.get('created_by')
+                if not user_id:
+                    raise ValueError(f"Cannot determine user_id for project {project_id}")
+            
+            # Prepare reference file data
+            ref_file_data = {
+                'reference_id': reference_id,
+                'project_id': project_id,
+                'filename': reference_data.get('filename', 'untitled.md'),
+                'content': reference_data.get('content', ''),
+                'created_by': reference_data.get('created_by', ''),
+                'file_type': reference_data.get('file_type', 'reference'),
+                'created_at': now,
+                'updated_at': now,
+                'last_modified': reference_data.get('last_modified', now),
+                'modified_by': reference_data.get('created_by', ''),
+                'size': len(reference_data.get('content', '')),
+                'metadata': {
+                    'word_count': len(reference_data.get('content', '').split()),
+                    'line_count': len(reference_data.get('content', '').splitlines()),
+                    'is_auto_generated': reference_data.get('is_auto_generated', False)
+                }
+            }
+            
+            # Save as subcollection under user/project structure
+            doc_ref = self.db.collection('users').document(user_id)\
+                             .collection('projects').document(project_id)\
+                             .collection('reference_files').document(reference_id)
+            doc_ref.set(ref_file_data)
+            
+            logger.info(f"Reference file {reference_data.get('filename')} created successfully for project {project_id} (user {user_id})")
+            return reference_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create reference file: {e}")
+            return None
+    
+    async def get_project_reference_files(self, project_id: str) -> List[Dict[str, Any]]:
+        """Get all reference files for a project from user-scoped collections."""
+        try:
+            reference_files = []
+            
+            # Find the user who owns this project and get reference files
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            for user_doc in users:
+                user_id = user_doc.id
+                project_ref = self.db.collection('users').document(user_id)\
+                                   .collection('projects').document(project_id)
+                project_doc = project_ref.get()
+                
+                if project_doc.exists:
+                    # Found the project, now get its reference files
+                    refs_ref = self.db.collection('users').document(user_id)\
+                                      .collection('projects').document(project_id)\
+                                      .collection('reference_files')
+                    
+                    query = refs_ref.order_by('created_at')
+                    docs = query.stream()
+                    reference_files = [doc.to_dict() for doc in docs]
+                    break
+            
+            return reference_files
+            
+        except Exception as e:
+            logger.error(f"Failed to get reference files for project {project_id}: {e}")
+            return []
+    
+    async def update_reference_file(self, project_id: str, reference_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a reference file."""
+        try:
+            # Add update timestamp
+            updates['updated_at'] = datetime.now(timezone.utc)
+            
+            doc_ref = self.db.collection('projects')\
+                             .document(project_id)\
+                             .collection('reference_files')\
+                             .document(reference_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Reference file {reference_id} updated successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update reference file {reference_id}: {e}")
+            return False
+
     # =====================================================================
     # UTILITY OPERATIONS
     # =====================================================================
