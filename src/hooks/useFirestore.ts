@@ -254,7 +254,7 @@ export function useUserProjects() {
       console.log('🔧 Fetching projects from backend API')
       
       try {
-        const response = await fetch('/api/book-bible/create', {
+        const response = await fetch('/api/projects', {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
