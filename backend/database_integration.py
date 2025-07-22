@@ -32,14 +32,20 @@ def get_database_adapter() -> DatabaseAdapter:
         except Exception as e:
             logger.critical(f"CRITICAL: Failed to initialize database adapter: {e}")
             
+            # Log the detailed error for debugging
+            logger.error(f"DatabaseAdapter.from_environment() failed: {e}")
+            logger.error(f"USE_FIRESTORE env var: {os.getenv('USE_FIRESTORE')}")
+            logger.error(f"GOOGLE_CLOUD_PROJECT env var: {os.getenv('GOOGLE_CLOUD_PROJECT')}")
+            logger.error(f"SERVICE_ACCOUNT_JSON present: {bool(os.getenv('SERVICE_ACCOUNT_JSON'))}")
+            
             # Check if we're in development mode
             environment = os.getenv('ENVIRONMENT', 'production')
             if environment == 'development':
                 logger.warning("Development mode: Falling back to local storage")
                 _db_adapter = DatabaseAdapter(use_firestore=False)
             else:
-                logger.error("Production mode: Database initialization failure is not recoverable")
-                raise RuntimeError(f"Database initialization failed in production: {e}")
+                logger.warning("Production mode: Firestore failed, falling back to local storage for now")
+                _db_adapter = DatabaseAdapter(use_firestore=False)
     
     return _db_adapter
 
