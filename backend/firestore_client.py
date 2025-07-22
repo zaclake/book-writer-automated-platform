@@ -25,7 +25,7 @@ class FirestoreClientCompat:
         
         # Import the new database adapter
         try:
-            from backend.database_integration import get_database_adapter
+            from database_integration import get_database_adapter
             self.get_db = get_database_adapter
         except ImportError:
             logger.warning("New database adapter not available, using fallback")

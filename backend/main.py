@@ -95,14 +95,14 @@ class BookBibleInitializeRequest(BaseModel):
     content: str = Field(..., min_length=100, max_length=50000, description="Book bible markdown content")
 
 # Import Firestore client
-from backend.firestore_client import firestore_client
+from firestore_client import firestore_client
 
 # Import path utilities
-from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
-from backend.utils.reference_parser import generate_reference_files
+from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+from utils.reference_parser import generate_reference_files
 
 # Import reference content generator
-from backend.utils.reference_content_generator import ReferenceContentGenerator
+from utils.reference_content_generator import ReferenceContentGenerator
 
 # Global job update events for SSE optimization
 job_update_events: Dict[str, asyncio.Event] = {}
@@ -292,17 +292,17 @@ async def add_security_headers_and_logging(request, call_next):
 # Security
 security = HTTPBearer()
 
-from backend.auth_middleware import get_current_user, security
+from auth_middleware import get_current_user, security
 
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verify JWT token using Clerk authentication."""
-    from backend.auth_middleware import auth_middleware
+    from auth_middleware import auth_middleware
     return auth_middleware.verify_token(credentials)
 
 # Include routers with explicit error handling
 try:
     logger.info("Attempting to import routers...")
-    from backend.routers import projects_v2, chapters_v2, users_v2
+    from routers import projects_v2, chapters_v2, users_v2
     logger.info("Router imports successful")
     
     logger.info("Including projects_v2 router...")

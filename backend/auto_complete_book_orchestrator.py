@@ -518,7 +518,7 @@ The narrative unfolds as the characters face new challenges and developments. Ea
     async def _save_chapter_to_database(self, chapter_number: int, chapter_content: str, context: Dict[str, Any]):
         """Save chapter to database/Firestore."""
         try:
-            from backend.database_integration import create_chapter
+            from database_integration import create_chapter
             from datetime import datetime, timezone
             
             # Get user_id from context or job data

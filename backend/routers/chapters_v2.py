@@ -9,15 +9,15 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 
-from backend.models.firestore_models import (
+from models.firestore_models import (
     Chapter, CreateChapterRequest, ChapterListResponse,
     ChapterVersion, QualityScores, ChapterStage
 )
-from backend.database_integration import (
+from database_integration import (
     get_project_chapters, create_chapter, get_project,
     track_usage, get_database_adapter
 )
-from backend.auth_middleware import get_current_user
+from auth_middleware import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/chapters", tags=["chapters-v2"])

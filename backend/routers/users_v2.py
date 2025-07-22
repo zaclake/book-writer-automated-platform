@@ -10,11 +10,11 @@ from typing import Dict, Any, Optional
 import logging
 from datetime import datetime, timezone
 
-from backend.models.firestore_models import (
+from models.firestore_models import (
     User, UserProfile, UserPreferences, UserUsage, UserLimits
 )
-from backend.services.firestore_service import FirestoreService
-from backend.auth_middleware import ClerkAuthMiddleware
+from services.firestore_service import FirestoreService
+from auth_middleware import ClerkAuthMiddleware
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users/v2", tags=["Users V2"])
