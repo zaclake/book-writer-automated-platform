@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const targetUrl = `${backendBaseUrl}/v2/chapters/generate`
+    const targetUrl = `${backendBaseUrl}/chapters/generate`
     console.log('[generate] Target URL:', targetUrl)
 
     // Prepare headers for the backend request
@@ -76,7 +76,9 @@ export async function POST(request: NextRequest) {
     const backendResponse = await fetch(targetUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      // Add timeout to prevent Vercel function timeout
+      signal: AbortSignal.timeout(25000) // 25 seconds for chapter generation
     })
 
     console.log('[generate] Backend response status:', backendResponse.status)
@@ -112,6 +114,19 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[generate] Request failed:', error)
+    
+    // Handle timeout errors specifically
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Chapter generation timeout - please try again' },
+        { status: 408, headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }}
+      )
+    }
+    
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: {
