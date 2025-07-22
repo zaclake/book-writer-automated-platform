@@ -57,8 +57,71 @@ const REFERENCE_TABS: ReferenceTab[] = [
 export default function ReferenceReviewPage() {
   const params = useParams()
   const router = useRouter()
-  const projectId = params.projectId as string
+  const rawProjectId = params.projectId as string
   const { getAuthHeaders, isSignedIn } = useAuthToken()
+
+  // Decode the project ID from URL and handle project name vs actual ID
+  const decodedProjectName = decodeURIComponent(rawProjectId)
+  const [actualProjectId, setActualProjectId] = useState<string | null>(null)
+  const [projectTitle, setProjectTitle] = useState<string>(decodedProjectName)
+
+  // Debug logging
+  console.log('[ReferenceReviewPage] Debug info:', {
+    params,
+    rawProjectId,
+    decodedProjectName,
+    actualProjectId,
+    currentURL: typeof window !== 'undefined' ? window.location.href : 'SSR'
+  })
+
+  // Find the actual project ID based on the project name from URL
+  useEffect(() => {
+    const findProjectId = async () => {
+      try {
+        const authHeaders = await getAuthHeaders()
+        const response = await fetch('/api/projects', {
+          method: 'GET',
+          headers: authHeaders
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          const projects = data.projects || []
+          
+          // Try to find project by ID first (in case it's a real UUID)
+          let project = projects.find((p: any) => p.project_id === rawProjectId || p.id === rawProjectId)
+          
+          // If not found by ID, try to find by title
+          if (!project) {
+            project = projects.find((p: any) => 
+              p.title === decodedProjectName || 
+              p.metadata?.title === decodedProjectName
+            )
+          }
+          
+          if (project) {
+            const realProjectId = project.project_id || project.id
+            setActualProjectId(realProjectId)
+            setProjectTitle(project.title || project.metadata?.title || decodedProjectName)
+            console.log('[ReferenceReviewPage] Found project:', { realProjectId, title: project.title })
+          } else {
+            console.error('[ReferenceReviewPage] Project not found for:', decodedProjectName)
+            setActualProjectId(rawProjectId) // Fallback to raw ID
+          }
+        }
+      } catch (error) {
+        console.error('[ReferenceReviewPage] Error finding project:', error)
+        setActualProjectId(rawProjectId) // Fallback to raw ID
+      }
+    }
+
+    if (isSignedIn && rawProjectId) {
+      findProjectId()
+    }
+  }, [isSignedIn, rawProjectId, decodedProjectName, getAuthHeaders])
+
+  // Use the actual project ID for API calls
+  const projectId = actualProjectId || rawProjectId
 
   const [activeTab, setActiveTab] = useState(REFERENCE_TABS[0].id)
   const [files, setFiles] = useState<Record<string, ReferenceFile>>({})
@@ -77,13 +140,18 @@ export default function ReferenceReviewPage() {
     setLoading(true)
     const filesData: Record<string, ReferenceFile> = {}
 
+    console.log('[loadReferenceFiles] Starting to load files with projectId:', projectId)
+
     try {
       const authHeaders = await getAuthHeaders()
       
       // Load each reference file
       for (const tab of REFERENCE_TABS) {
         try {
-          const response = await fetch(`/api/references/${tab.filename}?project_id=${projectId}`, {
+          const requestUrl = `/api/references/${tab.filename}?project_id=${projectId}`
+          console.log('[loadReferenceFiles] Making request to:', requestUrl)
+          
+          const response = await fetch(requestUrl, {
             headers: authHeaders
           })
           
@@ -234,7 +302,7 @@ export default function ReferenceReviewPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-2xl font-bold text-gray-900">📘 Story Reference Review</h1>
+          <h1 className="text-2xl font-bold text-gray-900">📘 Story Reference Review - {projectTitle}</h1>
           <p className="text-gray-600 mt-1">
             Review and approve your reference files before starting to write
           </p>

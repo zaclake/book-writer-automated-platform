@@ -7,7 +7,7 @@ import { useAuth } from '@clerk/nextjs'
 
 export default function CreateProjectPage() {
   const router = useRouter()
-  const { getToken, isSignedIn } = useAuth()
+  const { getToken, isSignedIn, userId } = useAuth()
 
   const handleComplete = async (data: BookBibleData) => {
     if (!isSignedIn) {
@@ -52,6 +52,15 @@ export default function CreateProjectPage() {
 
       if (response.ok) {
         const result = await response.json()
+        console.log('[book-bible/create] Book Bible created successfully for user', userId, ':', {
+          projectId: result.project?.id,
+          title: data.title,
+          mode: data.creation_mode,
+          contentLength: data.content.length,
+          mustIncludeCount: data.must_include_sections?.length || 0
+        })
+        console.log('[book-bible/create] Full response:', result)
+        
         if (result.project?.id) {
           // Check if references were generated
           if (result.references_generated) {
@@ -62,6 +71,7 @@ export default function CreateProjectPage() {
             router.push(`/project/${result.project.id}/overview?note=no-references`)
           }
         } else {
+          console.error('[book-bible/create] No project ID in response, redirecting to dashboard')
           // Fallback to dashboard
           router.push('/dashboard')
         }

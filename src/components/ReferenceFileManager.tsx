@@ -16,7 +16,11 @@ interface GenerationStatus {
   message?: string
 }
 
-export function ReferenceFileManager() {
+interface ReferenceFileManagerProps {
+  projectId?: string | null
+}
+
+export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFileManagerProps = {}) {
   const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [files, setFiles] = useState<ReferenceFile[]>([])
   const [selectedFile, setSelectedFile] = useState<ReferenceFile | null>(null)
@@ -34,6 +38,8 @@ export function ReferenceFileManager() {
   }, [isLoaded, isSignedIn])
 
   const getProjectId = () => {
+    // Use prop first, then fall back to localStorage
+    if (propProjectId) return propProjectId
     if (typeof window === 'undefined') return null
     return localStorage.getItem('lastProjectId')
   }
@@ -70,6 +76,14 @@ export function ReferenceFileManager() {
                     content: fileData.content,
                     lastModified: fileData.lastModified
                   }
+                } else if (fileResponse.status === 404) {
+                  console.log(`Reference file ${fileInfo.name} not found (still generating)`)
+                  return {
+                    name: fileInfo.name,
+                    content: '⏳ This reference file is being generated in the background...\n\nPlease wait a few minutes and refresh the page.',
+                    lastModified: new Date().toISOString(),
+                    isGenerating: true
+                  }
                 }
               } catch (error) {
                 console.error(`Failed to load ${fileInfo.name}:`, error)
@@ -82,8 +96,16 @@ export function ReferenceFileManager() {
           setStatus('')
         } else {
           setFiles([])
-          setStatus('⚠️ ' + (data.message || 'No reference files found'))
+          const message = data.message || 'No reference files found'
+          if (message.includes('not found') || message.includes('No reference files')) {
+            setStatus('📝 Reference files are being generated in the background. Click "Generate References" or wait a few minutes and refresh.')
+          } else {
+            setStatus('⚠️ ' + message)
+          }
         }
+      } else if (response.status === 404) {
+        setFiles([])
+        setStatus('📝 Reference files are being generated in the background. Please wait a few minutes and try again.')
       } else {
         setFiles([])
         setStatus('❌ Failed to load reference files')

@@ -100,6 +100,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     try {
       setIsLoading(true)
       
+      console.log(`[ProjectDashboard] Loading data for project: ${projectId}`)
+      
       // Load project details, chapters, and summary in parallel
       const [projectRes, chaptersRes, summaryRes] = await Promise.all([
         fetch(`/api/book-bible/${projectId}`, {
@@ -113,27 +115,46 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         })
       ])
 
+      // Handle project data
       if (projectRes.ok) {
         const projectData = await projectRes.json()
+        console.log('[ProjectDashboard] Project data loaded:', projectData.project ? 'success' : 'no project')
         setProject(projectData.project)
+      } else {
+        console.error('[ProjectDashboard] Failed to load project:', projectRes.status, await projectRes.text())
       }
 
+      // Handle chapters data (empty is OK for new projects)
       if (chaptersRes.ok) {
         const chaptersData = await chaptersRes.json()
+        console.log('[ProjectDashboard] Chapters loaded:', chaptersData.chapters?.length || 0, 'chapters')
         setChapters(chaptersData.chapters || [])
+      } else {
+        console.error('[ProjectDashboard] Failed to load chapters:', chaptersRes.status, await chaptersRes.text())
+        setChapters([]) // Empty is valid for new projects
       }
 
+      // Handle summary data (might not exist for new projects)
       if (summaryRes.ok) {
         const summaryData = await summaryRes.json()
+        console.log('[ProjectDashboard] Summary loaded:', summaryData.summary ? 'success' : 'no summary')
         setSummary(summaryData.summary)
+      } else if (summaryRes.status === 404) {
+        console.log('[ProjectDashboard] Summary not found (normal for new projects)')
+        setSummary(null)
+      } else {
+        console.error('[ProjectDashboard] Failed to load summary:', summaryRes.status, await summaryRes.text())
+        setSummary(null)
       }
+
+      console.log('[ProjectDashboard] Data loading completed')
 
     } catch (error) {
       console.error('Error loading project data:', error)
       toast({
-        title: "Error",
-        description: "Failed to load project data. Please try again.",
-        variant: "destructive"
+        title: "Warning",
+        description: "Some project data could not be loaded. The project is still accessible.",
+        variant: "default"
       })
     } finally {
       setIsLoading(false)

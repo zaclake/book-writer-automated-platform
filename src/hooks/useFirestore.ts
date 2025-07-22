@@ -250,9 +250,73 @@ export function useUserProjects() {
       // Skip Firebase authentication - using Clerk only
       console.log('🔧 Skipping Firebase authentication - using Clerk authentication only')
       
-      // Skip Firestore subscriptions - using backend APIs only
-      console.log('🔧 Skipping Firestore subscriptions - using backend APIs only')
-      setProjects([])
+      // Use backend APIs to fetch projects
+      console.log('🔧 Fetching projects from backend API')
+      
+      try {
+        const response = await fetch('/api/book-bible/create', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          console.log('📊 Raw backend response:', data)
+          const backendProjects = data.projects || []
+          
+          // Convert backend format to frontend format
+          const formattedProjects: Project[] = backendProjects.map((project: any) => ({
+            id: project.id,
+            metadata: {
+              project_id: project.id,
+              title: project.title || `Project ${project.id}`,
+              owner_id: userId,
+              collaborators: [],
+              status: project.status || 'active',
+              visibility: 'private',
+              created_at: project.created_at ? new Date(project.created_at) : new Date(),
+              updated_at: project.updated_at ? new Date(project.updated_at) : new Date()
+            },
+            settings: {
+              genre: project.genre || project.settings?.genre || 'Fiction',
+              target_chapters: project.settings?.target_chapters || 25,
+              word_count_per_chapter: project.settings?.word_count_per_chapter || 3800,
+              target_audience: 'Adult',
+              writing_style: 'Narrative',
+              quality_gates_enabled: true,
+              auto_completion_enabled: true
+            },
+            progress: {
+              chapters_completed: 0,
+              current_word_count: 0,
+              target_word_count: (project.settings?.target_chapters || 25) * (project.settings?.word_count_per_chapter || 3800),
+              completion_percentage: 0,
+              last_chapter_generated: 0,
+              quality_baseline: {
+                prose: 0,
+                character: 0,
+                story: 0,
+                emotion: 0,
+                freshness: 0,
+                engagement: 0
+              }
+            }
+          }))
+          
+          console.log('🔧 Fetched projects from backend:', formattedProjects.length)
+          setProjects(formattedProjects)
+        } else {
+          console.error('Failed to fetch projects from backend:', response.status, await response.text())
+          setProjects([])
+        }
+      } catch (error) {
+        console.error('Error fetching projects from backend:', error)
+        setProjects([])
+      }
+      
       setLoading(false)
       
       // Return empty unsubscribe function

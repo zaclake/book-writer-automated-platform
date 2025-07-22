@@ -79,7 +79,7 @@
     "cmdk": "^0.2.0",
     "date-fns": "^2.30.0",
     "embla-carousel-react": "^8.0.0-rc19",
-    "firebase": "^10.7.1",
+    "firebase": "^10.14.1",
     "firebase-admin": "^13.4.0",
     "framer-motion": "^10.16.16",
     "lucide-react": "^0.302.0",

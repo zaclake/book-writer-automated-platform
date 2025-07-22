@@ -24,8 +24,9 @@ import {
   DocumentSnapshot,
   Unsubscribe,
   QueryConstraint,
-  enableIndexedDbPersistence,
-  enableMultiTabIndexedDbPersistence
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
 } from 'firebase/firestore'
 import { 
   getAuth, 
@@ -277,7 +278,19 @@ if (typeof window !== 'undefined') {
       } else {
         app = getApps()[0]
       }
-      db = getFirestore(app)
+      
+      // Initialize Firestore with modern cache settings
+      try {
+        db = initializeFirestore(app, {
+          localCache: persistentLocalCache({ 
+            tabManager: persistentMultipleTabManager()
+          })
+        })
+      } catch (error) {
+        // Fallback to default Firestore if cache settings fail
+        console.warn('Failed to initialize with cache settings, using default:', error)
+        db = getFirestore(app)
+      }
       auth = getAuth(app)
       
       // Set up auth state listener
@@ -302,47 +315,8 @@ if (typeof window !== 'undefined') {
 export { db }
 export { getFirebaseConfig }
 
-// Enable offline persistence
-let persistenceEnabled = false
+// Persistence is now handled automatically by cache settings during initialization
 let initializationAttempted = false
-
-async function enableOfflinePersistence() {
-  if (persistenceEnabled || !db) {
-    if (!db) {
-      console.warn('⚠️ Cannot enable persistence - Firestore not initialized')
-    }
-    return
-  }
-  
-  try {
-    // Try multi-tab persistence first (recommended for web apps)
-    await enableMultiTabIndexedDbPersistence(db)
-    console.log('✓ Multi-tab Firestore offline persistence enabled')
-    persistenceEnabled = true
-  } catch (err: any) {
-    if (err.code === 'failed-precondition') {
-      // Multiple tabs open, persistence can only be enabled in one tab at a time
-      console.warn('⚠️ Multi-tab persistence failed - trying single tab persistence')
-      try {
-        await enableIndexedDbPersistence(db!)
-        console.log('✓ Single-tab Firestore offline persistence enabled')
-        persistenceEnabled = true
-      } catch (singleTabErr: any) {
-        if (singleTabErr.code === 'failed-precondition') {
-          console.warn('⚠️ Persistence can only be enabled in one tab at a time.')
-        } else if (singleTabErr.code === 'unimplemented') {
-          console.warn('⚠️ The current browser does not support persistence.')
-        } else {
-          console.error('❌ Error enabling single-tab persistence:', singleTabErr)
-        }
-      }
-    } else if (err.code === 'unimplemented') {
-      console.warn('⚠️ The current browser does not support offline persistence.')
-    } else {
-      console.error('❌ Error enabling multi-tab persistence:', err)
-    }
-  }
-}
 
 /**
  * Reinitialize Firebase when configuration becomes available.
@@ -392,11 +366,21 @@ export async function reinitializeFirebase(): Promise<boolean> {
       app = getApps()[0]
     }
     
-    db = getFirestore(app)
+    // Initialize Firestore with modern cache settings
+    try {
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({ 
+          tabManager: persistentMultipleTabManager()
+        })
+      })
+    } catch (error) {
+      // Fallback to default Firestore if cache settings fail
+      console.warn('Failed to initialize with cache settings, using default:', error)
+      db = getFirestore(app)
+    }
     console.log('✅ Firebase reinitialized successfully')
 
-    // Enable offline persistence
-    await enableOfflinePersistence()
+    // Persistence is now handled by cache settings during initialization
 
     // Test connection
     try {
@@ -506,10 +490,9 @@ export async function authenticateWithFirebase(userId?: string): Promise<boolean
   }
 }
 
-// Initialize offline persistence
+// Initialization is handled during app setup
 if (typeof window !== 'undefined') {
   initializationAttempted = true
-  enableOfflinePersistence()
 }
 
 /**
