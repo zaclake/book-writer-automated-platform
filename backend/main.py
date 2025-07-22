@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -1715,7 +1715,7 @@ async def initialize_book_bible(
 ):
     """
     Initialize a project from a book bible and automatically generate reference files.
-    This is the missing endpoint that makes the automated flow work!
+    This endpoint creates a proper Firestore project using the v2 system.
     """
     try:
         logger.info(f"[book-bible/initialize] Starting initialization for project: {request.project_id}")
@@ -1726,7 +1726,7 @@ async def initialize_book_bible(
         
         logger.info(f"[book-bible/initialize] Project workspace created: {project_workspace}")
         
-        # Save book bible content
+        # Save book bible content to workspace
         book_bible_path = project_workspace / "book-bible.md"
         with open(book_bible_path, 'w', encoding='utf-8') as f:
             f.write(request.content)
@@ -1744,33 +1744,123 @@ async def initialize_book_bible(
             # Don't fail the whole request if reference generation fails
             reference_files = []
         
-        # Save project metadata to Firestore
+        # Save project to Firestore using the v2 system
         if user:
-            project_data = {
-                "project_id": request.project_id,
-                "user_id": user.get("user_id", "anonymous"),
-                "title": _extract_title_from_content(request.content),
-                "status": "active",
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
-                "genre": _extract_genre_from_content(request.content),
-                "target_chapters": 25,
-                "chapters_completed": 0,
-                "references_generated": len(reference_files),
-                "book_bible_uploaded": True
-            }
-            
-            # Save to Firestore using existing method
-            await firestore_client.save_project_data(request.project_id, project_data)
-            logger.info(f"[book-bible/initialize] Project metadata saved to Firestore")
+            try:
+                from database_integration import create_project
+                
+                # Extract metadata from book bible content
+                title = _extract_title_from_content(request.content)
+                genre = _extract_genre_from_content(request.content)
+                
+                # Create project data structure for v2 system
+                project_data = {
+                    'metadata': {
+                        'title': title,
+                        'owner_id': user.get("user_id", "anonymous"),
+                        'collaborators': [],
+                        'status': 'active',
+                        'visibility': 'private'
+                    },
+                    'book_bible': {
+                        'content': request.content,
+                        'last_modified': datetime.now(timezone.utc),
+                        'modified_by': user.get("user_id", "anonymous"),
+                        'version': 1,
+                        'word_count': len(request.content.split()),
+                        'must_include_sections': [],
+                        'creation_mode': 'paste',
+                        'ai_expanded': False
+                    },
+                    'settings': {
+                        'genre': genre,
+                        'target_chapters': 25,
+                        'word_count_per_chapter': 2000,
+                        'target_audience': 'General',
+                        'writing_style': 'Professional',
+                        'quality_gates_enabled': True,
+                        'auto_completion_enabled': False
+                    },
+                    'progress': {
+                        'chapters_completed': 0,
+                        'current_word_count': 0,
+                        'target_word_count': 50000,
+                        'completion_percentage': 0.0,
+                        'last_chapter_generated': 0,
+                        'quality_baseline': {
+                            'prose': 0.0,
+                            'character': 0.0,
+                            'story': 0.0,
+                            'emotion': 0.0,
+                            'freshness': 0.0,
+                            'engagement': 0.0
+                        }
+                    },
+                    'references': {},
+                    'story_continuity': {
+                        'main_characters': [],
+                        'active_plot_threads': [],
+                        'world_building_elements': {},
+                        'theme_tracking': {},
+                        'timeline_events': [],
+                        'character_relationships': {},
+                        'settings_visited': [],
+                        'story_arc_progress': 0.0,
+                        'tone_consistency': {}
+                    }
+                }
+                
+                # Create project in Firestore using v2 system
+                firestore_project_id = await create_project(project_data)
+                
+                if firestore_project_id:
+                    logger.info(f"[book-bible/initialize] Project created in Firestore with ID: {firestore_project_id}")
+                    
+                    # Save reference files to Firestore
+                    if reference_files:
+                        try:
+                            from database_integration import create_reference_file
+                            for ref_type, ref_path in reference_files.items():
+                                if os.path.exists(ref_path):
+                                    with open(ref_path, 'r', encoding='utf-8') as f:
+                                        ref_content = f.read()
+                                    
+                                    ref_result = await create_reference_file(
+                                        project_id=firestore_project_id,
+                                        filename=f"{ref_type}.md",
+                                        content=ref_content,
+                                        user_id=user.get("user_id", "anonymous")
+                                    )
+                                    
+                                    if ref_result:
+                                        logger.info(f"[book-bible/initialize] Reference file {ref_type}.md saved to Firestore")
+                                    else:
+                                        logger.warning(f"[book-bible/initialize] Failed to save reference file {ref_type}.md to Firestore")
+                        except Exception as ref_error:
+                            logger.error(f"[book-bible/initialize] Error saving reference files to Firestore: {ref_error}")
+                    
+                    # Return the Firestore project ID instead of the temporary one
+                    final_project_id = firestore_project_id
+                else:
+                    logger.warning(f"[book-bible/initialize] Failed to create project in Firestore, using local project ID")
+                    final_project_id = request.project_id
+                    
+            except Exception as db_error:
+                logger.error(f"[book-bible/initialize] Database save error: {db_error}")
+                # Continue with local project ID if database save fails
+                final_project_id = request.project_id
+        else:
+            logger.warning(f"[book-bible/initialize] No user authentication, using local project ID")
+            final_project_id = request.project_id
         
         return {
             "success": True,
-            "project_id": request.project_id,
+            "project_id": final_project_id,
             "message": "Project initialized successfully with reference files",
             "reference_files": reference_files,
             "workspace_path": str(project_workspace),
-            "book_bible_path": str(book_bible_path)
+            "book_bible_path": str(book_bible_path),
+            "firestore_saved": user is not None  # Indicate if data was saved to Firestore
         }
         
     except Exception as e:
