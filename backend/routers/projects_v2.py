@@ -12,17 +12,33 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from models.firestore_models import (
-    Project, CreateProjectRequest, UpdateProjectRequest, 
-    ProjectListResponse, ProjectMetadata, ProjectSettings,
-    BookBible, ReferenceFile, BookLengthTier
-)
-from database_integration import (
-    get_user_projects, create_project, get_project,
-    migrate_project_from_filesystem, track_usage,
-    get_database_adapter, create_reference_file
-)
-from auth_middleware import get_current_user
+# Context-aware imports
+try:
+    # Try backend.* path first (when running from project root)
+    from backend.models.firestore_models import (
+        Project, CreateProjectRequest, UpdateProjectRequest, 
+        ProjectListResponse, ProjectMetadata, ProjectSettings,
+        BookBible, ReferenceFile, BookLengthTier
+    )
+    from backend.database_integration import (
+        get_user_projects, create_project, get_project,
+        migrate_project_from_filesystem, track_usage,
+        get_database_adapter, create_reference_file
+    )
+    from backend.auth_middleware import get_current_user
+except ImportError:
+    # Fallback to relative imports (when running from backend directory)
+    from models.firestore_models import (
+        Project, CreateProjectRequest, UpdateProjectRequest, 
+        ProjectListResponse, ProjectMetadata, ProjectSettings,
+        BookBible, ReferenceFile, BookLengthTier
+    )
+    from database_integration import (
+        get_user_projects, create_project, get_project,
+        migrate_project_from_filesystem, track_usage,
+        get_database_adapter, create_reference_file
+    )
+    from auth_middleware import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])

@@ -7,7 +7,14 @@ Provides database adapter instances and convenience functions for the applicatio
 import os
 import logging
 from typing import Dict, List, Optional, Any
-from services.database_adapter import DatabaseAdapter
+
+# Context-aware imports
+try:
+    # Try backend.* path first (when running from project root)
+    from backend.services.database_adapter import DatabaseAdapter
+except ImportError:
+    # Fallback to relative imports (when running from backend directory)
+    from services.database_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
 
