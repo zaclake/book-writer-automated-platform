@@ -25,11 +25,10 @@ class FirestoreClientCompat:
         
         # Import the new database adapter
         try:
-            from database_integration import get_database_adapter
+            from backend.database_integration import get_database_adapter
             self.get_db = get_database_adapter
-        except ImportError:
-            logger.warning("New database adapter not available, using fallback")
-            self.get_db = None
+        except ImportError as e:
+            raise
         
         # Create local storage directory
         os.makedirs(self.local_storage_path, exist_ok=True)
