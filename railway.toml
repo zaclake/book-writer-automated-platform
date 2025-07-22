@@ -2,6 +2,6 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "pip install -r requirements.txt && cd backend && python main.py"
+startCommand = "pip install -r requirements.txt && cd backend && ./start.sh"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3 
