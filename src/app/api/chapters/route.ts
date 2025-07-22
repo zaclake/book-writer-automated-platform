@@ -43,7 +43,9 @@ export async function GET(request: NextRequest) {
     // Make the request to the backend
     const backendResponse = await fetch(targetUrl, {
       method: 'GET',
-      headers
+      headers,
+      // Add timeout to prevent Vercel function timeout
+      signal: AbortSignal.timeout(20000) // 20 seconds
     })
 
     console.log('[chapters] Backend response status:', backendResponse.status)
@@ -73,6 +75,15 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('[chapters] Request failed:', error)
+    
+    // Handle timeout errors specifically
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timeout - please try again' },
+        { status: 408 }
+      )
+    }
+    
     return NextResponse.json(
       { error: `Failed to list chapters: ${error.message}` },
       { status: 500 }

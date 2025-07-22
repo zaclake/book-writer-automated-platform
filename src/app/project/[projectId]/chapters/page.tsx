@@ -97,7 +97,7 @@ export default function ChapterWritingPage() {
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/chapters/generate', {
+      const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           ...authHeaders,
@@ -170,7 +170,7 @@ export default function ChapterWritingPage() {
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/chapters/generate', {
+      const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           ...authHeaders,
