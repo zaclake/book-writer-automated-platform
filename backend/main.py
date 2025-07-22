@@ -2761,6 +2761,57 @@ The chapter is approximately {chapter_request.words} words and follows the {chap
         'message': f"Chapter {chapter_request.chapter_number} generated successfully (simple mode)"
     }
 
+@app.get("/debug/router-status")
+async def debug_router_status():
+    """Debug endpoint to check router import status."""
+    import importlib
+    import traceback
+    
+    results = {
+        "working_directory": os.getcwd(),
+        "python_path": sys.path[:3],  # First few entries
+        "router_import_attempts": []
+    }
+    
+    # Test backend.* imports
+    try:
+        projects_v2 = importlib.import_module("backend.routers.projects_v2")
+        results["router_import_attempts"].append({
+            "method": "backend.routers.projects_v2",
+            "success": True,
+            "router_object": str(type(projects_v2))
+        })
+    except Exception as e:
+        results["router_import_attempts"].append({
+            "method": "backend.routers.projects_v2", 
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+    
+    # Test relative imports
+    try:
+        projects_v2_rel = importlib.import_module("routers.projects_v2")
+        results["router_import_attempts"].append({
+            "method": "routers.projects_v2",
+            "success": True,
+            "router_object": str(type(projects_v2_rel))
+        })
+    except Exception as e:
+        results["router_import_attempts"].append({
+            "method": "routers.projects_v2",
+            "success": False, 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+    
+    # Check router routes count
+    v2_routes = [route.path for route in app.routes if '/v2/' in route.path]
+    results["current_v2_routes"] = v2_routes
+    results["total_routes"] = len(app.routes)
+    
+    return results
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
