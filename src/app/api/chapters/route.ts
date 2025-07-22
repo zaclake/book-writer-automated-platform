@@ -44,8 +44,8 @@ export async function GET(request: NextRequest) {
     const backendResponse = await fetch(targetUrl, {
       method: 'GET',
       headers,
-      // Add timeout to prevent Vercel function timeout
-      signal: AbortSignal.timeout(20000) // 20 seconds
+      // Add timeout to prevent Vercel function timeout - increased to 45 seconds
+      signal: AbortSignal.timeout(45000) // 45 seconds
     })
 
     console.log('[chapters] Backend response status:', backendResponse.status)

@@ -1,72 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-
-// This would be imported from the main storage in production
-const projectStorage = new Map<string, any>()
-
-interface UpdateBookBibleData {
-  title?: string
-  genre?: string
-  book_bible_content?: string
-  must_include_sections?: string[]
-  settings?: {
-    target_chapters?: number
-    word_count_per_chapter?: number
-    involvement_level?: string
-    purpose?: string
-  }
-}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { projectId: string } }
 ) {
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { projectId } = params
 
-    // Get project from storage (in production, this would be Firestore)
-    const project = projectStorage.get(projectId)
-
-    if (!project) {
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      console.error('[book-bible] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
+        { error: 'Backend URL not configured' },
+        { status: 500 }
       )
     }
 
-    // Check ownership
-    if (project.owner_id !== userId) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      )
+    const targetUrl = `${backendBaseUrl}/v2/projects/${projectId}`
+    console.log('[book-bible] Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
     }
 
-    return NextResponse.json({
-      success: true,
-      project: {
-        id: project.id,
-        title: project.title,
-        genre: project.genre,
-        book_bible_content: project.book_bible_content,
-        must_include_sections: project.must_include_sections,
-        settings: project.settings,
-        status: project.status,
-        created_at: project.created_at,
-        updated_at: project.updated_at
-      }
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(30000) // 30 seconds
     })
 
-  } catch (error) {
-    console.error(`GET /api/book-bible/${params.projectId} error:`, error)
+    console.log('[book-bible] Backend response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[book-bible] Backend error:', errorText)
+      
+      // Try to parse as JSON first, fall back to text
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
+
+    const data = await backendResponse.json()
+    console.log('[book-bible] Backend success, returning data')
+
+    return NextResponse.json(data)
+
+  } catch (error: any) {
+    console.error('[book-bible] Request failed:', error)
+    
+    // Handle timeout errors specifically
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timeout - please try again' },
+        { status: 408 }
+      )
+    }
+    
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Failed to get project: ${error.message}` },
       { status: 500 }
     )
   }
@@ -77,70 +85,76 @@ export async function PUT(
   { params }: { params: { projectId: string } }
 ) {
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { projectId } = params
-    const updateData: UpdateBookBibleData = await request.json()
+    const body = await request.json()
 
-    // Get existing project
-    const project = projectStorage.get(projectId)
-
-    if (!project) {
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      console.error('[book-bible] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
+        { error: 'Backend URL not configured' },
+        { status: 500 }
       )
     }
 
-    // Check ownership
-    if (project.owner_id !== userId) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      )
+    const targetUrl = `${backendBaseUrl}/v2/projects/${projectId}`
+    console.log('[book-bible] PUT Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
     }
 
-    // Update project data
-    const updatedProject = {
-      ...project,
-      ...updateData,
-      settings: {
-        ...project.settings,
-        ...updateData.settings
-      },
-      updated_at: new Date().toISOString()
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
     }
 
-    // Save updated project
-    projectStorage.set(projectId, updatedProject)
-
-    console.log(`Book Bible updated for user ${userId}:`, {
-      projectId,
-      title: updatedProject.title,
-      updatedFields: Object.keys(updateData)
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000) // 30 seconds
     })
 
-    return NextResponse.json({
-      success: true,
-      message: 'Book Bible updated successfully',
-      project: {
-        id: updatedProject.id,
-        title: updatedProject.title,
-        genre: updatedProject.genre,
-        status: updatedProject.status,
-        updated_at: updatedProject.updated_at,
-        settings: updatedProject.settings
+    console.log('[book-bible] PUT Backend response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[book-bible] PUT Backend error:', errorText)
+      
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
       }
-    })
+      
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
 
-  } catch (error) {
-    console.error(`PUT /api/book-bible/${params.projectId} error:`, error)
+    const data = await backendResponse.json()
+    console.log('[book-bible] PUT Backend success, returning data')
+
+    return NextResponse.json(data)
+
+  } catch (error: any) {
+    console.error('[book-bible] PUT Request failed:', error)
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timeout - please try again' },
+        { status: 408 }
+      )
+    }
+    
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Failed to update project: ${error.message}` },
       { status: 500 }
     )
   }
@@ -151,55 +165,74 @@ export async function DELETE(
   { params }: { params: { projectId: string } }
 ) {
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { projectId } = params
 
-    // Get project to verify ownership
-    const project = projectStorage.get(projectId)
-
-    if (!project) {
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      console.error('[book-bible] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
+        { error: 'Backend URL not configured' },
+        { status: 500 }
       )
     }
 
-    // Check ownership
-    if (project.owner_id !== userId) {
+    const targetUrl = `${backendBaseUrl}/v2/projects/${projectId}`
+    console.log('[book-bible] DELETE Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers,
+      signal: AbortSignal.timeout(30000) // 30 seconds
+    })
+
+    console.log('[book-bible] DELETE Backend response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[book-bible] DELETE Backend error:', errorText)
+      
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      
       return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
+        errorData,
+        { status: backendResponse.status }
       )
     }
 
-    // Delete project
-    projectStorage.delete(projectId)
+    const data = await backendResponse.json()
+    console.log('[book-bible] DELETE Backend success, returning data')
 
-    console.log(`Book Bible deleted for user ${userId}:`, {
-      projectId,
-      title: project.title
-    })
+    return NextResponse.json(data)
 
-    // In production, this would also:
-    // 1. Delete all associated chapters
-    // 2. Delete reference files
-    // 3. Clean up any background jobs
-    // 4. Remove from pattern database
-
-    return NextResponse.json({
-      success: true,
-      message: 'Book Bible deleted successfully'
-    })
-
-  } catch (error) {
-    console.error(`DELETE /api/book-bible/${params.projectId} error:`, error)
+  } catch (error: any) {
+    console.error('[book-bible] DELETE Request failed:', error)
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timeout - please try again' },
+        { status: 408 }
+      )
+    }
+    
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Failed to delete project: ${error.message}` },
       { status: 500 }
     )
   }

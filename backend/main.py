@@ -2560,12 +2560,50 @@ async def generate_single_chapter(
             
             # Run chapter generation
             results = await orchestrator.run_auto_completion()
+            logger.info(f"Orchestrator results: {results}")
             
-            if results.get('success', False):
+            # Check if chapter generation succeeded by looking at the orchestrator's response format
+            # The orchestrator returns completion_data with different field names
+            completion_status = results.get('status', 'failed')
+            progress = results.get('progress', {})
+            chapters_completed = progress.get('chapters_completed', 0)
+            error_message = results.get('error_message', None)
+            
+            # Success if status is completed and we have chapters completed
+            generation_succeeded = (
+                completion_status == 'completed' and 
+                chapters_completed > 0 and
+                error_message is None
+            )
+            
+            if generation_succeeded:
                 # Read the generated chapter content
                 chapter_file = project_workspace / "chapters" / f"chapter-{chapter_request.chapter_number:02d}.md"
                 if chapter_file.exists():
                     chapter_content = chapter_file.read_text(encoding='utf-8')
+                    
+                    # Get quality score from the orchestrator response or use default
+                    quality_score = 7.0
+                    generation_time = 0.0
+                    
+                    # Try to get quality score from quality_scores array
+                    quality_scores = results.get('quality_scores', [])
+                    if quality_scores:
+                        # Get the latest quality score
+                        latest_score = quality_scores[-1]
+                        quality_score = latest_score.get('score', 7.0)
+                    
+                    # Calculate generation time from start/end times
+                    start_time = results.get('start_time')
+                    end_time = results.get('end_time')
+                    if start_time and end_time:
+                        from datetime import datetime
+                        try:
+                            start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                            end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                            generation_time = (end_dt - start_dt).total_seconds()
+                        except Exception:
+                            generation_time = 0.0
                     
                     # Create chapter in database if using Firestore
                     chapter_data = {
@@ -2578,13 +2616,13 @@ async def generate_single_chapter(
                             'target_word_count': chapter_request.words,
                             'created_by': user["user_id"],
                             'stage': chapter_request.stage,
-                            'generation_time': results.get('generation_time', 0.0),
+                            'generation_time': generation_time,
                             'model_used': 'auto-orchestrator',
                             'job_id': job_id
                         },
                         'quality_scores': {
-                            'overall_rating': results.get('final_quality_score', 7.0),
-                            'engagement_score': results.get('final_quality_score', 7.0) + 0.5
+                            'overall_rating': quality_score,
+                            'engagement_score': quality_score + 0.5
                         }
                     }
                     
@@ -2602,8 +2640,8 @@ async def generate_single_chapter(
                         'chapter_number': chapter_request.chapter_number,
                         'content': chapter_content,
                         'word_count': len(chapter_content.split()),
-                        'quality_score': results.get('final_quality_score', 7.0),
-                        'generation_time': results.get('generation_time', 0.0),
+                        'quality_score': quality_score,
+                        'generation_time': generation_time,
                         'job_id': job_id,
                         'message': f"Chapter {chapter_request.chapter_number} generated successfully"
                     }
@@ -2613,8 +2651,25 @@ async def generate_single_chapter(
                         detail="Chapter generation completed but file not found"
                     )
             else:
-                error_message = results.get('error', 'Unknown generation error')
-                logger.error(f"Chapter generation failed: {error_message}")
+                # Determine error message from the orchestrator response
+                error_details = []
+                
+                # Get error message from the orchestrator response
+                orchestrator_error = results.get('error_message', '')
+                if orchestrator_error:
+                    error_details.append(f"Orchestrator error: {orchestrator_error}")
+                
+                # Add status information
+                error_details.append(f"Status: {completion_status}")
+                error_details.append(f"Chapters completed: {chapters_completed}")
+                
+                error_message = '; '.join(error_details) if error_details else f"Generation failed with status: {completion_status}"
+                
+                logger.error(f"Chapter generation failed - Line 2670: {error_message}")
+                logger.error(f"Full results - Line 2671: {results}")
+                logger.error(f"Completion status - Line 2672: {completion_status}")
+                logger.error(f"Chapters completed - Line 2673: {chapters_completed}")
+                logger.error(f"Error message - Line 2674: {error_message}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Chapter generation failed: {error_message}"
