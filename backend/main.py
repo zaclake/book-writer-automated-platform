@@ -302,28 +302,30 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 # Include routers with explicit error handling
 try:
     logger.info("Attempting to import routers...")
-    from routers import projects_v2, chapters_v2, users_v2
-    logger.info("Router imports successful")
-    
-    logger.info("Including projects_v2 router...")
+    import importlib
+    try:
+        # Preferred: running from monorepo root -> use absolute package path
+        projects_v2 = importlib.import_module("backend.routers.projects_v2")
+        chapters_v2 = importlib.import_module("backend.routers.chapters_v2")
+        users_v2 = importlib.import_module("backend.routers.users_v2")
+        logger.info("Routers imported via backend.* path")
+    except ModuleNotFoundError:
+        # Fallback: running from inside backend/ directory
+        projects_v2 = importlib.import_module("routers.projects_v2")
+        chapters_v2 = importlib.import_module("routers.chapters_v2")
+        users_v2 = importlib.import_module("routers.users_v2")
+        logger.info("Routers imported via relative routers.* path")
+
+    # Include routers
     app.include_router(projects_v2.router)
-    logger.info("✅ projects_v2 router included")
-    
-    logger.info("Including chapters_v2 router...")
     app.include_router(chapters_v2.router)
-    logger.info("✅ chapters_v2 router included")
-    
-    logger.info("Including users_v2 router...")
     app.include_router(users_v2.router)
-    logger.info("✅ users_v2 router included")
-    
-    logger.info("All routers included successfully")
+    logger.info("✅ All v2 routers included successfully")
 except Exception as e:
     logger.error(f"❌ CRITICAL: Failed to include routers: {e}")
     logger.error(f"Error type: {type(e).__name__}")
     import traceback
     logger.error(f"Full traceback: {traceback.format_exc()}")
-    # Continue without routers to keep basic app running
 
 # Debug endpoints
 @app.get("/debug/auth-config")
