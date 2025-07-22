@@ -303,18 +303,40 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 try:
     logger.info("Attempting to import routers...")
     import importlib
+    import sys
+    import os
+    
+    # Log current working directory and Python path for debugging
+    logger.info(f"Current working directory: {os.getcwd()}")
+    logger.info(f"Python path: {sys.path[:3]}...")  # Show first 3 entries
+    
+    # Check if we're running from backend directory (Railway's current behavior)
+    if os.getcwd().endswith('/backend'):
+        logger.info("Detected running from backend directory - adding parent to Python path")
+        parent_dir = os.path.dirname(os.getcwd())
+        if parent_dir not in sys.path:
+            sys.path.insert(0, parent_dir)
+        logger.info(f"Updated Python path: {sys.path[:3]}...")
+    
     try:
         # Preferred: running from monorepo root -> use absolute package path
         projects_v2 = importlib.import_module("backend.routers.projects_v2")
         chapters_v2 = importlib.import_module("backend.routers.chapters_v2")
         users_v2 = importlib.import_module("backend.routers.users_v2")
-        logger.info("Routers imported via backend.* path")
-    except ModuleNotFoundError:
-        # Fallback: running from inside backend/ directory
-        projects_v2 = importlib.import_module("routers.projects_v2")
-        chapters_v2 = importlib.import_module("routers.chapters_v2")
-        users_v2 = importlib.import_module("routers.users_v2")
-        logger.info("Routers imported via relative routers.* path")
+        logger.info("✅ Routers imported via backend.* path")
+    except ModuleNotFoundError as e1:
+        logger.warning(f"Failed to import via backend.* path: {e1}")
+        try:
+            # Fallback: running from inside backend/ directory
+            projects_v2 = importlib.import_module("routers.projects_v2")
+            chapters_v2 = importlib.import_module("routers.chapters_v2")
+            users_v2 = importlib.import_module("routers.users_v2")
+            logger.info("✅ Routers imported via relative routers.* path")
+        except ModuleNotFoundError as e2:
+            logger.error(f"Both import methods failed:")
+            logger.error(f"  - backend.*: {e1}")
+            logger.error(f"  - routers.*: {e2}")
+            raise e2
 
     # Include routers
     app.include_router(projects_v2.router)
