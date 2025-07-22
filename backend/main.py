@@ -522,61 +522,104 @@ async def test_file_operations():
             "timestamp": datetime.utcnow().isoformat()
         }
 
+@app.get("/debug/database-status")
+async def debug_database_status():
+    """Debug endpoint to check database configuration and status."""
+    from database_integration import get_database_adapter
+    
+    # Get database adapter
+    try:
+        db = get_database_adapter()
+        
+        # Check if Firestore is configured
+        firestore_status = {
+            "use_firestore": db.use_firestore,
+            "firestore_available": hasattr(db, 'firestore') and db.firestore is not None,
+            "firestore_service_available": False
+        }
+        
+        if db.firestore:
+            firestore_status["firestore_service_available"] = hasattr(db.firestore, 'available') and db.firestore.available
+        
+        # Check environment variables
+        env_vars = {
+            "USE_FIRESTORE": os.getenv('USE_FIRESTORE'),
+            "GOOGLE_CLOUD_PROJECT": os.getenv('GOOGLE_CLOUD_PROJECT'),
+            "SERVICE_ACCOUNT_JSON_set": bool(os.getenv('SERVICE_ACCOUNT_JSON')),
+            "GOOGLE_APPLICATION_CREDENTIALS": os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        }
+        
+        # Test database health
+        health_status = await db.health_check()
+        
+        return {
+            "firestore_status": firestore_status,
+            "environment_variables": env_vars,
+            "health_check": health_status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
 @app.get("/debug/paths")
 async def debug_paths():
     """Debug endpoint to check file paths in Railway deployment"""
-    import os
+    import platform
     import sys
     from pathlib import Path
     
-    debug_info = {
-        "python_version": sys.version,
-        "current_working_directory": os.getcwd(),
-        "file_location": __file__,
-        "script_parent": str(Path(__file__).parent),
-        "directories": {}
-    }
+    def check_directory(path):
+        """Check if directory exists and list contents."""
+        p = Path(path)
+        if p.exists() and p.is_dir():
+            try:
+                contents = [item.name for item in p.iterdir()]
+                yaml_files = [item.name for item in p.glob("*.yaml")]
+                return {
+                    "exists": True,
+                    "is_dir": True,
+                    "contents": contents[:20],  # Limit to first 20 items
+                    "yaml_files": yaml_files
+                }
+            except PermissionError:
+                return {
+                    "exists": True,
+                    "is_dir": True,
+                    "contents": ["Permission denied"],
+                    "yaml_files": []
+                }
+        else:
+            return {
+                "exists": p.exists(),
+                "is_dir": p.is_dir() if p.exists() else False,
+                "contents": [],
+                "yaml_files": []
+            }
     
-    # Check key directories
-    directories_to_check = [
-        "/app",
-        "/app/backend",
-        "/app/backend/prompts",
-        "/app/backend/prompts/reference-generation",
-        "/app/prompts",
-        "/app/prompts/reference-generation",
-        str(Path.cwd()),
-        str(Path.cwd() / "prompts"),
-        str(Path.cwd() / "prompts" / "reference-generation"),
-        str(Path.cwd() / "backend" / "prompts" / "reference-generation"),
-        str(Path(__file__).parent / "prompts" / "reference-generation"),
+    script_path = Path(__file__).resolve()
+    script_parent = script_path.parent
+    
+    paths_to_check = [
+        str(script_parent),  # /app
+        str(script_parent / "backend"),  # /app/backend (should not exist in Railway)
+        str(script_parent / "backend" / "prompts"),
+        str(script_parent / "backend" / "prompts" / "reference-generation"),
+        str(script_parent / "prompts"),  # Should exist in Railway
+        str(script_parent / "prompts" / "reference-generation")
     ]
     
-    for dir_path in directories_to_check:
-        path = Path(dir_path)
-        dir_info = {
-            "exists": path.exists(),
-            "is_dir": path.is_dir(),
-            "contents": [],
-            "yaml_files": []
-        }
-        
-        if path.exists():
-            try:
-                contents = list(path.iterdir())
-                dir_info["contents"] = [item.name for item in contents]
-                
-                # If this is a prompts directory, check for YAML files
-                if "prompts" in str(path) or "reference-generation" in str(path):
-                    yaml_files = [f for f in contents if f.name.endswith('.yaml')]
-                    dir_info["yaml_files"] = [f.name for f in yaml_files]
-                    
-            except Exception as e:
-                dir_info["error"] = str(e)
-        
-        debug_info["directories"][str(path)] = dir_info
-    
-    return debug_info
+    return {
+        "python_version": sys.version,
+        "current_working_directory": os.getcwd(),
+        "file_location": str(script_path),
+        "script_parent": str(script_parent),
+        "directories": {path: check_directory(path) for path in paths_to_check}
+    }
 
 # Root endpoint
 @app.get("/")
