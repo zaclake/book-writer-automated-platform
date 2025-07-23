@@ -34,6 +34,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------
+# Ensure repository root is on PYTHONPATH early (before other imports)
+# This guarantees that both 'utils.*' and 'backend.*' absolute imports
+# work whether the service starts from repo root or from ./backend.
+# ---------------------------------------------------------------------
+import sys as _sys
+import os as _os
+if _os.getcwd().endswith('/backend'):
+    _parent_dir = _os.path.dirname(_os.getcwd())
+    if _parent_dir not in _sys.path:
+        _sys.path.insert(0, _parent_dir)
+
+# ---------------------------------------------------------------------
+# END early path correction
+# ---------------------------------------------------------------------
+
 # Add request ID for tracing
 import contextvars
 request_id_contextvar = contextvars.ContextVar('request_id', default=None)
@@ -98,13 +114,14 @@ class BookBibleInitializeRequest(BaseModel):
 from firestore_client import firestore_client
 
 # Import path utilities
-# Robust import for utils.paths to support both monorepo-root and backend-dir execution
+# Robust import for utils.paths. When running **inside** ./backend, the parent
+# directory is already injected into sys.path above, so `utils.*` is resolvable.
 try:
-    from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
-    from backend.utils.reference_parser import generate_reference_files
-except ModuleNotFoundError:
     from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
     from utils.reference_parser import generate_reference_files
+except ModuleNotFoundError:
+    from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+    from backend.utils.reference_parser import generate_reference_files
 
 # Import reference content generator
 from utils.reference_content_generator import ReferenceContentGenerator
