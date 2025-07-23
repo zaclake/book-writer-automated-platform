@@ -13,11 +13,20 @@ from backend.models.firestore_models import (
     Chapter, CreateChapterRequest, ChapterListResponse,
     ChapterVersion, QualityScores, ChapterStage
 )
-from backend.database_integration import (
-    get_project_chapters, create_chapter, get_project,
-    track_usage, get_database_adapter
-)
-from backend.auth_middleware import get_current_user
+# Robust imports that work from both repo root and backend directory
+try:
+    from backend.database_integration import (
+        get_project_chapters, create_chapter, get_project,
+        track_usage, get_database_adapter
+    )
+    from backend.auth_middleware import get_current_user
+except ImportError:
+    # Fallback when running from backend directory
+    from database_integration import (
+        get_project_chapters, create_chapter, get_project,
+        track_usage, get_database_adapter
+    )
+    from auth_middleware import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/chapters", tags=["chapters-v2"])

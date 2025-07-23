@@ -17,12 +17,22 @@ from backend.models.firestore_models import (
     ProjectListResponse, ProjectMetadata, ProjectSettings,
     BookBible, ReferenceFile, BookLengthTier
 )
-from backend.database_integration import (
-    get_user_projects, create_project, get_project,
-    migrate_project_from_filesystem, track_usage,
-    get_database_adapter, create_reference_file
-)
-from backend.auth_middleware import get_current_user
+# Robust imports that work from both repo root and backend directory
+try:
+    from backend.database_integration import (
+        get_user_projects, create_project, get_project,
+        migrate_project_from_filesystem, track_usage,
+        get_database_adapter, create_reference_file
+    )
+    from backend.auth_middleware import get_current_user
+except ImportError:
+    # Fallback when running from backend directory
+    from database_integration import (
+        get_user_projects, create_project, get_project,
+        migrate_project_from_filesystem, track_usage,
+        get_database_adapter, create_reference_file
+    )
+    from auth_middleware import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])
