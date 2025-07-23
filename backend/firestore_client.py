@@ -28,7 +28,12 @@ class FirestoreClientCompat:
             from backend.database_integration import get_database_adapter
             self.get_db = get_database_adapter
         except ImportError as e:
-            raise
+            try:
+                # Fallback for when running from backend directory
+                from database_integration import get_database_adapter
+                self.get_db = get_database_adapter
+            except ImportError as e2:
+                raise ImportError(f"Failed to import database_integration from both backend.database_integration and database_integration: {e}, {e2}")
         
         # Create local storage directory
         os.makedirs(self.local_storage_path, exist_ok=True)

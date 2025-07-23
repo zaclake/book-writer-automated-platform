@@ -26,7 +26,7 @@ except ImportError:
     from auth_middleware import ClerkAuthMiddleware
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/users/v2", tags=["Users V2"])
+router = APIRouter(prefix="/v2/users", tags=["users-v2"])
 
 # Initialize services
 auth_middleware = ClerkAuthMiddleware()

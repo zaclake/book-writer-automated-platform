@@ -7,7 +7,14 @@ Provides database adapter instances and convenience functions for the applicatio
 import os
 import logging
 from typing import Dict, List, Optional, Any
-from backend.services.database_adapter import DatabaseAdapter
+
+# Robust import for DatabaseAdapter to support both monorepo-root and backend-dir execution
+try:
+    # Standard absolute import when running from repository root
+    from backend.services.database_adapter import DatabaseAdapter
+except ModuleNotFoundError:
+    # Fallback to relative import when cwd is backend/
+    from services.database_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
 

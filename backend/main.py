@@ -98,8 +98,13 @@ class BookBibleInitializeRequest(BaseModel):
 from firestore_client import firestore_client
 
 # Import path utilities
-from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
-from utils.reference_parser import generate_reference_files
+# Robust import for utils.paths to support both monorepo-root and backend-dir execution
+try:
+    from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+    from backend.utils.reference_parser import generate_reference_files
+except ModuleNotFoundError:
+    from utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
+    from utils.reference_parser import generate_reference_files
 
 # Import reference content generator
 from utils.reference_content_generator import ReferenceContentGenerator
@@ -324,7 +329,7 @@ try:
         chapters_v2 = importlib.import_module("backend.routers.chapters_v2")
         users_v2 = importlib.import_module("backend.routers.users_v2")
         logger.info("✅ Routers imported via backend.* path")
-    except ModuleNotFoundError as e1:
+    except (ModuleNotFoundError, ImportError) as e1:
         logger.warning(f"Failed to import via backend.* path: {e1}")
         try:
             # Fallback: running from inside backend/ directory
@@ -332,7 +337,7 @@ try:
             chapters_v2 = importlib.import_module("routers.chapters_v2")
             users_v2 = importlib.import_module("routers.users_v2")
             logger.info("✅ Routers imported via relative routers.* path")
-        except ModuleNotFoundError as e2:
+        except (ModuleNotFoundError, ImportError) as e2:
             logger.error(f"Both import methods failed:")
             logger.error(f"  - backend.*: {e1}")
             logger.error(f"  - routers.*: {e2}")
@@ -549,7 +554,11 @@ async def test_file_operations():
 @app.get("/debug/database-status")
 async def debug_database_status():
     """Debug endpoint to check database configuration and status."""
-    from backend.database_integration import get_database_adapter
+    # Robust import fallback
+    try:
+        from backend.database_integration import get_database_adapter
+    except ModuleNotFoundError:
+        from database_integration import get_database_adapter
     
     # Get database adapter
     try:
@@ -2785,54 +2794,54 @@ The chapter is approximately {chapter_request.words} words and follows the {chap
 
 @app.get("/debug/router-status")
 async def debug_router_status():
-    """Debug endpoint to check router import status."""
-    import importlib
-    import traceback
-    
-    results = {
-        "working_directory": os.getcwd(),
-        "python_path": sys.path[:3],  # First few entries
-        "router_import_attempts": []
-    }
-    
-    # Test backend.* imports
+    """Debug endpoint to check router import and registration status."""
     try:
-        projects_v2 = importlib.import_module("backend.routers.projects_v2")
-        results["router_import_attempts"].append({
-            "method": "backend.routers.projects_v2",
-            "success": True,
-            "router_object": str(type(projects_v2))
-        })
+        router_status = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_routes": len(app.routes),
+            "v2_routes": [],
+            "all_routes": []
+        }
+        
+        # Analyze all routes
+        for route in app.routes:
+            route_info = {
+                "path": getattr(route, 'path', 'unknown'),
+                "methods": list(getattr(route, 'methods', [])),
+                "name": getattr(route, 'name', 'unknown')
+            }
+            router_status["all_routes"].append(route_info)
+            
+            # Check if this is a v2 route
+            if route_info["path"].startswith("/v2/"):
+                router_status["v2_routes"].append(route_info)
+        
+        # Summary
+        router_status["v2_routes_count"] = len(router_status["v2_routes"])
+        router_status["router_import_successful"] = len(router_status["v2_routes"]) > 0
+        router_status["expected_v2_prefixes"] = ["/v2/projects", "/v2/chapters", "/v2/users"]
+        
+        # Check which v2 prefixes are present
+        found_prefixes = set()
+        for route in router_status["v2_routes"]:
+            path = route["path"]
+            for prefix in router_status["expected_v2_prefixes"]:
+                if path.startswith(prefix):
+                    found_prefixes.add(prefix)
+        
+        router_status["found_v2_prefixes"] = list(found_prefixes)
+        router_status["missing_v2_prefixes"] = [
+            prefix for prefix in router_status["expected_v2_prefixes"] 
+            if prefix not in found_prefixes
+        ]
+        
+        return router_status
+        
     except Exception as e:
-        results["router_import_attempts"].append({
-            "method": "backend.routers.projects_v2", 
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        })
-    
-    # Test relative imports
-    try:
-        projects_v2_rel = importlib.import_module("routers.projects_v2")
-        results["router_import_attempts"].append({
-            "method": "routers.projects_v2",
-            "success": True,
-            "router_object": str(type(projects_v2_rel))
-        })
-    except Exception as e:
-        results["router_import_attempts"].append({
-            "method": "routers.projects_v2",
-            "success": False, 
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        })
-    
-    # Check router routes count
-    v2_routes = [route.path for route in app.routes if '/v2/' in route.path]
-    results["current_v2_routes"] = v2_routes
-    results["total_routes"] = len(app.routes)
-    
-    return results
+        return {
+            "error": f"Failed to analyze router status: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 if __name__ == "__main__":
     import uvicorn
