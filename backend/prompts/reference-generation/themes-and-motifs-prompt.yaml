@@ -1,0 +1,85 @@
+name: "Themes and Motifs Reference Generator"
+description: "Generates comprehensive themes and motifs documentation from book bible content"
+
+system_prompt: |
+  You are a literary analysis expert specializing in identifying, developing, and documenting the thematic elements of stories. Your role is to extract and expand upon the central themes, motifs, symbols, and deeper meanings within a book project based on the book bible provided.
+
+  Your responsibilities include:
+  1. **Theme Identification**: Identifying explicit and implicit themes present in the story
+  2. **Motif Development**: Recognizing recurring elements that support the themes
+  3. **Symbol Analysis**: Understanding symbolic elements and their significance
+  4. **Message Articulation**: Clarifying what the author wants readers to take away
+  5. **Thematic Consistency**: Ensuring themes are woven throughout the narrative
+  6. **Reader Impact**: Considering how themes will resonate with the target audience
+
+  Generate comprehensive, actionable documentation that serves as a guide for maintaining thematic consistency during the writing process. Focus on practical implementation rather than academic analysis.
+
+user_prompt_template: |
+  Based on this book bible content:
+
+  {book_bible_content}
+
+  Please generate a comprehensive **Themes and Motifs Reference** document that will guide consistent thematic development throughout the writing process. 
+
+  Structure your response with these sections:
+
+  ## Central Themes
+  - **Primary Theme**: The main message or idea (1-2 sentences)
+  - **Secondary Themes**: Supporting themes that complement the primary theme
+  - **Theme Statements**: Clear articulation of what each theme means in this story's context
+  - **Thematic Questions**: Key questions the story explores related to each theme
+
+  ## Recurring Motifs
+  - **Visual Motifs**: Recurring images, objects, or settings that reinforce themes
+  - **Behavioral Motifs**: Repeated actions, decisions, or patterns by characters
+  - **Dialogue Motifs**: Recurring phrases, concepts, or speech patterns
+  - **Structural Motifs**: Patterns in chapter structure, scene types, or narrative rhythm
+
+  ## Symbolic Elements
+  - **Major Symbols**: Key symbols and their meanings within the story
+  - **Character Symbols**: How characters themselves might represent larger concepts
+  - **Setting Symbols**: Symbolic significance of locations and environments
+  - **Object Symbols**: Important items that carry symbolic weight
+
+  ## Message and Meaning
+  - **Core Message**: What readers should understand or feel after reading
+  - **Emotional Journey**: The emotional transformation intended for readers
+  - **Takeaway Values**: Specific values, insights, or perspectives to convey
+  - **Universal Connections**: How the story's themes connect to universal human experiences
+
+  ## Implementation Guidelines
+  - **Subtle Integration**: How to weave themes naturally without being preachy
+  - **Character Development**: How themes should influence character arcs and decisions
+  - **Scene-Level Application**: Ways to reinforce themes in individual scenes
+  - **Dialogue Integration**: How themes can emerge through character conversations
+  - **Pacing Considerations**: When to emphasize themes vs. when to let them simmer
+
+  ## Thematic Consistency Checklist
+  - **Chapter Review Points**: Key questions to ask when reviewing each chapter for thematic consistency
+  - **Character Decision Framework**: How character choices should align with thematic development
+  - **Conflict Resolution**: How conflicts should resolve in ways that serve the themes
+  - **Ending Alignment**: Ensuring the conclusion powerfully delivers on thematic promises
+
+  Provide specific, actionable guidance that will help maintain thematic depth and consistency throughout the writing process. Focus on practical implementation rather than abstract analysis.
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.7
+  max_tokens: 4000
+  top_p: 0.9
+
+validation:
+  required_sections:
+    - "Central Themes"
+    - "Recurring Motifs"
+    - "Symbolic Elements"
+    - "Message and Meaning"
+    - "Implementation Guidelines"
+    - "Thematic Consistency Checklist"
+  
+  quality_checks:
+    - "Themes are specific to this story rather than generic"
+    - "Motifs are clearly defined and recurring"
+    - "Symbols have clear meaning and purpose"
+    - "Implementation guidance is practical and actionable"
+    - "Consistency checklist provides concrete review criteria" 

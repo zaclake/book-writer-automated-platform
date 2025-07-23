@@ -1,0 +1,119 @@
+name: "Target Audience Profile Reference Generator"
+description: "Generates comprehensive target audience analysis and reader engagement strategies from book bible content"
+
+system_prompt: |
+  You are a publishing market analyst and reader psychology expert who helps authors understand their target audience and craft content that resonates with specific reader demographics. Your role is to analyze book bible content and create detailed audience profiles that guide writing decisions throughout the creative process.
+
+  Your responsibilities include:
+  1. **Audience Segmentation**: Identifying primary and secondary target audiences
+  2. **Reader Psychology**: Understanding motivations, preferences, and expectations
+  3. **Market Analysis**: Positioning the book within current market trends
+  4. **Engagement Strategy**: Developing approaches to connect with target readers
+  5. **Content Optimization**: Guiding content decisions based on audience preferences
+  6. **Marketing Insights**: Providing foundation for future marketing and promotion
+
+  Generate comprehensive, data-driven documentation that helps authors write with their ideal readers in mind while maintaining authentic creative vision.
+
+user_prompt_template: |
+  Based on this book bible content:
+
+  {book_bible_content}
+
+  Please generate a comprehensive **Target Audience Profile Reference** document that will guide reader-focused writing decisions throughout the creative process.
+
+  Structure your response with these sections:
+
+  ## Primary Target Audience
+  - **Demographics**: Age range, gender distribution, education level, income bracket
+  - **Psychographics**: Values, interests, lifestyle preferences, personality traits
+  - **Reading Habits**: Preferred genres, reading frequency, format preferences (print/digital/audio)
+  - **Pain Points**: Problems, challenges, or needs this book could address
+  - **Aspirations**: Goals, dreams, or outcomes readers seek from books like this
+
+  ## Secondary Audiences
+  - **Crossover Readers**: Adjacent genres or demographics that might be interested
+  - **Influential Readers**: Reviewers, bloggers, industry professionals who could amplify reach
+  - **Gift Purchasers**: People who might buy this book for others
+  - **Educational Markets**: Teachers, librarians, or academic institutions
+
+  ## Reader Motivations
+  - **Primary Motivations**: Main reasons readers would pick up this book
+  - **Emotional Needs**: What feelings or experiences readers are seeking
+  - **Intellectual Needs**: Information, insights, or perspectives they want to gain
+  - **Entertainment Preferences**: Types of enjoyment or escapism they value
+  - **Social Connections**: How reading this book might connect them with others
+
+  ## Content Preferences
+  - **Pacing Expectations**: Preferred story rhythm and chapter length
+  - **Complexity Level**: Appropriate depth for plot, character development, and themes
+  - **Content Sensitivities**: Topics to handle carefully or avoid entirely
+  - **Language Style**: Tone, vocabulary level, and communication style preferences
+  - **Cultural Considerations**: Diverse representation and inclusive storytelling expectations
+
+  ## Engagement Strategies
+  - **Hook Requirements**: What will grab attention in opening chapters
+  - **Emotional Payoffs**: Key emotional experiences readers expect from this genre/story
+  - **Character Connection**: Types of protagonists and relationships that resonate
+  - **Plot Expectations**: Story elements and resolutions that satisfy this audience
+  - **Theme Relevance**: How to present themes in ways that feel meaningful and timely
+
+  ## Market Positioning
+  - **Genre Classification**: Primary and secondary genre categories
+  - **Competitive Landscape**: Similar books and authors in the market
+  - **Unique Value Proposition**: What makes this book distinct from competitors
+  - **Market Trends**: Current trends this book aligns with or challenges
+  - **Seasonal Considerations**: Optimal timing for publication and promotion
+
+  ## Writing Guidelines
+  - **Voice Considerations**: Narrative voice that will resonate with target readers
+  - **Scene Selection**: Types of scenes and moments to emphasize
+  - **Dialogue Style**: Communication patterns that feel authentic to target audience
+  - **Description Balance**: Appropriate level of detail for setting and action
+  - **Chapter Structure**: Ideal chapter length and pacing for sustained engagement
+
+  ## Reader Experience Journey
+  - **Discovery Phase**: How target readers typically find new books
+  - **Selection Criteria**: What factors influence their purchase decisions
+  - **Reading Experience**: How they prefer to consume content (reading sessions, environments)
+  - **Sharing Behavior**: How they discuss and recommend books to others
+  - **Loyalty Factors**: What keeps readers engaged with an author's work
+
+  ## Content Testing Framework
+  - **Beta Reader Selection**: Characteristics to look for in beta readers from target audience
+  - **Feedback Focus Areas**: Specific questions to ask beta readers
+  - **Sensitivity Readers**: When and how to incorporate specialized reader perspectives
+  - **Market Testing**: Methods for testing audience response to content and marketing
+
+  ## Success Metrics
+  - **Engagement Indicators**: Signs that content is resonating with target audience
+  - **Review Patterns**: Types of reviews and ratings to expect from satisfied readers
+  - **Word-of-Mouth Factors**: Elements that encourage organic recommendation
+  - **Long-term Relationship**: Building lasting connection with reader community
+
+  Provide specific, actionable guidance that helps maintain focus on target readers while preserving creative authenticity. Balance market awareness with artistic vision.
+
+model_config:
+  model: "gpt-4o"
+  temperature: 0.7
+  max_tokens: 4000
+  top_p: 0.9
+
+validation:
+  required_sections:
+    - "Primary Target Audience"
+    - "Secondary Audiences"
+    - "Reader Motivations"
+    - "Content Preferences"
+    - "Engagement Strategies"
+    - "Market Positioning"
+    - "Writing Guidelines"
+    - "Reader Experience Journey"
+    - "Content Testing Framework"
+    - "Success Metrics"
+  
+  quality_checks:
+    - "Demographics are specific and realistic"
+    - "Motivations align with book content and genre"
+    - "Preferences are actionable for writing decisions"
+    - "Market positioning is accurate and competitive"
+    - "Guidelines balance audience needs with creative vision" 
