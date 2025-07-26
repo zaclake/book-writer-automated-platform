@@ -15,6 +15,21 @@
       ]
     },
     {
+      "collectionGroup": "chapters",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "project_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "chapter_number",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+
+    {
       "collectionGroup": "generation_jobs",
       "queryScope": "COLLECTION",
       "fields": [

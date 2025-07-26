@@ -7,6 +7,7 @@ import { BookBibleUpload } from '@/components/BookBibleUpload'
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
 import OnboardingFlow from '@/components/OnboardingFlow'
 import { useUserProjects, useProject } from '@/hooks/useFirestore'
+import { SkeletonPlaceholder } from '@/components/ui/SkeletonPlaceholder'
 import { 
   PencilIcon, 
   BookOpenIcon, 
@@ -175,10 +176,33 @@ export default function Dashboard() {
   // Show loading state while projects are loading
   if (projectsLoading) {
     return (
-      <div className="min-h-screen bg-clean flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-sm text-gray-500">Loading your projects...</p>
+      <div className="min-h-screen bg-clean">
+        {/* Clean Header */}
+        <div className="bg-white border-b border-gray-200">
+          <div className="max-w-4xl mx-auto px-6 py-8">
+            <div className="text-center">
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                WriterBloom
+              </h1>
+              <p className="text-lg text-gray-600">
+                Your creative writing studio
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto px-6 py-12">
+          <div className="text-center mb-8">
+            <SkeletonPlaceholder type="text" lines={1} width="w-1/3" height="h-8" className="mx-auto mb-4" />
+            <SkeletonPlaceholder type="text" lines={1} width="w-1/4" height="h-4" className="mx-auto" />
+          </div>
+
+          {/* Loading skeleton for action cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <SkeletonPlaceholder type="card" />
+            <SkeletonPlaceholder type="card" />
+            <SkeletonPlaceholder type="card" />
+          </div>
         </div>
       </div>
     )

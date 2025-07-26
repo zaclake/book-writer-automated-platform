@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useAuthToken } from '@/lib/auth'
 import { PlayIcon, StopIcon } from '@heroicons/react/24/outline'
+import { CreativeLoader } from './ui/CreativeLoader'
 
 interface ChapterGenerationFormProps {
   onGenerationStart: () => void
@@ -46,7 +47,7 @@ export function ChapterGenerationForm({
     setStatus('Generating chapter...')
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/v2/chapters/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -55,7 +56,7 @@ export function ChapterGenerationForm({
         body: JSON.stringify({
           project_id: projectId,
           chapter_number: chapterNumber,
-          words: wordCount,
+          target_word_count: wordCount,
           stage: stage
         })
       })
@@ -233,7 +234,32 @@ export function ChapterGenerationForm({
         </div>
       </form>
       
-      {status && (
+      {/* Creative Loader for Chapter Generation */}
+      <CreativeLoader
+        isVisible={isGenerating}
+        progress={undefined} // No specific progress for single chapter generation
+        stage="Crafting Chapter"
+        customMessages={[
+          "🖋️ Weaving narrative threads...",
+          "🎭 Developing character voices...",
+          "📖 Building dramatic tension...",
+          "✨ Polishing prose perfection...",
+          "🎨 Painting vivid scenes...",
+          "🔥 Forging compelling dialogue...",
+          "🌟 Creating literary magic...",
+          "📚 Consulting story wisdom...",
+          "🎯 Aiming for the perfect word...",
+          "⚡ Channeling creative energy..."
+        ]}
+        showProgress={false}
+        size="md"
+        onTimeout={() => {
+          // Chapter generation timeout handled in the form submission
+        }}
+        timeoutMs={120000} // 2 minutes
+      />
+
+      {status && !isGenerating && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">
           <p className="text-sm text-gray-700">{status}</p>
         </div>

@@ -345,7 +345,16 @@ try:
         projects_v2 = importlib.import_module("backend.routers.projects_v2")
         chapters_v2 = importlib.import_module("backend.routers.chapters_v2")
         users_v2 = importlib.import_module("backend.routers.users_v2")
-        logger.info("✅ Routers imported via backend.* path")
+        logger.info("✅ Core routers imported via backend.* path")
+        
+        # Try to import prewriting router (optional, may have dependencies)
+        try:
+            prewriting_v2 = importlib.import_module("backend.routers.prewriting_v2")
+            logger.info("✅ Prewriting router imported successfully")
+        except ImportError as e_prewriting:
+            logger.warning(f"Prewriting router disabled due to missing dependencies: {e_prewriting}")
+            prewriting_v2 = None
+            
     except (ModuleNotFoundError, ImportError) as e1:
         logger.warning(f"Failed to import via backend.* path: {e1}")
         try:
@@ -353,7 +362,16 @@ try:
             projects_v2 = importlib.import_module("routers.projects_v2")
             chapters_v2 = importlib.import_module("routers.chapters_v2")
             users_v2 = importlib.import_module("routers.users_v2")
-            logger.info("✅ Routers imported via relative routers.* path")
+            logger.info("✅ Core routers imported via relative routers.* path")
+            
+            # Try to import prewriting router (optional)
+            try:
+                prewriting_v2 = importlib.import_module("routers.prewriting_v2")
+                logger.info("✅ Prewriting router imported successfully")
+            except ImportError as e_prewriting:
+                logger.warning(f"Prewriting router disabled due to missing dependencies: {e_prewriting}")
+                prewriting_v2 = None
+                
         except (ModuleNotFoundError, ImportError) as e2:
             logger.error(f"Both import methods failed:")
             logger.error(f"  - backend.*: {e1}")
@@ -364,7 +382,12 @@ try:
     app.include_router(projects_v2.router)
     app.include_router(chapters_v2.router)
     app.include_router(users_v2.router)
-    logger.info("✅ All v2 routers included successfully")
+    
+    if prewriting_v2:
+        app.include_router(prewriting_v2.router)
+        logger.info("✅ All v2 routers included successfully")
+    else:
+        logger.info("✅ Core v2 routers included successfully (prewriting disabled)")
 except Exception as e:
     logger.error(f"❌ CRITICAL: Failed to include routers: {e}")
     logger.error(f"Error type: {type(e).__name__}")

@@ -125,7 +125,7 @@ export default function ReferenceReviewPage() {
 
   const [activeTab, setActiveTab] = useState(REFERENCE_TABS[0].id)
   const [files, setFiles] = useState<Record<string, ReferenceFile>>({})
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)  // Changed from true to false
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [status, setStatus] = useState('')
@@ -137,7 +137,7 @@ export default function ReferenceReviewPage() {
   }, [projectId])
 
   useEffect(() => {
-    if (isSignedIn && projectId && !loading && !hasLoaded) {
+    if (isSignedIn && projectId && !hasLoaded) {  // Removed !loading condition
       console.log('[useEffect] Loading reference files for projectId:', projectId)
       loadReferenceFiles()
     }
@@ -152,10 +152,10 @@ export default function ReferenceReviewPage() {
     try {
       const authHeaders = await getAuthHeaders()
       
-      // Load each reference file
+      // Load each reference file using the v2 backend endpoints
       for (const tab of REFERENCE_TABS) {
         try {
-          const requestUrl = `/api/references/${tab.filename}?project_id=${projectId}`
+          const requestUrl = `/api/v2/projects/${projectId}/references/${tab.filename}`
           console.log('[loadReferenceFiles] Making request to:', requestUrl)
           
           const response = await fetch(requestUrl, {
@@ -223,7 +223,7 @@ export default function ReferenceReviewPage() {
       const filename = REFERENCE_TABS.find(t => t.id === activeTab)?.filename
       if (!filename) return
 
-      const response = await fetch(`/api/references/${filename}?project_id=${projectId}`, {
+      const response = await fetch(`/api/v2/projects/${projectId}/references/${filename}`, {
         method: 'PUT',
         headers: {
           ...authHeaders,

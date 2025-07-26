@@ -3,6 +3,8 @@
 import { useState, useRef } from 'react'
 import { DocumentTextIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
+import { CreativeLoader } from './ui/CreativeLoader'
+import { useJobProgress } from '@/hooks/useJobProgress'
 
 interface BookBibleUploadProps {
   onProjectInitialized: (projectId?: string) => void
@@ -16,7 +18,29 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
   const [isInitializing, setIsInitializing] = useState(false)
   const [status, setStatus] = useState('')
   const [projectInfo, setProjectInfo] = useState<any>(null)
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Progress tracking for reference generation
+  const { progress, isPolling } = useJobProgress(currentProjectId, {
+    pollInterval: 3000, // Poll every 3 seconds
+    timeout: 300000, // 5 minute timeout
+    onComplete: (result) => {
+      setIsInitializing(false)
+      setStatus('✅ Project initialized successfully! References are ready.')
+      setTimeout(() => {
+        onProjectInitialized(currentProjectId || undefined)
+      }, 1500)
+    },
+    onError: (error) => {
+      setIsInitializing(false)
+      setStatus(`❌ Reference generation failed: ${error}`)
+    },
+    onTimeout: () => {
+      setIsInitializing(false)
+      setStatus('⏰ Reference generation is taking longer than expected. Check back in a few minutes.')
+    }
+  })
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -162,21 +186,20 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
       console.log('Response data:', data)
 
       if (response.ok) {
+        const projectId = data.project_id
         setStatus('📝 Generating reference files...')
         
         // Store project_id and book bible content for project status component
-        if (data.project_id) {
-          localStorage.setItem('lastProjectId', data.project_id)
-          localStorage.setItem(`bookBible-${data.project_id}`, content)
-          console.log('Stored project_id and book bible in localStorage:', data.project_id)
+        if (projectId) {
+          localStorage.setItem('lastProjectId', projectId)
+          localStorage.setItem(`bookBible-${projectId}`, content)
+          console.log('Stored project_id and book bible in localStorage:', projectId)
+          
+          // Start tracking progress
+          setCurrentProjectId(projectId)
         }
         
-        // Give some time for reference generation
-        setTimeout(() => {
-          setStatus('✅ Project initialized successfully!')
-          setIsInitializing(false)
-          onProjectInitialized(data.project_id) // Refresh project status
-        }, 2000)
+        // Note: Don't call onProjectInitialized yet - let the progress tracker handle completion
       } else {
         setStatus(`❌ Initialization failed: ${data.error}`)
         setIsInitializing(false)
@@ -345,7 +368,32 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         className="hidden"
       />
 
-      {status && (
+      {/* Creative Loader for Reference Generation */}
+      <CreativeLoader
+        isVisible={isInitializing && isPolling}
+        progress={progress?.progress}
+        stage={progress?.stage}
+        customMessages={[
+          "🖋️ Sharpening pencils for epic writing...",
+          "📚 Consulting the storytelling gods...",
+          "🎭 Giving your characters personality...",
+          "🗺️ Drawing your story's treasure map...",
+          "🔮 Gazing into plot crystal balls...",
+          "📖 Whispering secrets to the muses...",
+          "✨ Sprinkling AI magic on your ideas...",
+          "🎪 Teaching your words to dance...",
+          "🌟 Aligning story constellations...",
+          "🎨 Mixing the perfect emotional palette..."
+        ]}
+        showProgress={true}
+        size="md"
+        onTimeout={() => {
+          setStatus('⏰ Taking longer than expected. Your references will be ready soon!')
+        }}
+        timeoutMs={180000} // 3 minutes
+      />
+
+      {status && !isPolling && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">
           <p className="text-sm text-gray-700">{status}</p>
         </div>

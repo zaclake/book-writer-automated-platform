@@ -38,47 +38,47 @@ class ReferenceContentGenerator:
             
             # AGGRESSIVE DEBUGGING - Show everything
             import os
-            logger.error(f"=== PROMPTS DEBUGGING START ===")
-            logger.error(f"Current working directory: {os.getcwd()}")
-            logger.error(f"__file__ location: {__file__}")
-            logger.error(f"__file__ parent: {Path(__file__).parent}")
-            logger.error(f"__file__ parent.parent: {Path(__file__).parent.parent}")
+            logger.debug(f"=== PROMPTS DEBUGGING START ===")
+            logger.debug(f"Current working directory: {os.getcwd()}")
+            logger.debug(f"__file__ location: {__file__}")
+            logger.debug(f"__file__ parent: {Path(__file__).parent}")
+            logger.debug(f"__file__ parent.parent: {Path(__file__).parent.parent}")
             
             # Show what's in /app
             app_dir = Path("/app")
-            logger.error(f"/app exists: {app_dir.exists()}")
+            logger.debug(f"/app exists: {app_dir.exists()}")
             if app_dir.exists():
-                logger.error(f"Contents of /app: {list(app_dir.iterdir())}")
+                logger.debug(f"Contents of /app: {list(app_dir.iterdir())}")
             
             # Show what's in /app/prompts if it exists
             app_prompts = Path("/app/prompts")
-            logger.error(f"/app/prompts exists: {app_prompts.exists()}")
+            logger.debug(f"/app/prompts exists: {app_prompts.exists()}")
             if app_prompts.exists():
-                logger.error(f"Contents of /app/prompts: {list(app_prompts.iterdir())}")
+                logger.debug(f"Contents of /app/prompts: {list(app_prompts.iterdir())}")
             
             # Show what's in the relative path
             rel_prompts = Path(__file__).parent.parent / "prompts"
-            logger.error(f"Relative prompts dir: {rel_prompts}")
-            logger.error(f"Relative prompts exists: {rel_prompts.exists()}")
+            logger.debug(f"Relative prompts dir: {rel_prompts}")
+            logger.debug(f"Relative prompts exists: {rel_prompts.exists()}")
             if rel_prompts.exists():
-                logger.error(f"Contents of relative prompts: {list(rel_prompts.iterdir())}")
+                logger.debug(f"Contents of relative prompts: {list(rel_prompts.iterdir())}")
             
-            logger.error(f"Trying these paths: {possible_paths}")
+            logger.debug(f"Trying these paths: {possible_paths}")
             
             self.prompts_dir = None
             for path in possible_paths:
-                logger.error(f"Checking path: {path} - exists: {path.exists()}")
+                logger.debug(f"Checking path: {path} - exists: {path.exists()}")
                 if path.exists():
                     self.prompts_dir = path
-                    logger.error(f"SUCCESS: Using prompts directory: {self.prompts_dir}")
+                    logger.info(f"Using prompts directory: {self.prompts_dir}")
                     break
             
             if self.prompts_dir is None:
                 # Default to the first path and let it fail with proper error
                 self.prompts_dir = possible_paths[0]
-                logger.error(f"FAILED: No prompts directory found, defaulting to: {self.prompts_dir}")
+                logger.error(f"No prompts directory found, defaulting to: {self.prompts_dir}")
             
-            logger.error(f"=== PROMPTS DEBUGGING END ===")
+            logger.debug(f"=== PROMPTS DEBUGGING END ===")
         
         # Initialize OpenAI client if API key is available
         api_key = os.getenv('OPENAI_API_KEY')
@@ -302,6 +302,19 @@ class ReferenceContentGenerator:
                     "success": False,
                     "error": str(e)
                 }
+        
+        # Log structured summary of results
+        successful_refs = [ref_type for ref_type, result in results.items() if result.get('success')]
+        failed_refs = [ref_type for ref_type, result in results.items() if not result.get('success')]
+        
+        logger.info(f"Reference generation completed", extra={
+            'total_requested': len(reference_types),
+            'successful_count': len(successful_refs),
+            'failed_count': len(failed_refs),
+            'successful_types': successful_refs,
+            'failed_types': failed_refs,
+            'output_directory': str(references_dir)
+        })
         
         return results
     

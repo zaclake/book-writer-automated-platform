@@ -272,24 +272,31 @@ export function useUserProjects() {
             id: project.id,
             metadata: {
               project_id: project.id,
-              title: project.title || `Project ${project.id}`,
-              owner_id: userId,
-              collaborators: [],
-              status: project.status || 'active',
-              visibility: 'private',
-              created_at: project.created_at ? new Date(project.created_at) : new Date(),
-              updated_at: project.updated_at ? new Date(project.updated_at) : new Date()
+              title: project.metadata?.title || `Project ${project.id}`,
+              owner_id: project.metadata?.owner_id || userId,
+              collaborators: project.metadata?.collaborators || [],
+              status: project.metadata?.status || 'active',
+              visibility: project.metadata?.visibility || 'private',
+              created_at: project.metadata?.created_at ? new Date(project.metadata.created_at) : new Date(),
+              updated_at: project.metadata?.updated_at ? new Date(project.metadata.updated_at) : new Date()
             },
+            book_bible: project.book_bible ? {
+              content: project.book_bible.content,
+              last_modified: project.book_bible.last_modified ? new Date(project.book_bible.last_modified) : new Date(),
+              modified_by: project.book_bible.modified_by || userId,
+              version: project.book_bible.version || 1,
+              word_count: project.book_bible.word_count || 0
+            } : undefined,
             settings: {
-              genre: project.genre || project.settings?.genre || 'Fiction',
+              genre: project.settings?.genre || 'Fiction',
               target_chapters: project.settings?.target_chapters || 25,
               word_count_per_chapter: project.settings?.word_count_per_chapter || 3800,
-              target_audience: 'Adult',
-              writing_style: 'Narrative',
-              quality_gates_enabled: true,
-              auto_completion_enabled: true
+              target_audience: project.settings?.target_audience || 'Adult',
+              writing_style: project.settings?.writing_style || 'Narrative',
+              quality_gates_enabled: project.settings?.quality_gates_enabled !== false,
+              auto_completion_enabled: project.settings?.auto_completion_enabled !== false
             },
-            progress: {
+            progress: project.progress || {
               chapters_completed: 0,
               current_word_count: 0,
               target_word_count: (project.settings?.target_chapters || 25) * (project.settings?.word_count_per_chapter || 3800),

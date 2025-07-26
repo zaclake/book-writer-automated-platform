@@ -3,8 +3,23 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET(request: NextRequest) {
+interface RouteParams {
+  params: {
+    projectId: string
+  }
+}
+
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    const { projectId } = params
+
+    if (!projectId) {
+      return NextResponse.json(
+        { error: 'Project ID is required' },
+        { status: 400 }
+      )
+    }
+
     // Get backend URL
     const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     if (!backendBaseUrl) {
@@ -24,7 +39,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Make request to backend
-    const backendUrl = `${backendBaseUrl}/v2/projects/`
+    const backendUrl = `${backendBaseUrl}/v2/projects/${projectId}/references/progress`
     
     const backendResponse = await fetch(backendUrl, {
       method: 'GET',
@@ -36,17 +51,17 @@ export async function GET(request: NextRequest) {
 
     if (!backendResponse.ok) {
       const errorData = await backendResponse.text()
-      console.error('[projects] Backend error:', errorData)
+      console.error('[progress] Backend error:', errorData)
       
       try {
         const errorJson = JSON.parse(errorData)
         return NextResponse.json(
-          { error: errorJson.detail || 'Failed to get projects' },
+          { error: errorJson.detail || 'Failed to get progress' },
           { status: backendResponse.status }
         )
       } catch {
         return NextResponse.json(
-          { error: 'Failed to get projects' },
+          { error: 'Failed to get progress' },
           { status: backendResponse.status }
         )
       }
@@ -56,7 +71,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(responseData)
 
   } catch (error) {
-    console.error('[projects] Error:', error)
+    console.error('[progress] Error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

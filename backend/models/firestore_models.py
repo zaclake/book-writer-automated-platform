@@ -254,6 +254,7 @@ class StoryContinuity(BaseModel):
     tone_consistency: Dict[str, Any] = {}
 
 class Project(BaseModel):
+    id: str  # Document ID from Firestore
     metadata: ProjectMetadata
     book_bible: Optional[BookBible] = None
     references: ProjectReferences = ProjectReferences()

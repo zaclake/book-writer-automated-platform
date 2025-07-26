@@ -420,3 +420,106 @@ class TestReferenceGenerationRealGenerator:
         content = characters_file.read_text()
         assert "Alice Tester" in content
         assert "Character Foundation" in content 
+
+
+@pytest.mark.asyncio
+async def test_reference_generation_stores_content_not_metadata():
+    """
+    Regression test for the dict-vs-string bug.
+    Ensures create_reference_file receives actual markdown content, not metadata dictionaries.
+    """
+    from backend.routers.projects_v2 import generate_references_background
+    from unittest.mock import AsyncMock, patch
+    from pathlib import Path
+    import tempfile
+    
+    # Mock data
+    project_id = "test_project_123"
+    book_bible_content = "# Test Book\n\n## Characters\nAlice - protagonist"
+    user_id = "test_user_123"
+    
+    # Create temporary directory structure
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        references_dir = temp_path / "references"
+        references_dir.mkdir(parents=True)
+        
+        # Create sample reference files that would be generated
+        sample_files = {
+            'characters': references_dir / 'characters.md',
+            'outline': references_dir / 'outline.md',
+            'world-building': references_dir / 'world-building.md'
+        }
+        
+        expected_content = {
+            'characters': "# Characters\n\n## Main Characters\nAlice - A brave protagonist",
+            'outline': "# Outline\n\n## Chapter 1\nThe adventure begins",
+            'world-building': "# World Building\n\n## Setting\nA magical testing realm"
+        }
+        
+        # Write sample content to files
+        for ref_type, file_path in sample_files.items():
+            file_path.write_text(expected_content[ref_type], encoding='utf-8')
+        
+        # Mock the generate_all_references to return metadata with file paths
+        mock_results = {}
+        for ref_type, file_path in sample_files.items():
+            mock_results[ref_type] = {
+                "success": True,
+                "filename": f"{ref_type}.md",
+                "content_length": len(expected_content[ref_type]),
+                "file_path": str(file_path)
+            }
+        
+        with patch('utils.reference_content_generator.ReferenceContentGenerator') as mock_generator_class, \
+             patch('utils.paths.get_project_workspace') as mock_workspace, \
+             patch('backend.routers.projects_v2.create_reference_file') as mock_create_ref:
+            
+            # Setup mocks
+            mock_generator = MagicMock()
+            mock_generator.is_available.return_value = True
+            mock_generator.generate_all_references.return_value = mock_results
+            mock_generator_class.return_value = mock_generator
+            mock_workspace.return_value = temp_path
+            mock_create_ref.return_value = AsyncMock()
+            
+            # Run the function
+            await generate_references_background(
+                project_id=project_id,
+                book_bible_content=book_bible_content,
+                include_series_bible=False,
+                user_id=user_id
+            )
+            
+            # Verify create_reference_file was called with actual content, not metadata dicts
+            assert mock_create_ref.call_count == len(sample_files)
+            
+            # Check each call to ensure content parameter is a string, not a dict
+            for call in mock_create_ref.call_args_list:
+                args, kwargs = call
+                
+                # Function could be called with positional or keyword arguments
+                if args:
+                    # Positional arguments: create_reference_file(project_id, filename, content, user_id)
+                    assert args[0] == project_id  # project_id
+                    assert args[1] in ['characters.md', 'outline.md', 'world-building.md']  # filename
+                    content_arg = args[2]  # content
+                    assert args[3] == user_id  # user_id
+                else:
+                    # Keyword arguments
+                    assert kwargs['project_id'] == project_id
+                    assert kwargs['filename'] in ['characters.md', 'outline.md', 'world-building.md']
+                    content_arg = kwargs['content']
+                    assert kwargs['user_id'] == user_id
+                
+                # CRITICAL: Ensure content is a string, not a dictionary
+                assert isinstance(content_arg, str), f"Expected string content, got {type(content_arg)}: {content_arg}"
+                assert len(content_arg) > 10, "Content should be substantial markdown, not empty"
+                
+                # Verify it's actual markdown content, not metadata
+                assert 'success' not in content_arg, "Content should not contain metadata fields like 'success'"
+                assert 'filename' not in content_arg, "Content should not contain metadata fields like 'filename'"
+                assert 'file_path' not in content_arg, "Content should not contain metadata fields like 'file_path'"
+                
+                # Verify it looks like markdown
+                assert content_arg.startswith('#'), "Content should start with markdown header" 

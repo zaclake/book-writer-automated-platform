@@ -97,7 +97,7 @@ export default function ChapterWritingPage() {
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/v2/chapters/generate', {
         method: 'POST',
         headers: {
           ...authHeaders,
@@ -106,7 +106,7 @@ export default function ChapterWritingPage() {
         body: JSON.stringify({
           project_id: projectId,
           chapter_number: currentChapter,
-          words: 3800,
+          target_word_count: 3800,
           stage: 'complete'
         })
       })
@@ -170,7 +170,7 @@ export default function ChapterWritingPage() {
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/v2/chapters/generate', {
         method: 'POST',
         headers: {
           ...authHeaders,
@@ -179,16 +179,25 @@ export default function ChapterWritingPage() {
         body: JSON.stringify({
           project_id: projectId,
           chapter_number: currentChapter,
-          words: 3800,
-          stage: 'complete',
-          existing_content: chapterContent
+          target_word_count: 3800,
+          stage: 'simple'
         })
       })
 
       if (response.ok) {
         const data = await response.json()
-        setChapterContent(data.content)
-        setStatus('✅ Chapter rewritten successfully!')
+        if (data.content) {
+          // Use the content directly from the response
+          setChapterContent(data.content)
+          setOriginalContent(data.content)
+          setIsEditing(true)
+          setStatus('✅ Chapter rewritten successfully!')
+        } else {
+          // Fallback: refresh from database
+          setStatus('✅ Chapter rewritten successfully! Refreshing content...')
+          await loadChapter(currentChapter)
+          setStatus('✅ Chapter rewritten and refreshed!')
+        }
       } else {
         const errorData = await response.json()
         setStatus(`❌ Rewrite failed: ${errorData.error || 'Unknown error'}`)

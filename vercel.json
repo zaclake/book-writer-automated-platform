@@ -16,6 +16,18 @@
       "maxDuration": 300
     },
     "src/app/api/prewriting/summary/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/projects/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/book-bible/**/*.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/references/**/*.ts": {
+      "maxDuration": 45
+    },
+    "src/app/project/**/*.ts": {
       "maxDuration": 45
     }
   },

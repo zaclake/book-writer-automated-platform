@@ -335,7 +335,9 @@ class FirestoreService:
                 project_doc = project_ref.get()
                 
                 if project_doc.exists:
-                    return project_doc.to_dict()
+                    project_data = project_doc.to_dict()
+                    project_data['id'] = project_id  # Add document ID as 'id' field
+                    return project_data
             
             # If not found in user-scoped collections, try the old root collection
             # for backwards compatibility during migration
@@ -343,7 +345,9 @@ class FirestoreService:
             doc = doc_ref.get()
             
             if doc.exists:
-                return doc.to_dict()
+                project_data = doc.to_dict()
+                project_data['id'] = project_id  # Add document ID as 'id' field
+                return project_data
             
             return None
             
@@ -359,7 +363,9 @@ class FirestoreService:
             doc = doc_ref.get()
             
             if doc.exists:
-                return doc.to_dict()
+                project_data = doc.to_dict()
+                project_data['id'] = project_id  # Add document ID as 'id' field
+                return project_data
             return None
             
         except Exception as e:
@@ -375,7 +381,12 @@ class FirestoreService:
             projects_ref = self.db.collection('users').document(user_id)\
                                   .collection('projects')
             project_docs = projects_ref.stream()
-            projects.extend([doc.to_dict() for doc in project_docs])
+            
+            # Include document ID as 'id' field for each project
+            for doc in project_docs:
+                project_data = doc.to_dict()
+                project_data['id'] = doc.id  # Add document ID as 'id' field
+                projects.append(project_data)
             
             # For backwards compatibility, also check old root collection for user's projects
             # during migration period
@@ -384,10 +395,11 @@ class FirestoreService:
                     filter=FieldFilter('metadata.owner_id', '==', user_id)
                 )
                 legacy_docs = query.stream()
-                legacy_projects = [doc.to_dict() for doc in legacy_docs]
                 
                 # Add legacy projects that aren't already in the new structure
-                for legacy_project in legacy_projects:
+                for doc in legacy_docs:
+                    legacy_project = doc.to_dict()
+                    legacy_project['id'] = doc.id  # Add document ID as 'id' field
                     project_id = legacy_project.get('metadata', {}).get('project_id')
                     if project_id and not any(p.get('metadata', {}).get('project_id') == project_id for p in projects):
                         projects.append(legacy_project)
@@ -448,40 +460,45 @@ class FirestoreService:
     # CHAPTER OPERATIONS
     # =====================================================================
     
-    async def create_chapter(self, chapter_data: Dict[str, Any]) -> Optional[str]:
-        """Create a new chapter document under user/project structure."""
+    async def create_chapter(self, chapter_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
+        """Create a new chapter document under user/project structure with uniqueness enforcement."""
         try:
             chapter_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc)
             
-            # Get project_id to find the user
+            # Get project_id and validate inputs
             project_id = chapter_data.get('project_id')
             if not project_id:
                 raise ValueError("project_id is required for chapter creation")
-            
-            # Find the user who owns this project
-            user_id = None
-            users_ref = self.db.collection('users')
-            users = users_ref.stream()
-            
-            for user_doc in users:
-                temp_user_id = user_doc.id
-                project_ref = self.db.collection('users').document(temp_user_id)\
-                                   .collection('projects').document(project_id)
-                project_doc = project_ref.get()
                 
-                if project_doc.exists:
-                    user_id = temp_user_id
-                    break
+            chapter_number = chapter_data.get('chapter_number')
+            if not chapter_number:
+                raise ValueError("chapter_number is required for chapter creation")
             
-            # If not found in user-scoped collections, try to get user from chapter metadata
+            # Use provided user_id or fall back to scanning (avoid O(N-users) when possible)
             if not user_id:
-                user_id = chapter_data.get('metadata', {}).get('created_by')
+                # Fall back to finding the user (expensive but necessary for legacy)
+                users_ref = self.db.collection('users')
+                users = users_ref.stream()
+                
+                for user_doc in users:
+                    temp_user_id = user_doc.id
+                    project_ref = self.db.collection('users').document(temp_user_id)\
+                                       .collection('projects').document(project_id)
+                    project_doc = project_ref.get()
+                    
+                    if project_doc.exists:
+                        user_id = temp_user_id
+                        break
+                
+                # If still not found, try to get user from chapter metadata
                 if not user_id:
-                    raise ValueError(f"Cannot determine user_id for project {project_id}")
+                    user_id = chapter_data.get('metadata', {}).get('created_by')
+                    if not user_id:
+                        raise ValueError(f"Cannot determine user_id for project {project_id}")
             
-            # Ensure required fields
-            chapter_data['chapter_id'] = chapter_id
+            # Ensure required fields - standardize on 'id' field for consistency
+            chapter_data['id'] = chapter_id
             
             if 'metadata' not in chapter_data:
                 chapter_data['metadata'] = {}
@@ -501,27 +518,83 @@ class FirestoreService:
             if 'context_data' not in chapter_data:
                 chapter_data['context_data'] = {}
             
-            # Save to user-scoped collection under project
-            doc_ref = self.db.collection('users').document(user_id)\
-                             .collection('projects').document(project_id)\
-                             .collection('chapters').document(chapter_id)
-            doc_ref.set(chapter_data)
+            # Use transaction to enforce uniqueness of (project_id, chapter_number)
+            chapters_ref = self.db.collection('users').document(user_id)\
+                                  .collection('projects').document(project_id)\
+                                  .collection('chapters')
             
-            logger.info(f"Chapter {chapter_id} created successfully for project {project_id} (user {user_id})")
-            return chapter_id
+            @firestore.transactional
+            def create_chapter_transaction(transaction):
+                # Check if chapter with same chapter_number already exists
+                existing_query = chapters_ref.where(
+                    filter=FieldFilter('chapter_number', '==', chapter_number)
+                )
+                existing_docs = list(existing_query.stream())
+                
+                if existing_docs:
+                    raise ValueError(f"Chapter {chapter_number} already exists in project {project_id}")
+                
+                # Create the new chapter document
+                new_chapter_ref = chapters_ref.document(chapter_id)
+                transaction.set(new_chapter_ref, chapter_data)
+                return chapter_id
+            
+            # Execute transaction
+            transaction = self.db.transaction()
+            result_chapter_id = create_chapter_transaction(transaction)
+            
+            logger.info(f"Chapter {chapter_id} created successfully for project {project_id} (user {user_id}) with enforced uniqueness")
+            return result_chapter_id
             
         except Exception as e:
             logger.error(f"Failed to create chapter: {e}")
             return None
     
-    async def get_chapter(self, chapter_id: str) -> Optional[Dict[str, Any]]:
-        """Get chapter document by ID."""
+    async def get_chapter(self, chapter_id: str, user_id: Optional[str] = None, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get chapter document by ID from user-scoped collections."""
         try:
+            # If user_id and project_id are provided, use direct path (MUCH faster)
+            if user_id and project_id:
+                chapter_ref = self.db.collection('users').document(user_id)\
+                                     .collection('projects').document(project_id)\
+                                     .collection('chapters').document(chapter_id)
+                
+                chapter_doc = chapter_ref.get()
+                if chapter_doc.exists:
+                    chapter_data = chapter_doc.to_dict()
+                    chapter_data['id'] = chapter_id  # Add the document ID
+                    return chapter_data
+            
+            # If no direct path info, fall back to scanning (expensive but necessary for legacy)
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            for user_doc in users:
+                temp_user_id = user_doc.id
+                projects_ref = self.db.collection('users').document(temp_user_id).collection('projects')
+                projects = projects_ref.stream()
+                
+                for project_doc in projects:
+                    temp_project_id = project_doc.id
+                    chapter_ref = self.db.collection('users').document(temp_user_id)\
+                                         .collection('projects').document(temp_project_id)\
+                                         .collection('chapters').document(chapter_id)
+                    
+                    chapter_doc = chapter_ref.get()
+                    if chapter_doc.exists:
+                        chapter_data = chapter_doc.to_dict()
+                        chapter_data['id'] = chapter_id  # Add the document ID
+                        return chapter_data
+            
+            # Fallback to legacy root collection for backwards compatibility
             doc_ref = self.db.collection('chapters').document(chapter_id)
             doc = doc_ref.get()
             
             if doc.exists:
-                return doc.to_dict()
+                chapter_data = doc.to_dict()
+                chapter_data['id'] = chapter_id  # Add the document ID
+                return chapter_data
+            
             return None
             
         except Exception as e:
@@ -557,7 +630,12 @@ class FirestoreService:
                         # If no index for chapter_number, just get all chapters
                         docs = chapters_ref.stream()
                     
-                    chapters = [doc.to_dict() for doc in docs]
+                    # Include document ID in the returned data
+                    chapters = []
+                    for doc in docs:
+                        chapter_data = doc.to_dict()
+                        chapter_data['id'] = doc.id  # Add the document ID
+                        chapters.append(chapter_data)
                     break
             
             # For backwards compatibility during migration, also check old root collection
@@ -568,7 +646,12 @@ class FirestoreService:
                     ).order_by('chapter_number')
                     
                     docs = query.stream()
-                    chapters = [doc.to_dict() for doc in docs]
+                    # Include document ID in the returned data
+                    chapters = []
+                    for doc in docs:
+                        chapter_data = doc.to_dict()
+                        chapter_data['id'] = doc.id  # Add the document ID
+                        chapters.append(chapter_data)
                     
                 except Exception as e:
                     logger.warning(f"Failed to get chapters from legacy collection for project {project_id}: {e}")
@@ -579,55 +662,315 @@ class FirestoreService:
             logger.error(f"Failed to get chapters for project {project_id}: {e}")
             return []
     
-    async def update_chapter(self, chapter_id: str, updates: Dict[str, Any]) -> bool:
-        """Update chapter document."""
+    async def update_chapter(self, chapter_id: str, updates: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
+        """Update chapter document in user-scoped collections."""
         try:
             # Add update timestamp
             updates['metadata.updated_at'] = datetime.now(timezone.utc)
             
-            doc_ref = self.db.collection('chapters').document(chapter_id)
-            doc_ref.update(updates)
+            # If user_id and project_id are provided, use direct path (MUCH faster)
+            if user_id and project_id:
+                chapter_ref = self.db.collection('users').document(user_id)\
+                                     .collection('projects').document(project_id)\
+                                     .collection('chapters').document(chapter_id)
+                
+                chapter_doc = chapter_ref.get()
+                if chapter_doc.exists:
+                    # Use transaction for atomic updates
+                    @firestore.transactional
+                    def update_chapter_transaction(transaction):
+                        # Re-read chapter within transaction
+                        doc = chapter_ref.get(transaction=transaction)
+                        if not doc.exists:
+                            raise Exception(f"Chapter {chapter_id} no longer exists")
+                        
+                        # Apply updates atomically
+                        transaction.update(chapter_ref, updates)
+                        return True
+                    
+                    # Execute transaction
+                    transaction = self.db.transaction()
+                    success = update_chapter_transaction(transaction)
+                    
+                    if success:
+                        logger.info(f"Chapter {chapter_id} updated successfully in user-scoped collection")
+                    return success
             
-            logger.info(f"Chapter {chapter_id} updated successfully")
-            return True
+            # If no direct path info, fall back to scanning (expensive but necessary for legacy)
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            
+            chapter_updated = False
+            for user_doc in users:
+                temp_user_id = user_doc.id
+                projects_ref = self.db.collection('users').document(temp_user_id).collection('projects')
+                projects = projects_ref.stream()
+                
+                for project_doc in projects:
+                    temp_project_id = project_doc.id
+                    chapter_ref = self.db.collection('users').document(temp_user_id)\
+                                         .collection('projects').document(temp_project_id)\
+                                         .collection('chapters').document(chapter_id)
+                    
+                    chapter_doc = chapter_ref.get()
+                    if chapter_doc.exists:
+                        # Use transaction for atomic updates
+                        @firestore.transactional
+                        def update_chapter_transaction(transaction):
+                            doc = chapter_ref.get(transaction=transaction)
+                            if not doc.exists:
+                                raise Exception(f"Chapter {chapter_id} no longer exists")
+                            transaction.update(chapter_ref, updates)
+                            return True
+                        
+                        transaction = self.db.transaction()
+                        success = update_chapter_transaction(transaction)
+                        
+                        if success:
+                            logger.info(f"Chapter {chapter_id} updated successfully in user-scoped collection")
+                            chapter_updated = True
+                        break
+                
+                if chapter_updated:
+                    break
+            
+            # If not found in user-scoped collections, try legacy root collection
+            if not chapter_updated:
+                doc_ref = self.db.collection('chapters').document(chapter_id)
+                doc = doc_ref.get()
+                if doc.exists:
+                    # Use transaction for atomic updates
+                    @firestore.transactional
+                    def update_legacy_chapter_transaction(transaction):
+                        doc = doc_ref.get(transaction=transaction)
+                        if not doc.exists:
+                            raise Exception(f"Chapter {chapter_id} no longer exists")
+                        transaction.update(doc_ref, updates)
+                        return True
+                    
+                    transaction = self.db.transaction()
+                    success = update_legacy_chapter_transaction(transaction)
+                    
+                    if success:
+                        logger.info(f"Chapter {chapter_id} updated successfully in legacy collection")
+                        chapter_updated = True
+            
+            return chapter_updated
             
         except Exception as e:
             logger.error(f"Failed to update chapter {chapter_id}: {e}")
             return False
     
-    async def add_chapter_version(self, chapter_id: str, version_data: Dict[str, Any]) -> bool:
-        """Add a new version to chapter history."""
+    async def add_chapter_version(self, chapter_id: str, version_data: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
+        """Add a new version to chapter history in user-scoped collections."""
         try:
-            doc_ref = self.db.collection('chapters').document(chapter_id)
+            chapter_ref = None
+            chapter_data = None
             
-            # Get current chapter to determine next version number
-            doc = doc_ref.get()
-            if not doc.exists:
+            # If user_id and project_id are provided, use direct path (MUCH faster)
+            if user_id and project_id:
+                chapter_ref = self.db.collection('users').document(user_id)\
+                                     .collection('projects').document(project_id)\
+                                     .collection('chapters').document(chapter_id)
+                
+                chapter_doc = chapter_ref.get()
+                if chapter_doc.exists:
+                    chapter_data = chapter_doc.to_dict()
+            
+            # If no direct path info or chapter not found, fall back to scanning
+            if not chapter_ref or not chapter_data:
+                users_ref = self.db.collection('users')
+                users = users_ref.stream()
+                
+                for user_doc in users:
+                    temp_user_id = user_doc.id
+                    projects_ref = self.db.collection('users').document(temp_user_id).collection('projects')
+                    projects = projects_ref.stream()
+                    
+                    for project_doc in projects:
+                        temp_project_id = project_doc.id
+                        temp_chapter_ref = self.db.collection('users').document(temp_user_id)\
+                                                  .collection('projects').document(temp_project_id)\
+                                                  .collection('chapters').document(chapter_id)
+                        
+                        chapter_doc = temp_chapter_ref.get()
+                        if chapter_doc.exists:
+                            chapter_ref = temp_chapter_ref
+                            chapter_data = chapter_doc.to_dict()
+                            break
+                    
+                    if chapter_ref:
+                        break
+                
+                # If not found in user-scoped collections, try legacy root collection
+                if not chapter_ref:
+                    temp_doc_ref = self.db.collection('chapters').document(chapter_id)
+                    doc = temp_doc_ref.get()
+                    if doc.exists:
+                        chapter_ref = temp_doc_ref
+                        chapter_data = doc.to_dict()
+            
+            if not chapter_ref or not chapter_data:
                 logger.error(f"Chapter {chapter_id} not found")
                 return False
             
-            chapter_data = doc.to_dict()
-            versions = chapter_data.get('versions', [])
+            # Use transaction to prevent race conditions
+            @firestore.transactional
+            def update_chapter_version_transaction(transaction):
+                # Re-read the chapter within the transaction
+                chapter_doc = chapter_ref.get(transaction=transaction)
+                if not chapter_doc.exists:
+                    raise Exception(f"Chapter {chapter_id} no longer exists")
+                
+                current_data = chapter_doc.to_dict()
+                versions = current_data.get('versions', [])
+                
+                # Check document size limit (approximate)
+                import sys
+                current_size = sys.getsizeof(str(current_data))
+                version_size = sys.getsizeof(str(version_data))
+                
+                # Firestore limit is 1MB (1048576 bytes), leave some buffer
+                if current_size + version_size > 900000:  # 900KB buffer
+                    logger.warning(f"Chapter {chapter_id} approaching size limit. Current: {current_size} bytes")
+                    # Could implement version archival here in the future
+                
+                # Create new version with correct version number
+                new_version = version_data.copy()
+                version_number = len(versions) + 1
+                new_version.update({
+                    'version_number': version_number,
+                    'timestamp': datetime.now(timezone.utc)
+                })
+                
+                # MIGRATION: Store in sub-collection to avoid 1 MiB limit
+                # Create version document in sub-collection
+                version_ref = chapter_ref.collection('versions').document(str(version_number))
+                transaction.set(version_ref, new_version)
+                
+                # Only keep latest 3 versions in main document for backwards compatibility
+                # and quick access, store rest in sub-collection
+                if len(versions) >= 3:
+                    # Move oldest version from main doc to sub-collection (if not already there)
+                    oldest_version = versions.pop(0)
+                    if 'version_number' in oldest_version:
+                        old_version_ref = chapter_ref.collection('versions').document(str(oldest_version['version_number']))
+                        transaction.set(old_version_ref, oldest_version)
+                
+                # Add new version to main document versions array (keeping last 3)
+                versions.append(new_version)
+                
+                # Update chapter metadata and version count
+                transaction.update(chapter_ref, {
+                    'versions': versions,
+                    'metadata.updated_at': datetime.now(timezone.utc),
+                    'metadata.total_versions': version_number,  # Track total count
+                    'metadata.latest_version': version_number
+                })
+                
+                return True
             
-            # Create new version
-            version_data.update({
-                'version_number': len(versions) + 1,
-                'timestamp': datetime.now(timezone.utc)
-            })
+            # Execute the transaction
+            transaction = self.db.transaction()
+            success = update_chapter_version_transaction(transaction)
             
-            # Update chapter with new version
-            versions.append(version_data)
-            doc_ref.update({
-                'versions': versions,
-                'metadata.updated_at': datetime.now(timezone.utc)
-            })
-            
-            logger.info(f"Version added to chapter {chapter_id}")
-            return True
+            if success:
+                logger.info(f"Version added to chapter {chapter_id}")
+            return success
             
         except Exception as e:
             logger.error(f"Failed to add version to chapter {chapter_id}: {e}")
             return False
+    
+    async def get_chapter_versions(self, chapter_id: str, user_id: Optional[str] = None, project_id: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all versions for a chapter, including from sub-collections."""
+        try:
+            chapter_ref = None
+            
+            # Find the chapter reference
+            if user_id and project_id:
+                chapter_ref = self.db.collection('users').document(user_id)\
+                                     .collection('projects').document(project_id)\
+                                     .collection('chapters').document(chapter_id)
+                
+                if not chapter_ref.get().exists:
+                    chapter_ref = None
+            
+            # If no direct path or not found, scan for it
+            if not chapter_ref:
+                # Implementation similar to other methods - scan users/projects
+                users_ref = self.db.collection('users')
+                users = users_ref.stream()
+                
+                for user_doc in users:
+                    temp_user_id = user_doc.id
+                    projects_ref = self.db.collection('users').document(temp_user_id).collection('projects')
+                    projects = projects_ref.stream()
+                    
+                    for project_doc in projects:
+                        temp_project_id = project_doc.id
+                        temp_chapter_ref = self.db.collection('users').document(temp_user_id)\
+                                                  .collection('projects').document(temp_project_id)\
+                                                  .collection('chapters').document(chapter_id)
+                        
+                        if temp_chapter_ref.get().exists:
+                            chapter_ref = temp_chapter_ref
+                            break
+                    
+                    if chapter_ref:
+                        break
+                
+                # Try legacy collection if not found
+                if not chapter_ref:
+                    temp_ref = self.db.collection('chapters').document(chapter_id)
+                    if temp_ref.get().exists:
+                        chapter_ref = temp_ref
+            
+            if not chapter_ref:
+                return []
+            
+            # Get versions from main document
+            chapter_doc = chapter_ref.get()
+            chapter_data = chapter_doc.to_dict() if chapter_doc.exists else {}
+            main_versions = chapter_data.get('versions', [])
+            
+            # Get versions from sub-collection
+            versions_ref = chapter_ref.collection('versions')
+            if limit:
+                versions_query = versions_ref.order_by('version_number', direction=firestore.Query.DESCENDING).limit(limit)
+            else:
+                versions_query = versions_ref.order_by('version_number', direction=firestore.Query.DESCENDING)
+            
+            sub_versions = []
+            for version_doc in versions_query.stream():
+                version_data = version_doc.to_dict()
+                sub_versions.append(version_data)
+            
+            # Combine and deduplicate versions (sub-collection takes precedence)
+            all_versions = {}
+            
+            # Add main document versions
+            for version in main_versions:
+                version_num = version.get('version_number')
+                if version_num:
+                    all_versions[version_num] = version
+            
+            # Add sub-collection versions (override main doc versions)
+            for version in sub_versions:
+                version_num = version.get('version_number')
+                if version_num:
+                    all_versions[version_num] = version
+            
+            # Sort by version number descending and return
+            sorted_versions = sorted(all_versions.values(), key=lambda x: x.get('version_number', 0), reverse=True)
+            
+            if limit:
+                return sorted_versions[:limit]
+            return sorted_versions
+            
+        except Exception as e:
+            logger.error(f"Failed to get versions for chapter {chapter_id}: {e}")
+            return []
     
     # =====================================================================
     # GENERATION JOB OPERATIONS

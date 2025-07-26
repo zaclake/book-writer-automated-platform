@@ -8,9 +8,13 @@ import logging
 import html
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pathlib import Path
+
+import asyncio
+import time
 
 from backend.models.firestore_models import (
     Project, CreateProjectRequest, UpdateProjectRequest,
@@ -27,12 +31,26 @@ try:
     from backend.auth_middleware import get_current_user
 except ImportError:
     # Fallback when running from backend directory
-    from database_integration import (
+    from backend.database_integration import (
         get_user_projects, create_project, get_project,
         migrate_project_from_filesystem, track_usage,
         get_database_adapter, create_reference_file
     )
-    from auth_middleware import get_current_user
+    from backend.auth_middleware import get_current_user
+
+# Simple in-memory progress store for reference generation jobs
+_reference_jobs: Dict[str, Dict[str, Any]] = {}
+
+def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = ""):
+    """Update progress for a reference generation job."""
+    _reference_jobs[job_id] = {
+        'id': job_id,
+        'status': 'running' if progress < 100 else 'completed',
+        'progress': progress,
+        'stage': stage,
+        'message': message,
+        'updated_at': time.time()
+    }
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])
@@ -45,8 +63,11 @@ async def generate_references_background(
     user_id: str
 ):
     """Generate reference files in the background after project creation."""
+    job_id = f"ref_gen_{project_id}_{int(time.time())}"
+    
     try:
         logger.info(f"Starting background reference generation for project {project_id}")
+        _update_reference_job_progress(job_id, 0, "Initializing", "Starting reference generation...")
         
         from utils.reference_content_generator import ReferenceContentGenerator
         from utils.paths import get_project_workspace
@@ -54,41 +75,63 @@ async def generate_references_background(
         generator = ReferenceContentGenerator()
         if not generator.is_available():
             logger.warning(f"Reference generator not available for project {project_id}")
+            _update_reference_job_progress(job_id, 0, "Failed", "AI service not available")
             return
+        
+        _update_reference_job_progress(job_id, 10, "Preparing", "Setting up workspace...")
         
         project_workspace = get_project_workspace(project_id)
         references_dir = project_workspace / "references"
         
-        # Generate default reference files
-        import asyncio
+        # Generate default reference files with explicit arguments
+        _update_reference_job_progress(job_id, 20, "Generating", "Creating reference files...")
+        
         results = await asyncio.get_event_loop().run_in_executor(
             None,
             generator.generate_all_references,
-            book_bible_content,
-            references_dir,
-            None,  # reference_types (use defaults)
-            include_series_bible
+            book_bible_content,      # book_bible_content
+            references_dir,          # references_dir  
+            None                     # reference_types (use defaults)
         )
         
+        _update_reference_job_progress(job_id, 60, "Processing", f"Generated {len(results)} reference files")
         logger.info(f"Generated {len(results)} reference files for project {project_id}")
         
-        # Store reference file metadata in Firestore
-        for ref_type, content in results.items():
-            if content:
+        # Store reference file content in Firestore by reading from generated files
+        _update_reference_job_progress(job_id, 70, "Storing", "Saving files to database...")
+        
+        stored_count = 0
+        for ref_type, metadata in results.items():
+            if metadata and metadata.get('success'):
                 try:
-                    await create_reference_file(
-                        project_id=project_id,
-                        filename=f"{ref_type}.md",
-                        content=content,
-                        user_id=user_id
-                    )
+                    # Read the actual markdown content from the generated file
+                    file_path = Path(metadata["file_path"])
+                    if file_path.exists():
+                        markdown_content = file_path.read_text(encoding="utf-8")
+                        await create_reference_file(
+                            project_id=project_id,
+                            filename=metadata["filename"],
+                            content=markdown_content,  # Pass actual markdown content, not metadata dict
+                            user_id=user_id
+                        )
+                        stored_count += 1
+                        logger.info(f"Successfully stored reference file {metadata['filename']} for project {project_id}")
+                    else:
+                        logger.error(f"Generated file not found: {file_path}")
                 except Exception as e:
                     logger.error(f"Failed to store reference file {ref_type} for project {project_id}: {e}")
+            else:
+                logger.warning(f"Reference generation failed for {ref_type}: {metadata.get('error', 'Unknown error')}")
         
+        _update_reference_job_progress(job_id, 100, "Complete", f"Successfully generated {stored_count} reference files")
         logger.info(f"Successfully generated and stored reference files for project {project_id}")
+        
+        # Store the job_id in the project for later reference
+        _reference_jobs[project_id] = _reference_jobs[job_id]  # Also store by project_id for lookup
         
     except Exception as e:
         logger.error(f"Background reference generation failed for project {project_id}: {e}")
+        _update_reference_job_progress(job_id, 0, "Failed", f"Error: {str(e)}")
 
 def _sanitize_text_for_markdown(text: str) -> str:
     """Sanitize user input for safe inclusion in markdown content."""
@@ -505,7 +548,6 @@ async def generate_project_references(
         
         project_workspace = get_project_workspace(project_id)
         references_dir = project_workspace / "references"
-        include_series_bible = project.get('settings', {}).get('include_series_bible', False)
         
         logger.info(f"Generating references for project {project_id}")
         
@@ -515,27 +557,36 @@ async def generate_project_references(
             generator.generate_all_references,
             book_bible_content,
             references_dir,
-            None,  # reference_types (use defaults)
-            include_series_bible
+            None  # reference_types (use defaults)
         )
         
-        # Store reference file metadata in Firestore
+        # Store reference file content in Firestore by reading from generated files
         generated_files = []
-        db = get_database_adapter()
-        for ref_type, content in results.items():
-            if content:
-                filename = f"{ref_type}.md"
-                await create_reference_file(
-                    project_id=project_id,
-                    filename=filename,
-                    content=content,
-                    user_id=user_id
-                )
-                generated_files.append({
-                    'type': ref_type,
-                    'filename': filename,
-                    'size': len(content)
-                })
+        for ref_type, metadata in results.items():
+            if metadata and metadata.get('success'):
+                try:
+                    # Read the actual markdown content from the generated file
+                    file_path = Path(metadata["file_path"])
+                    if file_path.exists():
+                        markdown_content = file_path.read_text(encoding="utf-8")
+                        await create_reference_file(
+                            project_id=project_id,
+                            filename=metadata["filename"],
+                            content=markdown_content,  # Pass actual markdown content, not metadata dict
+                            user_id=user_id
+                        )
+                        generated_files.append({
+                            'type': ref_type,
+                            'filename': metadata["filename"],
+                            'size': len(markdown_content)
+                        })
+                        logger.info(f"Successfully stored reference file {metadata['filename']} for project {project_id}")
+                    else:
+                        logger.error(f"Generated file not found: {file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to store reference file {ref_type} for project {project_id}: {e}")
+            else:
+                logger.warning(f"Reference generation failed for {ref_type}: {metadata.get('error', 'Unknown error')}")
         
         logger.info(f"Generated {len(generated_files)} reference files for project {project_id}")
         
@@ -657,7 +708,7 @@ async def update_project(
             })
         
         # Perform the update
-        from database_integration import get_database_adapter
+        from backend.database_integration import get_database_adapter
         db = get_database_adapter()
         success = await db.firestore.update_project(project_id, updates) if db.use_firestore else True
         
@@ -678,6 +729,87 @@ async def update_project(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update project"
+        )
+
+# Add this endpoint after the existing project endpoints, before the migration section
+
+@router.get("/{project_id}/references/progress")
+async def get_reference_generation_progress(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get progress of reference file generation for a project."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get project to verify ownership
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Check if user owns this project or is a collaborator
+        owner_id = project.get('metadata', {}).get('owner_id')
+        collaborators = project.get('metadata', {}).get('collaborators', [])
+        
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this project"
+            )
+        
+        # Look for reference generation job progress
+        job_progress = _reference_jobs.get(project_id)
+        
+        if not job_progress:
+            # Check if references already exist (generation might be complete)
+            from backend.database_integration import get_database_adapter
+            db = get_database_adapter()
+            reference_files = await db.firestore.get_project_reference_files(project_id)
+            
+            if reference_files and len(reference_files) > 0:
+                # References exist, generation must be complete
+                return {
+                    'status': 'completed',
+                    'progress': 100,
+                    'stage': 'Complete',
+                    'message': f'{len(reference_files)} reference files available',
+                    'completed': True
+                }
+            else:
+                # No progress found and no references - might not have started
+                return {
+                    'status': 'not_started',
+                    'progress': 0,
+                    'stage': 'Not Started',
+                    'message': 'Reference generation has not started',
+                    'completed': False
+                }
+        
+        # Return current progress
+        return {
+            'status': job_progress['status'],
+            'progress': job_progress['progress'],
+            'stage': job_progress['stage'],
+            'message': job_progress['message'],
+            'completed': job_progress['status'] == 'completed',
+            'updated_at': job_progress['updated_at']
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get reference generation progress for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve progress"
         )
 
 # =====================================================================
@@ -720,6 +852,134 @@ async def migrate_filesystem_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to migrate project"
         )
+
+# =====================================================================
+# REFERENCE FILES ENDPOINTS
+# =====================================================================
+
+@router.get("/{project_id}/references")
+async def get_project_references(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all reference files for a project."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get project to verify ownership
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Check if user owns this project or is a collaborator
+        owner_id = project.get('metadata', {}).get('owner_id')
+        collaborators = project.get('metadata', {}).get('collaborators', [])
+        
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this project"
+            )
+        
+        # Get reference files
+        from backend.database_integration import get_database_adapter
+        db = get_database_adapter()
+        reference_files = await db.firestore.get_project_reference_files(project_id)
+        
+        return {
+            'success': True,
+            'project_id': project_id,
+            'files': reference_files,
+            'total': len(reference_files)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get reference files for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve reference files"
+        )
+
+
+@router.get("/{project_id}/references/{filename}")
+async def get_reference_file(
+    project_id: str,
+    filename: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get a specific reference file by filename."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get project to verify ownership
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Check if user owns this project or is a collaborator
+        owner_id = project.get('metadata', {}).get('owner_id')
+        collaborators = project.get('metadata', {}).get('collaborators', [])
+        
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this project"
+            )
+        
+        # Get reference files and find the specific one
+        from backend.database_integration import get_database_adapter
+        db = get_database_adapter()
+        reference_files = await db.firestore.get_project_reference_files(project_id)
+        
+        # Find the file by filename
+        target_file = None
+        for ref_file in reference_files:
+            if ref_file.get('filename') == filename:
+                target_file = ref_file
+                break
+        
+        if not target_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reference file '{filename}' not found"
+            )
+        
+        return {
+            'success': True,
+            'name': target_file.get('filename'),
+            'content': target_file.get('content', ''),
+            'lastModified': target_file.get('updated_at', target_file.get('created_at')),
+            'size': target_file.get('size', len(target_file.get('content', ''))),
+            'metadata': target_file.get('metadata', {})
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get reference file {filename} for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve reference file"
+        )
+
 
 # =====================================================================
 # COLLABORATION ENDPOINTS
@@ -767,7 +1027,7 @@ async def add_collaborator(
             current_collaborators.append(collaborator_user_id)
             
             # Update project
-            from database_integration import get_database_adapter
+            from backend.database_integration import get_database_adapter
             db = get_database_adapter()
             success = await db.firestore.update_project(
                 project_id, 
