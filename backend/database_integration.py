@@ -68,10 +68,25 @@ async def get_project_chapters(project_id: str) -> List[Dict[str, Any]]:
     adapter = get_database_adapter()
     return await adapter.get_project_chapters(project_id)
 
-async def create_chapter(chapter_data: Dict[str, Any]) -> Optional[str]:
+async def create_chapter(chapter_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
     """Create a new chapter."""
     adapter = get_database_adapter()
-    return await adapter.create_chapter(chapter_data)
+    return await adapter.create_chapter(chapter_data, user_id)
+
+async def get_chapter(chapter_id: str, user_id: Optional[str] = None, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Get a chapter by ID."""
+    adapter = get_database_adapter()
+    return await adapter.get_chapter(chapter_id, user_id, project_id)
+
+async def update_chapter(chapter_id: str, updates: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
+    """Update a chapter."""
+    adapter = get_database_adapter()
+    return await adapter.update_chapter(chapter_id, updates, user_id, project_id)
+
+async def add_chapter_version(chapter_id: str, version_data: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
+    """Add a new version to a chapter."""
+    adapter = get_database_adapter()
+    return await adapter.add_chapter_version(chapter_id, version_data, user_id, project_id)
 
 async def track_usage(user_id: str, usage_data: Dict[str, Any]) -> bool:
     """Track user usage statistics."""
@@ -95,3 +110,8 @@ async def migrate_project_from_filesystem(project_path: str, user_id: str) -> Op
     """Migrate a project from filesystem to database."""
     adapter = get_database_adapter()
     return await adapter.migrate_project_from_filesystem(project_path, user_id) 
+
+async def get_project_reference_files(project_id: str) -> List[Dict[str, Any]]:
+    """Get all reference files for the specified project."""
+    adapter = get_database_adapter()
+    return await adapter.get_project_reference_files(project_id) 

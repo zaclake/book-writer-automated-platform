@@ -290,10 +290,10 @@ class DatabaseAdapter:
             chapters.sort(key=lambda x: x.get('chapter_number', 0))
             return chapters
     
-    async def create_chapter(self, chapter_data: Dict[str, Any]) -> Optional[str]:
+    async def create_chapter(self, chapter_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
         """Create a new chapter."""
         if self.use_firestore:
-            return await self.firestore.create_chapter(chapter_data)
+            return await self.firestore.create_chapter(chapter_data, user_id)
         else:
             # Local storage implementation
             import uuid
@@ -310,6 +310,86 @@ class DatabaseAdapter:
             except Exception as e:
                 logger.error(f"Failed to create chapter locally: {e}")
                 return None
+    
+    async def get_chapter(self, chapter_id: str, user_id: Optional[str] = None, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get a chapter by ID."""
+        if self.use_firestore:
+            return await self.firestore.get_chapter(chapter_id, user_id, project_id)
+        else:
+            # Local storage implementation
+            chapters_dir = self.local_storage_path / "chapters"
+            chapter_file = chapters_dir / f"{chapter_id}.json"
+            if chapter_file.exists():
+                try:
+                    with open(chapter_file, 'r', encoding='utf-8') as f:
+                        chapter_data = json.load(f)
+                    chapter_data['id'] = chapter_id  # Add the document ID
+                    return chapter_data
+                except Exception as e:
+                    logger.error(f"Failed to load chapter {chapter_id}: {e}")
+            return None
+    
+    async def update_chapter(self, chapter_id: str, updates: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
+        """Update a chapter."""
+        if self.use_firestore:
+            return await self.firestore.update_chapter(chapter_id, updates, user_id, project_id)
+        else:
+            # Local storage implementation
+            chapters_dir = self.local_storage_path / "chapters"
+            chapter_file = chapters_dir / f"{chapter_id}.json"
+            if chapter_file.exists():
+                try:
+                    with open(chapter_file, 'r', encoding='utf-8') as f:
+                        chapter_data = json.load(f)
+                    
+                    # Apply updates
+                    for key, value in updates.items():
+                        if '.' in key:
+                            # Handle nested updates like 'metadata.updated_at'
+                            parts = key.split('.')
+                            target = chapter_data
+                            for part in parts[:-1]:
+                                if part not in target:
+                                    target[part] = {}
+                                target = target[part]
+                            target[parts[-1]] = value
+                        else:
+                            chapter_data[key] = value
+                    
+                    with open(chapter_file, 'w', encoding='utf-8') as f:
+                        json.dump(chapter_data, f, indent=2, default=str)
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to update chapter {chapter_id}: {e}")
+            return False
+    
+    async def add_chapter_version(self, chapter_id: str, version_data: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
+        """Add a new version to a chapter."""
+        if self.use_firestore:
+            return await self.firestore.add_chapter_version(chapter_id, version_data, user_id, project_id)
+        else:
+            # Local storage implementation
+            chapters_dir = self.local_storage_path / "chapters"
+            chapter_file = chapters_dir / f"{chapter_id}.json"
+            if chapter_file.exists():
+                try:
+                    with open(chapter_file, 'r', encoding='utf-8') as f:
+                        chapter_data = json.load(f)
+                    
+                    versions = chapter_data.get('versions', [])
+                    version_data.update({
+                        'version_number': len(versions) + 1,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    })
+                    versions.append(version_data)
+                    chapter_data['versions'] = versions
+                    
+                    with open(chapter_file, 'w', encoding='utf-8') as f:
+                        json.dump(chapter_data, f, indent=2, default=str)
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to add version to chapter {chapter_id}: {e}")
+            return False
     
     async def track_usage(self, user_id: str, usage_data: Dict[str, Any]) -> bool:
         """Track usage for billing and quotas."""
@@ -398,6 +478,35 @@ class DatabaseAdapter:
             except Exception as e:
                 logger.error(f"Failed to create reference file locally: {e}")
                 return None
+
+    async def get_project_reference_files(self, project_id: str) -> List[Dict[str, Any]]:
+        """Retrieve all reference files for a given project.
+
+        Args:
+            project_id (str): The project identifier.
+
+        Returns:
+            List[Dict[str, Any]]: A list of reference file documents containing at minimum `filename` and `content` keys.
+        """
+        if self.use_firestore:
+            # Delegate to Firestore service implementation
+            return await self.firestore.get_project_reference_files(project_id)
+        else:
+            # Local storage fallback – read .md files from project references directory
+            reference_files: List[Dict[str, Any]] = []
+            project_refs_dir = self.local_storage_path / "projects" / project_id / "references"
+            if project_refs_dir.exists():
+                for ref_file in project_refs_dir.glob("*.md"):
+                    try:
+                        with open(ref_file, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        reference_files.append({
+                            "filename": ref_file.name,
+                            "content": content
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to load reference file {ref_file}: {e}")
+            return reference_files
 
     # =====================================================================
     # HEALTH CHECK
