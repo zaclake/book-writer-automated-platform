@@ -731,6 +731,88 @@ async def update_project(
             detail="Failed to update project"
         )
 
+@router.delete("/{project_id}", response_model=dict)
+async def delete_project(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a project and all its associated data."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get current project to verify ownership
+        project_data = await get_project(project_id)
+        
+        if not project_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Verify user is owner (only owners can delete projects)
+        owner_id = project_data.get('metadata', {}).get('owner_id')
+        if owner_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only project owners can delete projects"
+            )
+        
+        # Get database adapter
+        from backend.database_integration import get_database_adapter
+        db = get_database_adapter()
+        
+        # Delete project from database
+        if db.use_firestore:
+            # Delete all associated data (references, chapters, etc.)
+            # This should be a cascading delete in Firestore
+            success = await db.firestore.delete_project(project_id)
+        else:
+            # For local storage, remove project directory
+            from utils.paths import get_project_workspace
+            import shutil
+            
+            project_workspace = get_project_workspace(project_id)
+            if project_workspace.exists():
+                shutil.rmtree(project_workspace)
+            success = True
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete project"
+            )
+        
+        # Clean up any reference generation jobs
+        if project_id in _reference_jobs:
+            del _reference_jobs[project_id]
+        
+        # Track usage
+        await track_usage(user_id, {
+            'projects_deleted': 1,
+            'api_calls': 1
+        })
+        
+        logger.info(f"Successfully deleted project {project_id} for user {user_id}")
+        
+        return {
+            'message': 'Project deleted successfully',
+            'deleted_project_id': project_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete project"
+        )
+
 # Add this endpoint after the existing project endpoints, before the migration section
 
 @router.get("/{project_id}/references/progress")

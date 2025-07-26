@@ -39,6 +39,13 @@
     @apply rounded-lg border bg-white p-6 shadow-sm;
   }
   
+  /* 
+   * Button Components
+   * 
+   * DEPENDENCY: These buttons rely on the 'primary' color palette defined in tailwind.config.js
+   * If you modify the primary colors (500, 600, 700), these button styles will automatically update.
+   * Current primary palette: Blue-based (primary-600: #2563eb, primary-700: #1d4ed8, etc.)
+   */
   .btn-primary {
     @apply inline-flex items-center justify-center rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
