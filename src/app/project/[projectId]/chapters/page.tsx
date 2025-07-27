@@ -224,7 +224,7 @@ export default function ChapterWritingPage() {
         <div className="flex items-center justify-between max-w-none">
           <div className="flex items-center space-x-4">
             <h1 className="text-xl font-semibold text-gray-900">
-              Chapter {currentChapter}: {project?.metadata?.title || 'Untitled'}
+              Chapter {currentChapter}: {(project?.metadata?.title && project.metadata.title.trim()) || `Project ${project?.id || 'Unknown'}`}
             </h1>
             <div className="text-sm text-gray-500">
               {wordCount.toLocaleString()} words

@@ -157,6 +157,50 @@
   .status-dot.error {
     @apply bg-red-500;
   }
+
+  /* Loading & Spinner Styles */
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-t-transparent;
+  }
+
+  .loading-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+  }
+
+  .loading-dots {
+    @apply flex space-x-1;
+  }
+
+  .loading-dots div {
+    @apply w-2 h-2 bg-current rounded-full animate-pulse;
+  }
+
+  .loading-dots div:nth-child(1) {
+    animation-delay: 0ms;
+  }
+
+  .loading-dots div:nth-child(2) {
+    animation-delay: 150ms;
+  }
+
+  .loading-dots div:nth-child(3) {
+    animation-delay: 300ms;
+  }
+
+  .pulse-fade {
+    @apply animate-pulse opacity-50;
+  }
+
+  /* Creative loader for modals and forms */
+  .creative-loader {
+    @apply relative inline-block;
+  }
+
+  .creative-loader::after {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full animate-ping;
+    opacity: 0.3;
+  }
 }
 
 @keyframes fadeIn {

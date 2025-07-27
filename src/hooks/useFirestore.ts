@@ -297,16 +297,20 @@ export function useUserProjects() {
           // Convert backend format to frontend format with real chapter counts
           const formattedProjects: Project[] = await Promise.all(
             backendProjects.map(async (project: any) => {
-              // Fetch real chapter count for each project
+              // Fetch real chapter count for each project using v2 endpoint
               let chaptersCount = 0
               try {
-                const chaptersResponse = await fetch(`/api/chapters?project_id=${encodeURIComponent(project.id)}`, {
+                const chaptersResponse = await fetch(`/api/projects/${encodeURIComponent(project.id)}/chapters`, {
                   headers: { 'Authorization': `Bearer ${token}` }
                 })
 
                 if (chaptersResponse.ok) {
                   const chaptersData = await chaptersResponse.json()
                   chaptersCount = (chaptersData.chapters || []).length
+                } else {
+                  console.warn(`Failed to fetch chapters count for project ${project.id}: ${chaptersResponse.status}`)
+                  // Use backend progress data as fallback
+                  chaptersCount = project.progress?.chapters_completed || 0
                 }
               } catch (chaptersError) {
                 console.warn(`Failed to fetch chapters count for project ${project.id}:`, chaptersError)
@@ -318,7 +322,7 @@ export function useUserProjects() {
                 id: project.id,
                 metadata: {
                   project_id: project.id,
-                  title: project.metadata?.title || `Project ${project.id}`,
+                  title: (project.metadata?.title && project.metadata.title.trim()) || `Project ${project.id}`,
                   owner_id: project.metadata?.owner_id || userId,
                   collaborators: project.metadata?.collaborators || [],
                   status: project.metadata?.status || 'active',
@@ -485,16 +489,20 @@ export function useProject(projectId: string | null) {
         return
       }
 
-      // Fetch chapters to get real count
+      // Fetch chapters to get real count using v2 endpoint
       let chaptersCount = 0
       try {
-        const chaptersResponse = await fetch(`/api/chapters?project_id=${encodeURIComponent(projectId)}`, {
+        const chaptersResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/chapters`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
 
         if (chaptersResponse.ok) {
           const chaptersData = await chaptersResponse.json()
           chaptersCount = (chaptersData.chapters || []).length
+        } else {
+          console.warn(`Failed to fetch chapters count for project ${projectId}: ${chaptersResponse.status}`)
+          // Use backend progress data as fallback
+          chaptersCount = foundProject.progress?.chapters_completed || 0
         }
       } catch (chaptersError) {
         console.warn('Failed to fetch chapters count:', chaptersError)
@@ -507,7 +515,7 @@ export function useProject(projectId: string | null) {
         id: foundProject.id,
         metadata: {
           project_id: foundProject.id,
-          title: foundProject.metadata?.title || `Project ${foundProject.id}`,
+          title: (foundProject.metadata?.title && foundProject.metadata.title.trim()) || `Project ${foundProject.id}`,
           owner_id: foundProject.metadata?.owner_id || userId,
           collaborators: foundProject.metadata?.collaborators || [],
           status: foundProject.metadata?.status || 'active',

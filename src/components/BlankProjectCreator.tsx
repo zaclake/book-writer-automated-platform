@@ -27,7 +27,7 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
     }
 
     if (!projectInfo.title.trim()) {
-      setStatus('❌ Please enter a project title')
+      setStatus('❌ Project title cannot be empty')
       return
     }
 

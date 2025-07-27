@@ -430,7 +430,7 @@ class FirestoreService:
             return False
     
     async def delete_project(self, project_id: str) -> bool:
-        """Delete project and all associated chapters."""
+        """Delete project and all associated data (chapters, references, etc.)."""
         try:
             batch = self.db.batch()
             
@@ -439,17 +439,44 @@ class FirestoreService:
                 filter=FieldFilter('project_id', '==', project_id)
             )
             chapter_docs = chapters_query.stream()
+            chapter_count = 0
             for doc in chapter_docs:
                 batch.delete(doc.reference)
+                chapter_count += 1
             
-            # Delete the project
+            # Delete all reference files in the project
+            references_query = self.db.collection('references').where(
+                filter=FieldFilter('project_id', '==', project_id)
+            )
+            reference_docs = references_query.stream()
+            reference_count = 0
+            for doc in reference_docs:
+                batch.delete(doc.reference)
+                reference_count += 1
+            
+            # Check for user-specific project documents and delete them
+            users_ref = self.db.collection('users')
+            users = users_ref.stream()
+            user_project_count = 0
+            
+            for user_doc in users:
+                user_id = user_doc.id
+                user_project_ref = self.db.collection('users').document(user_id)\
+                                       .collection('projects').document(project_id)
+                user_project_doc = user_project_ref.get()
+                
+                if user_project_doc.exists:
+                    batch.delete(user_project_ref)
+                    user_project_count += 1
+            
+            # Delete the main project document
             project_ref = self.db.collection('projects').document(project_id)
             batch.delete(project_ref)
             
             # Commit batch operation
             batch.commit()
             
-            logger.info(f"Project {project_id} and associated data deleted successfully")
+            logger.info(f"Project {project_id} deleted successfully: {chapter_count} chapters, {reference_count} references, {user_project_count} user-project docs, 1 main project doc")
             return True
             
         except Exception as e:

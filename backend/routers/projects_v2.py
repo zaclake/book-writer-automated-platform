@@ -297,6 +297,13 @@ async def create_new_project(
                 detail="Invalid user authentication"
             )
         
+        # Validate title is not empty
+        if not request.title or not request.title.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project title cannot be empty"
+            )
+        
         # Create project data structure
         project_data = {
             'metadata': {
@@ -766,12 +773,25 @@ async def delete_project(
         from backend.database_integration import get_database_adapter
         db = get_database_adapter()
         
+        logger.info(f"Starting deletion of project {project_id} for user {user_id}")
+        logger.info(f"Database adapter using Firestore: {db.use_firestore}")
+        
         # Delete project from database
         if db.use_firestore:
+            logger.info(f"Attempting Firestore deletion for project {project_id}")
             # Delete all associated data (references, chapters, etc.)
             # This should be a cascading delete in Firestore
-            success = await db.firestore.delete_project(project_id)
+            try:
+                success = await db.firestore.delete_project(project_id)
+                logger.info(f"Firestore delete_project returned: {success}")
+            except Exception as e:
+                logger.error(f"Firestore deletion failed for project {project_id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Database deletion failed: {str(e)}"
+                )
         else:
+            logger.info(f"Using local storage deletion for project {project_id}")
             # For local storage, remove project directory
             from utils.paths import get_project_workspace
             import shutil
@@ -779,13 +799,17 @@ async def delete_project(
             project_workspace = get_project_workspace(project_id)
             if project_workspace.exists():
                 shutil.rmtree(project_workspace)
+                logger.info(f"Removed local project directory: {project_workspace}")
             success = True
         
         if not success:
+            logger.error(f"Project deletion returned false for project {project_id}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete project"
             )
+        
+        logger.info(f"Project {project_id} deletion completed successfully")
         
         # Clean up any reference generation jobs
         if project_id in _reference_jobs:
@@ -814,6 +838,62 @@ async def delete_project(
         )
 
 # Add this endpoint after the existing project endpoints, before the migration section
+
+@router.get("/{project_id}/chapters", response_model=dict)
+async def get_project_chapters(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all chapters for a specific project."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get current project to verify ownership
+        project_data = await get_project(project_id)
+        
+        if not project_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Verify user is owner or collaborator
+        owner_id = project_data.get('metadata', {}).get('owner_id')
+        collaborators = project_data.get('metadata', {}).get('collaborators', [])
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this project"
+            )
+        
+        # Get database adapter
+        from backend.database_integration import get_database_adapter
+        db = get_database_adapter()
+        
+        # Get chapters using the database adapter
+        chapters_data = await db.get_project_chapters(project_id)
+        
+        logger.info(f"Retrieved {len(chapters_data)} chapters for project {project_id}")
+        
+        return {
+            'chapters': chapters_data,
+            'total': len(chapters_data),
+            'project_id': project_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get chapters for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve chapters"
+        )
 
 @router.get("/{project_id}/references/progress")
 async def get_reference_generation_progress(
