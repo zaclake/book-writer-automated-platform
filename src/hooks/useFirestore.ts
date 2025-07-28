@@ -294,9 +294,26 @@ export function useUserProjects() {
           console.log('📊 Raw backend response:', data)
           const backendProjects = data.projects || []
           
+          // Debug: Log what backend is returning
+          console.log('📊 Backend projects response:', {
+            total: backendProjects.length,
+            samples: backendProjects.slice(0, 3).map(p => ({
+              id: p.id,
+              title: p.metadata?.title,
+              hasMetadata: !!p.metadata,
+              metadataKeys: p.metadata ? Object.keys(p.metadata) : []
+            }))
+          })
+          
           // Convert backend format to frontend format with real chapter counts
           const formattedProjects: Project[] = await Promise.all(
             backendProjects.map(async (project: any) => {
+              console.log('🔍 Processing project:', {
+                id: project.id,
+                backendTitle: project.metadata?.title,
+                localStorageTitle: localStorage.getItem(`projectTitle-${project.id}`)
+              })
+              
               // Fetch real chapter count for each project using v2 endpoint
               let chaptersCount = 0
               try {
@@ -318,11 +335,28 @@ export function useUserProjects() {
                 chaptersCount = project.progress?.chapters_completed || 0
               }
 
+              // Prioritize backend title, fallback to localStorage, then UUID
+              const finalTitle = (project.metadata?.title && project.metadata.title.trim()) 
+                ? project.metadata.title.trim()
+                : localStorage.getItem(`projectTitle-${project.id}`) 
+                  ? localStorage.getItem(`projectTitle-${project.id}`)
+                  : `Project ${project.id}`
+              
+              console.log('✅ Final title chosen:', {
+                projectId: project.id,
+                finalTitle,
+                source: (project.metadata?.title && project.metadata.title.trim()) 
+                  ? 'backend' 
+                  : localStorage.getItem(`projectTitle-${project.id}`) 
+                    ? 'localStorage' 
+                    : 'fallback'
+              })
+              
               return {
                 id: project.id,
                 metadata: {
                   project_id: project.id,
-                  title: (project.metadata?.title && project.metadata.title.trim()) || `Project ${project.id}`,
+                  title: finalTitle,
                   owner_id: project.metadata?.owner_id || userId,
                   collaborators: project.metadata?.collaborators || [],
                   status: project.metadata?.status || 'active',
@@ -515,7 +549,9 @@ export function useProject(projectId: string | null) {
         id: foundProject.id,
         metadata: {
           project_id: foundProject.id,
-          title: (foundProject.metadata?.title && foundProject.metadata.title.trim()) || `Project ${foundProject.id}`,
+          title: (foundProject.metadata?.title && foundProject.metadata.title.trim()) || 
+                 localStorage.getItem(`projectTitle-${foundProject.id}`) || 
+                 `Project ${foundProject.id}`,
           owner_id: foundProject.metadata?.owner_id || userId,
           collaborators: foundProject.metadata?.collaborators || [],
           status: foundProject.metadata?.status || 'active',

@@ -1,8 +1,8 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { useUser, UserButton } from '@clerk/nextjs'
+import { useUser, UserButton, useAuth } from '@clerk/nextjs'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { SyncStatusIndicator } from '@/lib/firestore-offline'
@@ -102,8 +102,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   showProjectNavigation: propShowProjectNavigation = false
 }) => {
   const { user, isLoaded } = useUser()
-  const pathname = usePathname()
+  const { getToken } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
   
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [activeTabs, setActiveTabs] = useState<NavigationTab[]>(mainTabs)
@@ -112,9 +113,82 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   const isInProjectContext = pathname.startsWith('/project/')
   const projectIdFromUrl = isInProjectContext ? pathname.split('/')[2] : null
   
-  // Use auto-detected or prop values
+  // Load real project data when in project context
+  const [fetchedProject, setFetchedProject] = useState<{ id: string; title: string; status: string } | null>(null)
+  
+  useEffect(() => {
+    if (projectIdFromUrl && !propCurrentProject) {
+      const loadProjectData = async () => {
+        try {
+          // Get auth headers for the API call
+          const token = await getToken()
+          if (!token) {
+            console.log('📚 No auth token, using localStorage fallback')
+            const storedTitle = localStorage.getItem(`projectTitle-${projectIdFromUrl}`)
+            setFetchedProject({
+              id: projectIdFromUrl,
+              title: storedTitle || `Project ${projectIdFromUrl}`,
+              status: 'active'
+            })
+            return
+          }
+          
+          const response = await fetch('/api/projects', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          if (response.ok) {
+            const data = await response.json()
+            console.log('📚 Loaded all projects for header, looking for:', projectIdFromUrl)
+            
+            // Find the specific project
+            const project = data.projects?.find((p: any) => p.id === projectIdFromUrl)
+            if (project) {
+              console.log('📚 Found project in list:', project)
+              setFetchedProject({
+                id: projectIdFromUrl,
+                title: project.metadata?.title || `Project ${projectIdFromUrl}`,
+                status: project.metadata?.status || 'active'
+              })
+            } else {
+              console.log('📚 Project not found in list, using localStorage fallback')
+              // Fallback to localStorage
+              const storedTitle = localStorage.getItem(`projectTitle-${projectIdFromUrl}`)
+              setFetchedProject({
+                id: projectIdFromUrl,
+                title: storedTitle || `Project ${projectIdFromUrl}`,
+                status: 'active'
+              })
+            }
+          } else {
+            // Fallback to localStorage
+            const storedTitle = localStorage.getItem(`projectTitle-${projectIdFromUrl}`)
+            setFetchedProject({
+              id: projectIdFromUrl,
+              title: storedTitle || `Project ${projectIdFromUrl}`,
+              status: 'active'
+            })
+          }
+        } catch (error) {
+          console.error('Failed to load project data for header:', error)
+          // Fallback
+          setFetchedProject({
+            id: projectIdFromUrl,
+            title: `Project ${projectIdFromUrl}`,
+            status: 'active'
+          })
+        }
+      }
+      
+      loadProjectData()
+    }
+  }, [projectIdFromUrl, propCurrentProject])
+  
+  // Navigation tabs with dynamic 'active' property
   const showProjectNavigation = propShowProjectNavigation || isInProjectContext
-  const currentProject = propCurrentProject || (projectIdFromUrl ? { id: projectIdFromUrl, title: `Project ${projectIdFromUrl}`, status: 'active' as const } : null)
+  const currentProject = propCurrentProject || fetchedProject
 
   // Update active tabs based on project context
   useEffect(() => {

@@ -391,6 +391,7 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
           setStatus('⏰ Taking longer than expected. Your references will be ready soon!')
         }}
         timeoutMs={180000} // 3 minutes
+        fullScreen
       />
 
       {status && !isPolling && !isInitializing && (

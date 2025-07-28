@@ -257,6 +257,13 @@ async def list_user_projects(
         
         projects_data = await get_user_projects(user_id)
         
+        # Debug logging to trace title issue
+        logger.info(f"Retrieved {len(projects_data)} projects for user {user_id}")
+        for i, project in enumerate(projects_data[:3]):  # Log first 3 projects
+            title = project.get('metadata', {}).get('title', 'NO_TITLE')
+            project_id = project.get('id', 'NO_ID')
+            logger.info(f"Project {i}: id={project_id}, title='{title}'")
+        
         # Convert to Pydantic models for validation
         projects = []
         for project_data in projects_data:

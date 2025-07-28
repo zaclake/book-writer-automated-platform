@@ -279,6 +279,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
   }
 
   const handleComplete = async () => {
+    const loadStart = Date.now() // Track when loading began so we can enforce a minimum display time
     console.log('🏗️ BookBibleCreator: handleComplete called, isLoading:', isLoading)
     
     setIsLoading(true)
@@ -440,7 +441,9 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
         include_series_bible: includeSeriesBible
       }
 
-      onComplete(bookBibleData)
+      // Wait for the parent callback (which performs the network request & navigation)
+      // so that the loading indicator remains visible for the entire operation.
+      await onComplete(bookBibleData)
     } catch (error) {
       console.error('Book Bible creation error:', error)
       toast({
@@ -449,6 +452,12 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
         variant: "destructive"
       })
     } finally {
+      // Ensure the loader is visible for at least 5 seconds to avoid blink-and-miss flashes
+      const MIN_DISPLAY_MS = 5000
+      const elapsed = Date.now() - loadStart
+      if (elapsed < MIN_DISPLAY_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_DISPLAY_MS - elapsed))
+      }
       setIsLoading(false)
     }
   }
@@ -739,6 +748,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
           showProgress={true}
           size="md"
           timeoutMs={45000} // 45 seconds
+          fullScreen
         />
       </div>
     )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { PencilIcon, BookOpenIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
 import { CreativeLoader } from './ui/CreativeLoader'
@@ -20,6 +20,7 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
   })
   const [isCreating, setIsCreating] = useState(false)
   const [status, setStatus] = useState('')
+  const createStartRef = useRef<number | null>(null)
 
   const handleCreateProject = async () => {
     console.log('🚀 BlankProjectCreator: handleCreateProject called, isCreating:', isCreating)
@@ -35,6 +36,7 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
     }
 
     setIsCreating(true)
+    createStartRef.current = Date.now()
     console.log('🚀 BlankProjectCreator: setIsCreating(true) called')
     setStatus('🚀 Creating your new project...')
 
@@ -87,21 +89,44 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
       if (response.ok) {
         setStatus('✅ Project created successfully!')
         
+        // Ensure loader stays visible for at least 4 seconds
+        const MIN_DISPLAY_MS = 4000
+        const elapsed = Date.now() - (createStartRef.current || Date.now())
+        const delay = Math.max(0, MIN_DISPLAY_MS - elapsed)
+
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+        
         // Store project info
         if (projectId) {
           localStorage.setItem('lastProjectId', projectId)
+          localStorage.setItem(`projectTitle-${projectId}`, projectInfo.title)
           localStorage.setItem(`bookBible-${projectId}`, basicBookBible)
         }
         
-        setTimeout(() => {
-          onProjectInitialized(projectId)
-        }, 1500)
+        // Extra breathing room after minimum display
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        
+        onProjectInitialized(projectId)
       } else {
         setStatus(`❌ Creation failed: ${data.error}`)
+        // Maintain loader minimum duration even on error
+        const MIN_DISPLAY_MS = 4000
+        const elapsedErr = Date.now() - (createStartRef.current || Date.now())
+        if (elapsedErr < MIN_DISPLAY_MS) {
+          await new Promise((resolve) => setTimeout(resolve, MIN_DISPLAY_MS - elapsedErr))
+        }
         setIsCreating(false)
       }
     } catch (error) {
       setStatus(`❌ Creation error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      // Maintain loader minimum duration even on error
+      const MIN_DISPLAY_MS = 4000
+      const elapsedErr = Date.now() - (createStartRef.current || Date.now())
+      if (elapsedErr < MIN_DISPLAY_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_DISPLAY_MS - elapsedErr))
+      }
       setIsCreating(false)
     }
   }
@@ -283,6 +308,7 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
         showProgress={false}
         size="md"
         timeoutMs={30000} // 30 seconds
+        fullScreen
       />
       {console.log('🎨 BlankProjectCreator: Rendering CreativeLoader with isVisible =', isCreating)}
     </div>

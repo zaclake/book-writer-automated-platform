@@ -10,6 +10,7 @@ interface CreativeLoaderProps {
   size?: 'sm' | 'md' | 'lg'
   onTimeout?: () => void
   timeoutMs?: number
+  fullScreen?: boolean
 }
 
 const DEFAULT_MESSAGES = [
@@ -43,7 +44,8 @@ export function CreativeLoader({
   showProgress = true,
   size = 'md',
   onTimeout,
-  timeoutMs = 120000 // 2 minutes default
+  timeoutMs = 120000, // 2 minutes default
+  fullScreen = false
 }: CreativeLoaderProps) {
   console.log('🎭 CreativeLoader render called with:', { isVisible, progress, stage, size })
   
@@ -114,8 +116,8 @@ export function CreativeLoader({
   const timeMinutes = Math.floor(timeElapsed / 60000)
   const timeSeconds = Math.floor((timeElapsed % 60000) / 1000)
 
-  return (
-    <div className={`bg-white rounded-xl border-2 border-blue-200 ${classes.container} text-center`}>
+  const LoaderCard = (
+    <div className={`bg-white rounded-xl border-2 border-blue-200 ${classes.container} text-center shadow-xl`}>
       {/* Spinner */}
       <div className="flex justify-center mb-6">
         <ArrowPathIcon className={`${classes.spinner} text-blue-600 animate-spin`} />
@@ -171,4 +173,14 @@ export function CreativeLoader({
       )}
     </div>
   )
+
+  if (fullScreen) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+        {LoaderCard}
+      </div>
+    )
+  }
+
+  return LoaderCard
 } 

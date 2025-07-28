@@ -62,6 +62,13 @@ export default function CreateProjectPage() {
         console.log('[book-bible/create] Full response:', result)
         
         if (result.project?.id) {
+          // Store project info in localStorage as backup for immediate display
+          localStorage.setItem('lastProjectId', result.project.id)
+          localStorage.setItem(`projectTitle-${result.project.id}`, data.title)
+          
+          // Give loader time to show and backend time to fully process
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
           // Check if references were generated
           if (result.references_generated) {
             // Redirect to the reference review page
