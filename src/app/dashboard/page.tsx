@@ -339,6 +339,11 @@ export default function Dashboard() {
   // Main Dashboard - Clean and Writing-Focused
   return (
     <div className="min-h-screen bg-clean">
+      {/* TEST BANNER - REMOVE AFTER VERIFICATION */}
+      <div className="bg-red-600 text-white text-center py-4 font-bold text-xl">
+        🚨 TEST DEPLOYMENT ACTIVE - DASHBOARD UPDATED 🚨
+      </div>
+      
       {/* Clean Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-8">
