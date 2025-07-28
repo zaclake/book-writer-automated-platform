@@ -223,7 +223,12 @@ Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
         
         # Create the reference file
         try:
-            result = await create_reference_file(reference_data)
+            result = await create_reference_file(
+                project_id=project_id,
+                filename=reference_data['name'],
+                content=reference_data['content'],
+                user_id=reference_data['created_by']
+            )
             if result:
                 logger.info(f"Successfully created series bible reference file for project {project_id}")
             else:
