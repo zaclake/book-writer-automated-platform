@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { PencilIcon, BookOpenIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
+import { CreativeLoader } from './ui/CreativeLoader'
 
 interface BlankProjectCreatorProps {
   onProjectInitialized: (projectId?: string) => void
@@ -253,11 +254,33 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
         </button>
       </div>
 
-      {status && (
+      {status && !isCreating && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">
           <p className="text-sm text-gray-700">{status}</p>
         </div>
       )}
+
+      {/* Creative Loader for Project Creation */}
+      <CreativeLoader
+        isVisible={isCreating}
+        progress={isCreating ? 50 : 0}
+        stage={isCreating ? "Creating Project" : undefined}
+        customMessages={[
+          "🏗️ Building your creative workspace...",
+          "📋 Organizing your story structure...",
+          "🎨 Preparing your writing canvas...",
+          "📚 Setting up your book bible template...",
+          "✨ Adding a touch of inspiration...",
+          "🔧 Configuring writing tools...",
+          "🌟 Aligning creative energies...",
+          "📝 Sharpening virtual pencils...",
+          "🎭 Preparing character templates...",
+          "🗂️ Organizing chapter frameworks..."
+        ]}
+        showProgress={false}
+        size="md"
+        timeoutMs={30000} // 30 seconds
+      />
     </div>
   )
 } 

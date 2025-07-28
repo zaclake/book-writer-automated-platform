@@ -370,7 +370,7 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
 
       {/* Creative Loader for Reference Generation */}
       <CreativeLoader
-        isVisible={isInitializing && isPolling}
+        isVisible={isInitializing || isPolling}
         progress={progress?.progress}
         stage={progress?.stage}
         customMessages={[
@@ -393,7 +393,7 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         timeoutMs={180000} // 3 minutes
       />
 
-      {status && !isPolling && (
+      {status && !isPolling && !isInitializing && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">
           <p className="text-sm text-gray-700">{status}</p>
         </div>
