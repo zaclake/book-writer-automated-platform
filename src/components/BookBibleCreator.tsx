@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { useAutoSave, useSessionRecovery, SessionRecoveryPrompt } from '@/hooks/useAutoSave'
 import { CreativeLoader } from '@/components/ui/CreativeLoader'
+import { useJobProgress } from '@/hooks/useJobProgress'
 import { 
   BookLengthTier, 
   BookLengthSpecs, 
@@ -73,10 +75,44 @@ const getBookLengthSpecs = (tier: BookLengthTier): BookLengthSpecs => {
   return specs[tier]
 }
 
-const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => void }> = ({ onComplete }) => {
+const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<{ success: boolean; projectId?: string; referencesGenerated?: boolean }> }> = ({ onComplete }) => {
   const { user, isLoaded } = useUser()
   const [mode, setMode] = useState<CreationMode>('select')
   const [isLoading, setIsLoading] = useState(false)
+  
+  // Track project creation progress
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
+
+  const router = useRouter()
+
+  const { progress: jobProgress, isPolling } = useJobProgress(currentProjectId, {
+    pollInterval: 3000,
+    timeout: 600000, // 10-minute safety timeout
+    onComplete: () => {
+      setIsLoading(false)
+      if (currentProjectId) {
+        router.push(`/project/${currentProjectId}/references`)
+      }
+    },
+    onError: (err) => {
+      console.error('Reference generation error:', err)
+      setIsLoading(false)
+      if (currentProjectId) {
+        router.push(`/project/${currentProjectId}/overview?note=reference-error`)
+      }
+    },
+    onTimeout: () => {
+      console.warn('Reference generation timed out')
+      setIsLoading(false)
+      if (currentProjectId) {
+        router.push(`/project/${currentProjectId}/overview?note=reference-timeout`)
+      }
+    }
+  })
+
+  // Loader progress/stage helpers reusable across render paths
+  const loaderProgressValue = isLoading ? (jobProgress?.progress ?? 20) : 0
+  const loaderStage = isLoading ? (jobProgress?.stage || (isPolling ? 'Generating References' : 'Creating Book Bible')) : undefined
   
   // Book configuration state
   const [bookLengthTier, setBookLengthTier] = useState<BookLengthTier>(BookLengthTier.STANDARD_NOVEL)
@@ -442,8 +478,27 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
       }
 
       // Wait for the parent callback (which performs the network request & navigation)
-      // so that the loading indicator remains visible for the entire operation.
-      await onComplete(bookBibleData)
+      const createResult = await onComplete(bookBibleData)
+
+      if (!createResult?.success) {
+        throw new Error('Project creation failed')
+      }
+
+      const { projectId, referencesGenerated } = createResult
+
+      if (!projectId) {
+        throw new Error('No project ID returned')
+      }
+
+      if (referencesGenerated) {
+        // References already generated – we can navigate now after a minimal delay
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        setIsLoading(false)
+        router.push(`/project/${projectId}/references`)
+      } else {
+        // Start polling reference generation progress
+        setCurrentProjectId(projectId)
+      }
     } catch (error) {
       console.error('Book Bible creation error:', error)
       toast({
@@ -452,13 +507,17 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
         variant: "destructive"
       })
     } finally {
-      // Ensure the loader is visible for at least 5 seconds to avoid blink-and-miss flashes
+      // Note: don't automatically hide loader here – it will be cleared when the reference job finishes or errors.
+      // We only enforce minimum visibility if reference generation finished instantly.
       const MIN_DISPLAY_MS = 5000
       const elapsed = Date.now() - loadStart
       if (elapsed < MIN_DISPLAY_MS) {
         await new Promise((resolve) => setTimeout(resolve, MIN_DISPLAY_MS - elapsed))
       }
-      setIsLoading(false)
+      // If we are not polling (e.g., an early error), hide loader now
+      if (!currentProjectId) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -731,8 +790,8 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
         {/* Creative Loader for Book Bible Creation */}
         <CreativeLoader
           isVisible={isLoading}
-          progress={isLoading ? 75 : 0}
-          stage={isLoading ? "Creating Book Bible" : undefined}
+          progress={loaderProgressValue}
+          stage={loaderStage}
           customMessages={[
             "🖋️ Crafting your story foundation...",
             "📚 Organizing narrative elements...",
@@ -1052,6 +1111,25 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
             </div>
           </CardContent>
         </Card>
+        {/* Creative Loader for Guided Mode */}
+        <CreativeLoader
+          isVisible={isLoading}
+          progress={loaderProgressValue}
+          stage={loaderStage}
+          customMessages={[
+            "🧙‍♂️ Summoning story wizards...",
+            "📚 Gathering arcane plot scrolls...",
+            "🎭 Sculpting intricate characters...",
+            "🌌 Expanding narrative cosmos...",
+            "✨ Infusing pages with magic...",
+            "🔮 Probing story possibilities...",
+            "🗺️ Charting epic journeys..."
+          ]}
+          showProgress={true}
+          size="md"
+          timeoutMs={600000}
+          fullScreen
+        />
       </div>
     )
   }
@@ -1199,6 +1277,24 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
             </div>
           </CardContent>
         </Card>
+        {/* Creative Loader for Paste-In Mode */}
+        <CreativeLoader
+          isVisible={isLoading}
+          progress={loaderProgressValue}
+          stage={loaderStage}
+          customMessages={[
+            "📋 Integrating your content...",
+            "🖋️ Formatting book bible sections...",
+            "🔍 Parsing narrative elements...",
+            "✨ Enhancing storytelling magic...",
+            "🎨 Harmonizing style and tone...",
+            "📚 Building reference library..."
+          ]}
+          showProgress={true}
+          size="md"
+          timeoutMs={600000}
+          fullScreen
+        />
       </div>
     )
   }

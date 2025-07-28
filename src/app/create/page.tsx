@@ -12,22 +12,16 @@ export default function CreateProjectPage() {
   const handleComplete = async (data: BookBibleData) => {
     if (!isSignedIn) {
       console.error('User not signed in')
-      router.push('/sign-in')
-      return
+      return { success: false }
     }
 
     try {
-      // Get authentication token
       const token = await getToken()
       if (!token) {
         console.error('No auth token available')
-        router.push('/sign-in')
-        return
+        return { success: false }
       }
 
-      // The BookBibleCreator component only creates the book bible content.
-      // We need to create the actual project by calling the create API.
-      // This now includes synchronous reference generation.
       const response = await fetch('/api/book-bible/create', {
         method: 'POST',
         headers: {
@@ -50,47 +44,31 @@ export default function CreateProjectPage() {
         }),
       })
 
-      if (response.ok) {
-        const result = await response.json()
-        console.log('[book-bible/create] Book Bible created successfully for user', userId, ':', {
-          projectId: result.project?.id,
-          title: data.title,
-          mode: data.creation_mode,
-          contentLength: data.content.length,
-          mustIncludeCount: data.must_include_sections?.length || 0
-        })
-        console.log('[book-bible/create] Full response:', result)
-        
-        if (result.project?.id) {
-          // Store project info in localStorage as backup for immediate display
-          localStorage.setItem('lastProjectId', result.project.id)
-          localStorage.setItem(`projectTitle-${result.project.id}`, data.title)
-          
-          // Give loader time to show and backend time to fully process
-          await new Promise(resolve => setTimeout(resolve, 2000))
-          
-          // Check if references were generated
-          if (result.references_generated) {
-            // Redirect to the reference review page
-            router.push(`/project/${result.project.id}/references`)
-          } else {
-            // If no references generated, redirect to overview with a note
-            router.push(`/project/${result.project.id}/overview?note=no-references`)
-          }
-        } else {
-          console.error('[book-bible/create] No project ID in response, redirecting to dashboard')
-          // Fallback to dashboard
-          router.push('/dashboard')
-        }
-      } else {
+      if (!response.ok) {
         console.error('Failed to create project:', await response.text())
-        // Still redirect to dashboard so user can see their projects
-        router.push('/dashboard')
+        return { success: false }
       }
+
+      const result = await response.json()
+
+      if (!result.project?.id) {
+        console.error('[book-bible/create] No project ID in response')
+        return { success: false }
+      }
+
+      // Store basic project info for quick header display
+      localStorage.setItem('lastProjectId', result.project.id)
+      localStorage.setItem(`projectTitle-${result.project.id}`, data.title)
+
+      return {
+        success: true,
+        projectId: result.project.id as string,
+        referencesGenerated: !!result.references_generated
+      }
+
     } catch (error) {
       console.error('Error creating project:', error)
-      // Fallback to dashboard
-      router.push('/dashboard')
+      return { success: false }
     }
   }
 
