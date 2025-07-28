@@ -5,7 +5,6 @@ import { useAuth } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { BookBibleUpload } from '@/components/BookBibleUpload'
 import { BlankProjectCreator } from '@/components/BlankProjectCreator'
-import { CreativeLoader } from '@/components/ui/CreativeLoader'
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
 import OnboardingFlow from '@/components/OnboardingFlow'
 import { useUserProjects, useProject, useProjectChapters } from '@/hooks/useFirestore'
@@ -340,20 +339,6 @@ export default function Dashboard() {
   // Main Dashboard - Clean and Writing-Focused
   return (
     <div className="min-h-screen bg-clean">
-      
-      {/* HARDCODED TEST LOADER - REMOVE AFTER VERIFICATION */}
-      <div className="p-4 bg-red-100 border border-red-400">
-        <h3 className="text-red-800 font-bold">HARDCODED LOADER TEST:</h3>
-        <CreativeLoader
-          isVisible={true}
-          progress={50}
-          stage="Testing"
-          customMessages={["🧪 Testing if loader works...", "🔧 Debugging deployment..."]}
-          showProgress={true}
-          size="sm"
-        />
-      </div>
-      
       {/* Clean Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-8">
