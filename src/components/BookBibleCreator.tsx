@@ -88,22 +88,24 @@ const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<
   const { progress: jobProgress, isPolling } = useJobProgress(currentProjectId, {
     pollInterval: 3000,
     timeout: 600000, // 10-minute safety timeout
-    onComplete: () => {
-      setIsLoading(false)
+    onComplete: async () => {
+      // Add small grace period so backend finishes writing files
+      await new Promise((r) => setTimeout(r, 5000))
       if (currentProjectId) {
         router.push(`/project/${currentProjectId}/references`)
       }
     },
-    onError: (err) => {
+    onError: async (err) => {
       console.error('Reference generation error:', err)
-      setIsLoading(false)
+      // Wait a moment then fallback to overview with error note
+      await new Promise((r) => setTimeout(r, 2000))
       if (currentProjectId) {
         router.push(`/project/${currentProjectId}/overview?note=reference-error`)
       }
     },
-    onTimeout: () => {
+    onTimeout: async () => {
       console.warn('Reference generation timed out')
-      setIsLoading(false)
+      await new Promise((r) => setTimeout(r, 2000))
       if (currentProjectId) {
         router.push(`/project/${currentProjectId}/overview?note=reference-timeout`)
       }
@@ -514,7 +516,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
       if (elapsed < MIN_DISPLAY_MS) {
         await new Promise((resolve) => setTimeout(resolve, MIN_DISPLAY_MS - elapsed))
       }
-      // If we are not polling (e.g., an early error), hide loader now
+      // Keep loader visible until reference generation concludes. It will hide on route change.
       if (!currentProjectId) {
         setIsLoading(false)
       }
