@@ -22,6 +22,8 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
   const [status, setStatus] = useState('')
 
   const handleCreateProject = async () => {
+    console.log('🚀 BlankProjectCreator: handleCreateProject called, isCreating:', isCreating)
+    
     if (!isSignedIn) {
       setStatus('❌ Please sign in to create projects')
       return
@@ -33,6 +35,7 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
     }
 
     setIsCreating(true)
+    console.log('🚀 BlankProjectCreator: setIsCreating(true) called')
     setStatus('🚀 Creating your new project...')
 
     try {
@@ -281,6 +284,7 @@ export function BlankProjectCreator({ onProjectInitialized }: BlankProjectCreato
         size="md"
         timeoutMs={30000} // 30 seconds
       />
+      {console.log('🎨 BlankProjectCreator: Rendering CreativeLoader with isVisible =', isCreating)}
     </div>
   )
 } 

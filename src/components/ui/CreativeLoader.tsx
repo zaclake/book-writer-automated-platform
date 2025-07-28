@@ -45,6 +45,8 @@ export function CreativeLoader({
   onTimeout,
   timeoutMs = 120000 // 2 minutes default
 }: CreativeLoaderProps) {
+  console.log('🎭 CreativeLoader render called with:', { isVisible, progress, stage, size })
+  
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0)
   const [timeElapsed, setTimeElapsed] = useState(0)
 
@@ -81,7 +83,10 @@ export function CreativeLoader({
     return () => clearInterval(interval)
   }, [isVisible, timeoutMs, onTimeout])
 
-  if (!isVisible) return null
+  if (!isVisible) {
+    console.log('🎭 CreativeLoader: Not visible, returning null')
+    return null
+  }
 
   const sizeClasses = {
     sm: {
