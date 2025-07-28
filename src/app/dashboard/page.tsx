@@ -1,5 +1,8 @@
 'use client'
 
+// Force this page to be dynamic to prevent build-time prerendering
+export const dynamic = 'force-dynamic'
+
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
