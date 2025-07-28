@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
+import { headers } from 'next/headers'
 import { BookBibleUpload } from '@/components/BookBibleUpload'
 import { BlankProjectCreator } from '@/components/BlankProjectCreator'
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
@@ -23,6 +24,9 @@ import {
 } from '@heroicons/react/24/outline'
 
 export default function Dashboard() {
+  // Force dynamic rendering by accessing headers
+  const headersList = headers()
+  
   const { getToken, isLoaded, isSignedIn, userId } = useAuth()
   const router = useRouter()
   const [authReady, setAuthReady] = useState(false)
