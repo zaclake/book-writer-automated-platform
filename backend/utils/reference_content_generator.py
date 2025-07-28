@@ -211,6 +211,8 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         import random
         max_retries = 3
         base_delay = 2.0  # Start with 2 second delay
+        # Note: GPT-4o limit is roughly 10 requests or 10k tokens per minute for most orgs.
+        # We reduce max_tokens and pace requests accordingly; see generate_all_references.
         
         for attempt in range(max_retries + 1):
             try:
@@ -228,7 +230,7 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                     model='gpt-4o',
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=4000,
+                    max_tokens=1800,  # keep well under 10k TPM across multiple calls
                     top_p=0.9,
                     timeout=120  # 2 minute timeout for complex requests
                 )
@@ -502,7 +504,7 @@ Ensure all elements work together cohesively and provide specific, actionable gu
             try:
                 # Add delay between requests to stay under GPT-4o rate limits (10 RPM)
                 if i > 0:
-                    delay = 0.7  # 700ms delay = ~85 requests per minute max, safely under 10 RPM
+                    delay = 12.0  # 12s delay keeps us at max 5 requests per minute
                     logger.info(f"Waiting {delay}s before generating {ref_type} to respect rate limits")
                     time.sleep(delay)
                 
