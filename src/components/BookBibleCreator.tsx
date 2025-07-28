@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { useAutoSave, useSessionRecovery, SessionRecoveryPrompt } from '@/hooks/useAutoSave'
+import { CreativeLoader } from '@/components/ui/CreativeLoader'
 import { 
   BookLengthTier, 
   BookLengthSpecs, 
@@ -278,7 +279,11 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
   }
 
   const handleComplete = async () => {
+    console.log('🏗️ BookBibleCreator: handleComplete called, isLoading:', isLoading)
+    
     setIsLoading(true)
+    console.log('🏗️ BookBibleCreator: setIsLoading(true) called')
+    
     try {
       // Validate chapter count
       const lengthSpecs = getBookLengthSpecs(bookLengthTier)
@@ -713,6 +718,28 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
             </div>
           </CardContent>
         </Card>
+
+        {/* Creative Loader for Book Bible Creation */}
+        <CreativeLoader
+          isVisible={isLoading}
+          progress={isLoading ? 75 : 0}
+          stage={isLoading ? "Creating Book Bible" : undefined}
+          customMessages={[
+            "🖋️ Crafting your story foundation...",
+            "📚 Organizing narrative elements...",
+            "🎭 Developing character frameworks...",
+            "🗺️ Mapping plot structures...",
+            "✨ Weaving creative magic...",
+            "🔮 Consulting the storytelling muses...",
+            "📖 Building your writer's bible...",
+            "🎨 Painting your story landscape...",
+            "🌟 Aligning creative constellations...",
+            "🎪 Teaching your story to dance..."
+          ]}
+          showProgress={true}
+          size="md"
+          timeoutMs={45000} // 45 seconds
+        />
       </div>
     )
   }
