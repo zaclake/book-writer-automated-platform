@@ -59,6 +59,16 @@ export default function ReferenceReviewPage() {
   const router = useRouter()
   const rawProjectId = params.projectId as string
   const { getAuthHeaders, isSignedIn } = useAuthToken()
+  
+  // Check for retry parameter in URL
+  const [shouldShowRetry, setShouldShowRetry] = useState(false)
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search)
+      setShouldShowRetry(urlParams.get('retry') === 'true')
+    }
+  }, [])
 
   // Decode the project ID from URL and handle project name vs actual ID
   const decodedProjectName = decodeURIComponent(rawProjectId)
@@ -420,10 +430,20 @@ export default function ReferenceReviewPage() {
           <CardContent className="p-6">
             {!currentFile ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 mb-4">No reference file found</p>
+                <p className="text-gray-500 mb-4">
+                  {shouldShowRetry 
+                    ? "Reference generation failed due to rate limits. Please try again." 
+                    : "No reference file found"
+                  }
+                </p>
                 <Button onClick={generateAllReferences} className="bg-blue-600 hover:bg-blue-700">
-                  Generate References
+                  {shouldShowRetry ? "Retry Generation" : "Generate References"}
                 </Button>
+                {shouldShowRetry && (
+                  <p className="text-sm text-gray-400 mt-2">
+                    Generation will be retried with improved rate limiting.
+                  </p>
+                )}
               </div>
             ) : isEditing ? (
               <textarea

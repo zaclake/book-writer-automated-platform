@@ -97,10 +97,23 @@ const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<
     },
     onError: async (err) => {
       console.error('Reference generation error:', err)
-      // Wait a moment then fallback to overview with error note
-      await new Promise((r) => setTimeout(r, 2000))
-      if (currentProjectId) {
-        router.push(`/project/${currentProjectId}/overview?note=reference-error`)
+      
+      // Check if this is a rate limit error - if so, show different message
+      if (jobProgress?.status === 'failed-rate-limit') {
+        toast.error('Reference generation failed due to rate limits. You can retry from the References page.', {
+          duration: 6000,
+        })
+        // Still navigate to references page so user can see retry option
+        await new Promise((r) => setTimeout(r, 2000))
+        if (currentProjectId) {
+          router.push(`/project/${currentProjectId}/references?retry=true`)
+        }
+      } else {
+        // Regular error handling
+        await new Promise((r) => setTimeout(r, 2000))
+        if (currentProjectId) {
+          router.push(`/project/${currentProjectId}/overview?note=reference-error`)
+        }
       }
     },
     onTimeout: async () => {

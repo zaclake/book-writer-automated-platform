@@ -39,5 +39,6 @@ python3 -c "import sys; print('Python path:', sys.path)" || echo "Python path te
 python3 -c "import backend.main; print('✅ Backend import successful')" || echo "❌ Backend import failed"
 
 # Start gunicorn from repo root with backend.main:app with extended timeout for AI operations
-echo "🔥 Starting gunicorn with backend.main:app (90s timeout for AI generation)"
-exec gunicorn backend.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --timeout 90 
+# Use single worker to avoid hitting GPT-4o rate limits with concurrent requests
+echo "🔥 Starting gunicorn with backend.main:app (90s timeout for AI generation, single worker for rate limits)"
+exec gunicorn backend.main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --timeout 90 

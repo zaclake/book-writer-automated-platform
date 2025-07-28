@@ -201,44 +201,70 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         return self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
     
     def _make_openai_request(self, system_prompt: str, user_prompt: str, request_type: str) -> str:
-        """Make OpenAI API request with proper error handling."""
+        """Make OpenAI API request with exponential back-off on rate limits."""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
         
-        try:
-            import time
-            start_time = time.time()
-            logger.info(f"Starting OpenAI API request for {request_type}")
-            
-            response = self.client.chat.completions.create(
-                model='gpt-4o',
-                messages=messages,
-                temperature=0.7,
-                max_tokens=4000,
-                top_p=0.9,
-                timeout=120  # 2 minute timeout for complex requests
-            )
-            
-            duration = time.time() - start_time
-            content = response.choices[0].message.content
-            
-            logger.info(f"OpenAI API request completed for {request_type} in {duration:.2f}s, generated {len(content)} characters")
-            
-            if not content or len(content.strip()) < 200:
-                raise Exception("Generated content is too short or empty")
-            
-            return content
-            
-        except Exception as e:
-            logger.error(f"OpenAI API request failed for {request_type}: {e}")
-            if "timeout" in str(e).lower():
-                raise Exception("Content generation timed out. Please try again.")
-            elif "rate_limit" in str(e).lower():
-                raise Exception("API rate limit exceeded. Please try again in a moment.")
-            else:
-                raise Exception(f"Content generation failed: {str(e)}")
+        import time
+        import random
+        max_retries = 3
+        base_delay = 2.0  # Start with 2 second delay
+        
+        for attempt in range(max_retries + 1):
+            try:
+                start_time = time.time()
+                
+                if attempt > 0:
+                    # Exponential back-off with jitter for rate limits
+                    delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                    logger.info(f"Retrying OpenAI request for {request_type} (attempt {attempt + 1}/{max_retries + 1}) after {delay:.1f}s delay")
+                    time.sleep(delay)
+                
+                logger.info(f"Starting OpenAI API request for {request_type} (attempt {attempt + 1})")
+                
+                response = self.client.chat.completions.create(
+                    model='gpt-4o',
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=4000,
+                    top_p=0.9,
+                    timeout=120  # 2 minute timeout for complex requests
+                )
+                
+                duration = time.time() - start_time
+                content = response.choices[0].message.content
+                
+                logger.info(f"OpenAI API request completed for {request_type} in {duration:.2f}s, generated {len(content)} characters")
+                
+                if not content or len(content.strip()) < 200:
+                    raise Exception("Generated content is too short or empty")
+                
+                return content
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                
+                # Check if this is a rate limit error that we should retry
+                if ("rate_limit" in error_str or "429" in error_str or "insufficient_quota" in error_str) and attempt < max_retries:
+                    logger.warning(f"Rate limit hit for {request_type} on attempt {attempt + 1}, will retry")
+                    continue
+                
+                # For other errors or final attempt, log and raise
+                logger.error(f"OpenAI API request failed for {request_type} (attempt {attempt + 1}): {e}")
+                
+                if "timeout" in error_str:
+                    raise Exception("Content generation timed out. Please try again.")
+                elif "rate_limit" in error_str or "429" in error_str or "insufficient_quota" in error_str:
+                    raise Exception("API rate limit exceeded after retries. Please try again later.")
+                elif "authentication" in error_str:
+                    raise Exception("OpenAI API authentication failed. Please check your API key.")
+                else:
+                    raise Exception(f"Content generation failed: {str(e)}")
+        
+        # This should never be reached due to the logic above, but just in case
+        raise Exception(f"Failed to complete request for {request_type} after {max_retries + 1} attempts")
     
     def load_prompt(self, reference_type: str) -> Dict[str, Any]:
         """
@@ -470,8 +496,16 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         results = {}
         references_dir.mkdir(parents=True, exist_ok=True)
         
-        for ref_type in reference_types:
+        import time
+        
+        for i, ref_type in enumerate(reference_types):
             try:
+                # Add delay between requests to stay under GPT-4o rate limits (10 RPM)
+                if i > 0:
+                    delay = 0.7  # 700ms delay = ~85 requests per minute max, safely under 10 RPM
+                    logger.info(f"Waiting {delay}s before generating {ref_type} to respect rate limits")
+                    time.sleep(delay)
+                
                 logger.info(f"Generating content for {ref_type}")
                 
                 # Generate content with book specifications

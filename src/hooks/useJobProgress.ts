@@ -3,7 +3,7 @@ import { useAuthToken } from '@/lib/auth'
 
 interface JobProgress {
   id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'failed-rate-limit'
   progress: number // 0-100
   stage?: string
   message?: string
@@ -66,9 +66,9 @@ export function useJobProgress(
       if (jobProgress.status === 'completed') {
         setIsPolling(false)
         onComplete?.(jobProgress.result)
-      } else if (jobProgress.status === 'failed') {
+      } else if (jobProgress.status === 'failed' || jobProgress.status === 'failed-rate-limit') {
         setIsPolling(false)
-        const errorMsg = jobProgress.error || 'Job failed'
+        const errorMsg = jobProgress.error || jobProgress.message || 'Job failed'
         setError(errorMsg)
         onError?.(errorMsg)
       }

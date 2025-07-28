@@ -43,9 +43,17 @@ _reference_jobs: Dict[str, Dict[str, Any]] = {}
 
 def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = ""):
     """Update progress for a reference generation job."""
+    # Determine status based on stage and progress
+    if stage.lower() == "failed":
+        status = 'failed-rate-limit'
+    elif progress >= 100:
+        status = 'completed'
+    else:
+        status = 'running'
+    
     _reference_jobs[job_id] = {
         'id': job_id,
-        'status': 'running' if progress < 100 else 'completed',
+        'status': status,
         'progress': progress,
         'stage': stage,
         'message': message,
@@ -123,8 +131,14 @@ async def generate_references_background(
             else:
                 logger.warning(f"Reference generation failed for {ref_type}: {metadata.get('error', 'Unknown error')}")
         
-        _update_reference_job_progress(job_id, 100, "Complete", f"Successfully generated {stored_count} reference files")
-        logger.info(f"Successfully generated and stored reference files for project {project_id}")
+        # Check if we had any successful generations
+        if stored_count > 0:
+            _update_reference_job_progress(job_id, 100, "Complete", f"Successfully generated {stored_count} reference files")
+            logger.info(f"Successfully generated and stored {stored_count} reference files for project {project_id}")
+        else:
+            # All reference generations failed - mark as failed instead of complete
+            _update_reference_job_progress(job_id, 0, "Failed", "All reference file generations failed due to rate limits")
+            logger.error(f"Failed to generate any reference files for project {project_id} - likely rate limit issues")
         
         # Store the job_id in the project for later reference
         _reference_jobs[project_id] = _reference_jobs[job_id]  # Also store by project_id for lookup
