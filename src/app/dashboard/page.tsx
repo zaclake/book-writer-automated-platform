@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { BookBibleUpload } from '@/components/BookBibleUpload'
 import { BlankProjectCreator } from '@/components/BlankProjectCreator'
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
+import ProjectPublishPicker from '@/components/ProjectPublishPicker'
 import OnboardingFlow from '@/components/OnboardingFlow'
 import { useUserProjects, useProject, useProjectChapters } from '@/hooks/useFirestore'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
@@ -547,7 +548,7 @@ export default function Dashboard() {
             )}
 
             {/* Primary Actions - Clean and Focused */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Start Writing */}
               <button
                 onClick={navigateToWriting}
@@ -583,6 +584,28 @@ export default function Dashboard() {
                   Review characters, plot, and world-building materials
                 </p>
               </button>
+
+              {/* Publish Book */}
+              <div className="group p-8 bg-white border-2 border-gray-200 rounded-xl hover:border-orange-300 hover:shadow-lg transition-all">
+                <ProjectPublishPicker 
+                  trigger={
+                    <div className="w-full text-left">
+                      <div className="flex items-center justify-between mb-4">
+                        <svg className="w-8 h-8 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                        <ArrowRightIcon className="w-5 h-5 text-gray-400 group-hover:text-orange-600 transition-colors" />
+                      </div>
+                      <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                        Publish Book
+                      </h3>
+                      <p className="text-gray-600">
+                        Convert your book to EPUB, PDF, and other formats
+                      </p>
+                    </div>
+                  }
+                />
+              </div>
 
               {/* Project Overview */}
               <button

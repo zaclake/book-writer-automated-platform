@@ -16,6 +16,7 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 from google.api_core.exceptions import NotFound, PermissionDenied
 from google.oauth2 import service_account
+from google.cloud import storage
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -1072,6 +1073,84 @@ class FirestoreService:
             logger.error(f"Failed to update generation job {job_id}: {e}")
             return False
     
+    async def create_cover_art_job(self, job_data: Dict[str, Any]) -> Optional[str]:
+        """Create a new cover art job document."""
+        try:
+            job_id = job_data.get('job_id')
+            if not job_id:
+                job_id = str(uuid.uuid4())
+                job_data['job_id'] = job_id
+            
+            # Set timestamps
+            now = datetime.now(timezone.utc)
+            job_data['created_at'] = now
+            if 'updated_at' not in job_data:
+                job_data['updated_at'] = now
+            
+            # Save to Firestore
+            doc_ref = self.db.collection('cover_art_jobs').document(job_id)
+            doc_ref.set(job_data)
+            
+            logger.info(f"Cover art job {job_id} created successfully")
+            return job_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create cover art job: {e}")
+            return None
+    
+    async def get_cover_art_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get cover art job document by ID."""
+        try:
+            doc_ref = self.db.collection('cover_art_jobs').document(job_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get cover art job {job_id}: {e}")
+            return None
+    
+    async def update_cover_art_job(self, job_id: str, updates: Dict[str, Any]) -> bool:
+        """Update cover art job document."""
+        try:
+            updates['updated_at'] = datetime.now(timezone.utc)
+            doc_ref = self.db.collection('cover_art_jobs').document(job_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Cover art job {job_id} updated successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update cover art job {job_id}: {e}")
+            return False
+    
+    async def get_user_cover_art_jobs(self, user_id: str, project_id: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get cover art jobs for a user, optionally filtered by project."""
+        try:
+            query = self.db.collection('cover_art_jobs').where(
+                filter=FieldFilter('user_id', '==', user_id)
+            )
+            
+            if project_id:
+                query = query.where(filter=FieldFilter('project_id', '==', project_id))
+                
+            query = query.order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
+            
+            docs = query.stream()
+            jobs = []
+            for doc in docs:
+                job_data = doc.to_dict()
+                job_data['id'] = doc.id
+                jobs.append(job_data)
+            
+            return jobs
+            
+        except Exception as e:
+            logger.error(f"Failed to get user cover art jobs: {e}")
+            return []
+
     async def get_user_jobs(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Get generation jobs for a user."""
         try:

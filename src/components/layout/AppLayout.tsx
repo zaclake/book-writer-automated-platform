@@ -60,13 +60,6 @@ const projectTabs: NavigationTab[] = [
     description: 'Project dashboard and progress'
   },
   {
-    id: 'book-bible',
-    label: 'Book Bible',
-    icon: '📖',
-    href: '/project/book-bible',
-    description: 'Edit project foundation and references'
-  },
-  {
     id: 'chapters',
     label: 'Chapters',
     icon: '📝',
@@ -79,6 +72,20 @@ const projectTabs: NavigationTab[] = [
     icon: '🗂️',
     href: '/project/references',
     description: 'Character sheets, outlines, and world-building'
+  },
+  {
+    id: 'cover-art',
+    label: 'Cover Art',
+    icon: '🎨',
+    href: '/project/cover-art',
+    description: 'Generate professional book covers with AI'
+  },
+  {
+    id: 'publish',
+    label: 'Publish',
+    icon: '📚',
+    href: '/project/publish',
+    description: 'Convert your book to EPUB, PDF, and other formats'
   },
   {
     id: 'quality',

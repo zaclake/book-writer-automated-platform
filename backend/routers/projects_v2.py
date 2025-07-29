@@ -7,11 +7,14 @@ New project management endpoints using the commercial architecture.
 import logging
 import html
 import re
+import json
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pathlib import Path
+from pydantic import BaseModel
 
 import asyncio
 import time
@@ -29,6 +32,7 @@ try:
         get_database_adapter, create_reference_file
     )
     from backend.auth_middleware import get_current_user
+    from backend.services.cover_art_service import CoverArtService, CoverArtJob
 except ImportError:
     # Fallback when running from backend directory
     from backend.database_integration import (
@@ -37,9 +41,21 @@ except ImportError:
         get_database_adapter, create_reference_file
     )
     from backend.auth_middleware import get_current_user
+    from backend.services.cover_art_service import CoverArtService, CoverArtJob
 
 # Simple in-memory progress store for reference generation jobs
 _reference_jobs: Dict[str, Dict[str, Any]] = {}
+
+# Simple in-memory store for cover art jobs
+_cover_art_jobs: Dict[str, CoverArtJob] = {}
+
+# Initialize cover art service
+cover_art_service = CoverArtService()
+
+class CoverArtRequest(BaseModel):
+    """Request model for cover art generation."""
+    user_feedback: Optional[str] = None
+    regenerate: bool = False
 
 def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = ""):
     """Update progress for a reference generation job."""
@@ -51,7 +67,10 @@ def _update_reference_job_progress(job_id: str, progress: int, stage: str, messa
     else:
         status = 'running'
     
-    _reference_jobs[job_id] = {
+    # Extract project_id from job_id (format: ref_gen_{project_id}_{timestamp})
+    project_id = job_id.split('_', 2)[2].rsplit('_', 1)[0] if '_' in job_id else job_id
+    
+    progress_data = {
         'id': job_id,
         'status': status,
         'progress': progress,
@@ -59,6 +78,10 @@ def _update_reference_job_progress(job_id: str, progress: int, stage: str, messa
         'message': message,
         'updated_at': time.time()
     }
+    
+    # Store progress under both job_id and project_id for lookup flexibility
+    _reference_jobs[job_id] = progress_data
+    _reference_jobs[project_id] = progress_data
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])
@@ -140,8 +163,7 @@ async def generate_references_background(
             _update_reference_job_progress(job_id, 0, "Failed", "All reference file generations failed due to rate limits")
             logger.error(f"Failed to generate any reference files for project {project_id} - likely rate limit issues")
         
-        # Store the job_id in the project for later reference
-        _reference_jobs[project_id] = _reference_jobs[job_id]  # Also store by project_id for lookup
+
         
     except Exception as e:
         logger.error(f"Background reference generation failed for project {project_id}: {e}")
@@ -1351,12 +1373,310 @@ async def expand_book_bible_content(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to expand book bible content"
         )
+
+
+@router.post("/{project_id}/cover-art")
+async def generate_cover_art(
+    project_id: str,
+    request: CoverArtRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Generate cover art for a project using OpenAI DALL-E 3."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Check if cover art service is available
+        if not cover_art_service.is_available():
+            # Determine specific reason for unavailability
+            if not cover_art_service.openai_client:
+                detail = "Cover art generation service unavailable: OpenAI API key not configured."
+            elif not cover_art_service.firebase_bucket:
+                detail = "Cover art generation service unavailable: Firebase Storage not configured."
+            else:
+                detail = "Cover art generation service is temporarily unavailable."
+            
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=detail
+            )
+        
+        # Get project to verify ownership
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Check if user owns this project or is a collaborator
+        owner_id = project.get('metadata', {}).get('owner_id')
+        collaborators = project.get('metadata', {}).get('collaborators', [])
+        
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this project"
+            )
+        
+        # Check if references are completed
+        from backend.database_integration import get_database_adapter
+        db = get_database_adapter()
+        reference_files_data = await db.firestore.get_project_reference_files(project_id)
+        
+        if not reference_files_data or len(reference_files_data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Reference files must be generated before creating cover art. Please generate reference files first."
+            )
+        
+        # Get book bible content
+        book_bible_content = project.get('book_bible', {}).get('content', '')
+        if not book_bible_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Book bible content is required for cover art generation"
+            )
+        
+        # Convert reference files to dictionary format
+        reference_files = {}
+        for ref_file in reference_files_data:
+            filename = ref_file.get('filename', '')
+            content = ref_file.get('content', '')
+            if filename and content:
+                reference_files[filename] = content
+        
+        if len(reference_files) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid reference file content found"
+            )
+        
+        # Check if this is a regeneration request
+        job_id = None
+        if request.regenerate:
+            # Find existing job for this project
+            user_jobs = await db.firestore.get_user_cover_art_jobs(user_id, project_id, limit=1)
+            if user_jobs:
+                job_id = user_jobs[0].get('job_id')
+        
+        # Create or get job ID
+        if not job_id:
+            job_id = str(uuid.uuid4())
+        
+        # Create initial job entry in Firestore
+        job_data = {
+            'job_id': job_id,
+            'project_id': project_id,
+            'user_id': user_id,
+            'status': 'pending',
+            'user_feedback': request.user_feedback,
+            'attempt_number': 2 if request.regenerate else 1
+        }
+        
+        # Save to Firestore
+        await db.firestore.create_cover_art_job(job_data)
+        
+        # Also keep in memory for backward compatibility
+        initial_job = CoverArtJob(
+            job_id=job_id,
+            project_id=project_id,
+            user_id=user_id,
+            status='pending',
+            user_feedback=request.user_feedback,
+            created_at=datetime.now(timezone.utc)
+        )
+        _cover_art_jobs[job_id] = initial_job
+        
+        # Start background generation
+        async def generate_cover_background():
+            """Background task for cover art generation."""
+            try:
+                job = await cover_art_service.generate_cover_art(
+                    project_id=project_id,
+                    user_id=user_id,
+                    book_bible_content=book_bible_content,
+                    reference_files=reference_files,
+                    user_feedback=request.user_feedback,
+                    job_id=job_id
+                )
+                _cover_art_jobs[job_id] = job
+                
+                # Update job in Firestore
+                await db.firestore.update_cover_art_job(job_id, {
+                    'status': job.status,
+                    'image_url': job.image_url,
+                    'storage_path': job.storage_path,
+                    'prompt': job.prompt,
+                    'completed_at': job.completed_at.isoformat() if job.completed_at else None
+                })
+                
+                # Track usage
+                await track_usage(
+                    user_id=user_id,
+                    usage_data={
+                        'operation': 'cover_art_generation',
+                        'cost': 0.10,  # Approximate cost for DALL-E 3 HD generation
+                        'project_id': project_id,
+                        'job_id': job_id,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    }
+                )
+                
+            except Exception as e:
+                logger.error(f"Background cover art generation failed: {e}")
+                failed_job = _cover_art_jobs.get(job_id)
+                if failed_job:
+                    failed_job.status = 'failed'
+                    failed_job.error = str(e)
+                    failed_job.completed_at = datetime.now(timezone.utc)
+                    _cover_art_jobs[job_id] = failed_job
+                    
+                    # Update failure in Firestore
+                    await db.firestore.update_cover_art_job(job_id, {
+                        'status': 'failed',
+                        'error': str(e),
+                        'completed_at': datetime.now(timezone.utc).isoformat()
+                    })
+        
+        background_tasks.add_task(generate_cover_background)
+        
+        return {
+            'success': True,
+            'job_id': job_id,
+            'status': 'pending',
+            'message': 'Cover art generation started. Use the job_id to check progress.'
+        }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to add collaborator: {e}")
+        logger.error(f"Failed to start cover art generation for project {project_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to add collaborator"
+            detail="Failed to start cover art generation"
+        )
+
+
+@router.get("/{project_id}/cover-art")
+async def get_cover_art_status(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get cover art generation status and result for a project."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+        
+        # Get project to verify ownership
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Check if user owns this project or is a collaborator
+        owner_id = project.get('metadata', {}).get('owner_id')
+        collaborators = project.get('metadata', {}).get('collaborators', [])
+        
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this project"
+            )
+        
+        # Find cover art job for this project - check Firestore first
+        job = None
+        job_data = None
+        
+        # Get from Firestore
+        db = get_database_adapter()
+        user_jobs = await db.firestore.get_user_cover_art_jobs(user_id, project_id, limit=1)
+        if user_jobs:
+            job_data = user_jobs[0]
+        
+        # Fallback to in-memory store
+        if not job_data:
+            for job_id, existing_job in _cover_art_jobs.items():
+                if existing_job.project_id == project_id and existing_job.user_id == user_id:
+                    job = existing_job
+                    break
+        
+        if not job_data and not job:
+            return {
+                'status': 'not_started',
+                'message': 'No cover art generation has been started for this project',
+                'service_available': cover_art_service.is_available()
+            }
+        
+        # Use Firestore data if available, otherwise in-memory job
+        if job_data:
+            response = {
+                'job_id': job_data.get('job_id'),
+                'status': job_data.get('status', 'unknown'),
+                'created_at': job_data.get('created_at').isoformat() if job_data.get('created_at') else None,
+                'completed_at': job_data.get('completed_at') if isinstance(job_data.get('completed_at'), str) else None,
+                'attempt_number': job_data.get('attempt_number', 1)
+            }
+        else:
+            # Return job status and details from in-memory store
+            response = {
+                'job_id': job.job_id,
+                'status': job.status,
+                'created_at': job.created_at.isoformat() if job.created_at else None,
+                'completed_at': job.completed_at.isoformat() if job.completed_at else None,
+                'attempt_number': job.attempt_number
+            }
+        
+        # Add additional fields based on status
+        current_status = job_data.get('status') if job_data else job.status
+        
+        if current_status == 'completed':
+            if job_data:
+                response.update({
+                    'image_url': job_data.get('image_url'),
+                    'prompt': job_data.get('prompt'),
+                    'message': 'Cover art generated successfully'
+                })
+            else:
+                response.update({
+                    'image_url': job.image_url,
+                    'prompt': job.prompt,
+                    'message': 'Cover art generated successfully'
+                })
+        elif current_status == 'failed':
+            if job_data:
+                response.update({
+                    'error': job_data.get('error'),
+                    'message': 'Cover art generation failed'
+                })
+            else:
+                response.update({
+                    'error': job.error,
+                    'message': 'Cover art generation failed'
+                })
+        elif current_status in ['pending', 'generating']:
+            response.update({
+                'message': 'Cover art generation is in progress'
+            })
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get cover art status for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get cover art status"
         ) 

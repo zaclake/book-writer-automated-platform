@@ -330,6 +330,8 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
   }
 
   const handleComplete = async () => {
+    // Track if we've successfully kicked off reference generation (i.e. received a projectId)
+    let projectInitialized = false // NEW FLAG
     const loadStart = Date.now() // Track when loading began so we can enforce a minimum display time
     console.log('🏗️ BookBibleCreator: handleComplete called, isLoading:', isLoading)
     
@@ -513,6 +515,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
       } else {
         // Start polling reference generation progress
         setCurrentProjectId(projectId)
+        projectInitialized = true // ✅ Mark that the project ID has been set
       }
     } catch (error) {
       console.error('Book Bible creation error:', error)
@@ -530,7 +533,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
         await new Promise((resolve) => setTimeout(resolve, MIN_DISPLAY_MS - elapsed))
       }
       // Keep loader visible until reference generation concludes. It will hide on route change.
-      if (!currentProjectId) {
+      if (!projectInitialized) {
         setIsLoading(false)
       }
     }

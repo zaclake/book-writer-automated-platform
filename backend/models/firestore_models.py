@@ -391,6 +391,87 @@ class GenerationJob(BaseModel):
     results: JobResults = JobResults()
 
 # =====================================================================
+# PUBLISHING MODELS
+# =====================================================================
+
+class PublishFormat(str, Enum):
+    """Supported publishing formats."""
+    EPUB = "epub"
+    PDF = "pdf"
+    HTML = "html"
+
+class PublishConfig(BaseModel):
+    """Configuration for book publishing."""
+    title: str = Field(..., description="Book title")
+    author: str = Field(..., description="Author name")
+    publisher: Optional[str] = Field(None, description="Publisher name")
+    isbn: Optional[str] = Field(None, description="ISBN number")
+    date: Optional[str] = Field(None, description="Publication date")
+    rights: Optional[str] = Field("All rights reserved.", description="Copyright text")
+    
+    # Optional sections
+    dedication: Optional[str] = Field(None, description="Dedication text")
+    acknowledgments: Optional[str] = Field(None, description="Acknowledgments text")
+    foreword: Optional[str] = Field(None, description="Foreword text")
+    preface: Optional[str] = Field(None, description="Preface text")
+    epilogue: Optional[str] = Field(None, description="Epilogue text")
+    about_author: Optional[str] = Field(None, description="About the author text")
+    
+    # Reader engagement
+    call_to_action: Optional[str] = Field(None, description="Author notes/call to action")
+    other_books: Optional[str] = Field(None, description="Other books by author")
+    connect_author: Optional[str] = Field(None, description="Connect with author info")
+    book_club_questions: Optional[str] = Field(None, description="Book club discussion questions")
+    
+    # Publishing options
+    formats: List[PublishFormat] = Field(default=[PublishFormat.EPUB, PublishFormat.PDF], description="Output formats")
+    use_existing_cover: bool = Field(True, description="Use existing cover art if available")
+    include_toc: bool = Field(True, description="Include table of contents")
+
+class PublishRequest(BaseModel):
+    """Request to publish a book."""
+    project_id: str = Field(..., description="Project ID to publish")
+    config: PublishConfig = Field(..., description="Publishing configuration")
+
+class PublishJobStatus(str, Enum):
+    """Publishing job status."""
+    PENDING = "pending"
+    FETCHING_DATA = "fetching_data"
+    BUILDING_CONTENT = "building_content"
+    GENERATING_EPUB = "generating_epub"
+    GENERATING_PDF = "generating_pdf"
+    UPLOADING = "uploading"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+class PublishResult(BaseModel):
+    """Result of a publishing job."""
+    job_id: str = Field(..., description="Job ID")
+    project_id: str = Field(..., description="Project ID")
+    status: PublishJobStatus = Field(..., description="Job status")
+    config: PublishConfig = Field(..., description="Publishing configuration used")
+    
+    # Output files
+    epub_url: Optional[str] = Field(None, description="EPUB download URL")
+    pdf_url: Optional[str] = Field(None, description="PDF download URL")
+    html_url: Optional[str] = Field(None, description="HTML download URL")
+    
+    # Metadata
+    created_at: datetime = Field(..., description="Job creation time")
+    completed_at: Optional[datetime] = Field(None, description="Job completion time")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+    
+    # File info
+    file_sizes: Optional[Dict[str, int]] = Field(None, description="File sizes in bytes")
+    word_count: Optional[int] = Field(None, description="Total word count")
+    page_count: Optional[int] = Field(None, description="Estimated page count")
+
+class ProjectPublishingHistory(BaseModel):
+    """Publishing history for a project."""
+    history: List[PublishResult] = Field(default=[], description="Publishing job history")
+    latest: Optional[PublishResult] = Field(None, description="Latest successful publish")
+
+# =====================================================================
 # REQUEST/RESPONSE MODELS
 # =====================================================================
 

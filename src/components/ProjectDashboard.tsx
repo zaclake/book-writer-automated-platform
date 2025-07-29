@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
+import { CoverArtGenerator } from '@/components/CoverArtGenerator'
 
 interface Project {
   id: string
@@ -85,7 +86,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const [isLoading, setIsLoading] = useState(true)
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'overview' | 'chapters' | 'references' | 'progress'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'chapters' | 'references' | 'progress' | 'cover-art'>('overview')
   const [showReferencesSidebar, setShowReferencesSidebar] = useState(true)
 
   useEffect(() => {
@@ -104,7 +105,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       
       // Load project details, chapters, and summary in parallel
       const [projectRes, chaptersRes, summaryRes] = await Promise.all([
-        fetch(`/api/book-bible/${projectId}`, {
+        fetch(`/api/projects/${projectId}`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
         }),
         fetch(`/api/chapters?project_id=${projectId}`, {
@@ -117,9 +118,28 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
       // Handle project data
       if (projectRes.ok) {
-        const projectData = await projectRes.json()
-        console.log('[ProjectDashboard] Project data loaded:', projectData.project ? 'success' : 'no project')
-        setProject(projectData.project)
+        const data = await projectRes.json()
+        // API may return { project: {...} } or the object itself
+        const p = data.project || data
+        console.log('[ProjectDashboard] Project data loaded:', p ? 'success' : 'no project')
+
+        if (p) {
+          setProject({
+            id: p.id,
+            title: p.metadata?.title || p.title || `Project ${projectId}`,
+            genre: p.settings?.genre || p.genre || 'Fiction',
+            status: p.metadata?.status || p.status || 'active',
+            created_at: p.metadata?.created_at || p.created_at || new Date().toISOString(),
+            settings: {
+              target_chapters: p.settings?.target_chapters || 25,
+              word_count_per_chapter: p.settings?.word_count_per_chapter || 3800,
+              involvement_level: '',
+              purpose: ''
+            }
+          })
+        } else {
+          setProject(null)
+        }
       } else {
         console.error('[ProjectDashboard] Failed to load project:', projectRes.status, await projectRes.text())
       }
@@ -266,7 +286,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               { id: 'overview', label: 'Overview' },
               { id: 'chapters', label: 'Chapters' },
               { id: 'progress', label: 'Progress' },
-              { id: 'references', label: 'References' }
+              { id: 'references', label: 'References' },
+              { id: 'cover-art', label: 'Cover Art' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -498,6 +519,12 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                   </CardContent>
                 </Card>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'cover-art' && (
+            <div className="space-y-6">
+              <CoverArtGenerator projectId={projectId} />
             </div>
           )}
 

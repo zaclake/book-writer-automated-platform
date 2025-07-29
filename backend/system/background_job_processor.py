@@ -20,6 +20,8 @@ import signal
 import os
 
 from auto_complete_book_orchestrator import AutoCompleteBookOrchestrator, AutoCompletionConfig
+from backend.services.publishing_service import PublishingService
+from backend.models.firestore_models import PublishConfig, PublishFormat
 
 
 class JobStatus(Enum):
@@ -493,6 +495,57 @@ class BackgroundJobProcessor:
         if pending_jobs:
             self.logger.info(f"Recovering {len(pending_jobs)} pending jobs")
             self.job_queue.extend(pending_jobs)
+    
+    async def submit_job(self, job_type: str, config: Dict[str, Any], 
+                        priority: JobPriority = JobPriority.NORMAL,
+                        user_id: Optional[str] = None,
+                        project_path: str = "") -> str:
+        """Submit a generic job."""
+        job_id = str(uuid.uuid4())
+        
+        # Determine total steps based on job type
+        total_steps = 1
+        if job_type == "auto_complete_book" and "target_chapter_count" in config:
+            total_steps = config["target_chapter_count"]
+        elif job_type == "publish_book":
+            formats = config.get("publish_config", {}).get("formats", ["epub", "pdf"])
+            total_steps = len(formats) + 3  # fetch, build, formats, upload
+        
+        progress = JobProgress(
+            job_id=job_id,
+            current_step="queued",
+            total_steps=total_steps,
+            completed_steps=0,
+            progress_percentage=0.0,
+            estimated_time_remaining=None,
+            current_chapter=None,
+            chapters_completed=0,
+            total_chapters=total_steps,
+            last_update=datetime.now().isoformat(),
+            detailed_status={}
+        )
+        
+        job = BackgroundJob(
+            job_id=job_id,
+            job_type=job_type,
+            status=JobStatus.QUEUED,
+            priority=priority,
+            created_at=datetime.now(),
+            started_at=None,
+            completed_at=None,
+            config=config,
+            progress=progress,
+            error=None,
+            result=None,
+            retries=0,
+            max_retries=2,
+            user_id=user_id,
+            project_path=project_path
+        )
+        
+        self.jobs[job_id] = job
+        self.job_queue.append(job_id)
+        return job_id
     
     def submit_auto_complete_book_job(self, project_path: str, config: AutoCompletionConfig, 
                                     user_id: Optional[str] = None, 

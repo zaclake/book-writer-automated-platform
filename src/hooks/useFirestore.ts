@@ -479,6 +479,10 @@ export function useProject(projectId: string | null) {
   const { userId, isLoaded, isSignedIn, getToken } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
+  // Track whether we have completed the first successful load to avoid
+  // repeatedly toggling the loading state during background polling which
+  // causes annoying UI flashes every few seconds.
+  const hasLoadedOnce = useRef(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchProject = useCallback(async () => {
@@ -489,7 +493,11 @@ export function useProject(projectId: string | null) {
     }
 
     try {
-      setLoading(true)
+      // Show global loading indicator only on the first fetch. Subsequent
+      // polling should happen silently in the background.
+      if (!hasLoadedOnce.current) {
+        setLoading(true)
+      }
       setError(null)
 
       const token = await getToken()
@@ -594,12 +602,14 @@ export function useProject(projectId: string | null) {
 
       setProject(formattedProject)
       setLoading(false)
+      hasLoadedOnce.current = true
 
     } catch (err) {
       errorMonitoring.captureException(err as Error, { projectId: projectId || 'unknown' })
       console.error('Error fetching project:', err)
       setError('Failed to load project')
       setLoading(false)
+      hasLoadedOnce.current = true
     }
   }, [isSignedIn, userId, projectId, getToken])
 
@@ -787,7 +797,7 @@ export function useChapter(chapterId: string | null) {
     error,
     refreshChapter: refresh
   }
-}
+ }
 
 // =====================================================================
 // GENERATION JOB HOOKS
@@ -814,9 +824,9 @@ export function useUserJobs(limit: number = 10) {
     return data.jobs || []
   }, [isSignedIn, userId, limit, getToken])
 
-  const { data: jobs, loading, error, refresh } = usePolling(
+  const { data: jobs, loading, error } = usePolling(
     fetcher,
-    POLLING_INTERVALS.activeJobs, // Use fast polling for jobs
+    POLLING_INTERVALS.activeJobs, // fast polling for active jobs
     isLoaded && isSignedIn
   )
 
@@ -849,7 +859,7 @@ export function useGenerationJob(jobId: string | null) {
     return data.job
   }, [isSignedIn, userId, jobId, getToken])
 
-  const { data: job, loading, error, refresh } = usePolling(
+  const { data: job, loading, error } = usePolling(
     fetcher,
     POLLING_INTERVALS.activeJobs,
     isLoaded && isSignedIn && !!jobId
@@ -939,7 +949,7 @@ export function useOptimisticUpdates<T>() {
       newSet.delete(updateId)
       return newSet
     })
-    
+
     if (pendingUpdates.size === 1) {
       setOptimisticData(null)
     }
@@ -961,4 +971,4 @@ export function useOptimisticUpdates<T>() {
     confirmUpdate,
     rollbackUpdate
   }
-} 
+}

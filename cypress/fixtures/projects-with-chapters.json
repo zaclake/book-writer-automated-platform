@@ -1,0 +1,59 @@
+[
+  {
+    "id": "test-project-1",
+    "title": "Test Book with Chapters",
+    "description": "A test book for publishing",
+    "chapters": [
+      {
+        "id": "chapter-1",
+        "chapter_number": 1,
+        "title": "Chapter 1: The Beginning",
+        "content": "This is the first chapter content. It has many words to test word counting functionality. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+      },
+      {
+        "id": "chapter-2", 
+        "chapter_number": 2,
+        "title": "Chapter 2: The Middle",
+        "content": "This is the second chapter content. It continues the story with more detailed narrative. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+      },
+      {
+        "id": "chapter-3",
+        "chapter_number": 3,
+        "title": "Chapter 3: The End",
+        "content": "This is the final chapter content. It wraps up all the plot threads and provides a satisfying conclusion. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur."
+      }
+    ],
+    "cover_art": {
+      "image_url": "https://example.com/cover.jpg"
+    },
+    "metadata": {
+      "author": "Test Author",
+      "owner_id": "user123"
+    },
+    "updated_at": "2024-01-15T10:30:00Z"
+  },
+  {
+    "id": "test-project-2",
+    "title": "Another Test Book",
+    "description": "Another book for testing",
+    "chapters": [
+      {
+        "id": "chapter-1",
+        "chapter_number": 1,
+        "title": "Introduction",
+        "content": "Introduction chapter with moderate length content for testing purposes."
+      },
+      {
+        "id": "chapter-2",
+        "chapter_number": 2,
+        "title": "Main Content",
+        "content": "Main content chapter with substantial text to ensure word count calculations work properly."
+      }
+    ],
+    "metadata": {
+      "author": "Another Author",
+      "owner_id": "user123"
+    },
+    "updated_at": "2024-01-10T15:20:00Z"
+  }
+] 

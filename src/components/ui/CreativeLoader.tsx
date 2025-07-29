@@ -11,12 +11,16 @@ interface CreativeLoaderProps {
   onTimeout?: () => void
   timeoutMs?: number
   fullScreen?: boolean
+  messageIntervalMs?: number // NEW: how often to rotate messages
 }
 
+// A rich pool of rotating messages including whimsical loaders, fun facts, and famous-author insights.
+// Keep messages short (<120 chars) so they fit nicely on small screens.
 const DEFAULT_MESSAGES = [
+  // — Whimsical activity messages —
   "🖋️ Sharpening pencils...",
   "☕ Brewing the perfect coffee...",
-  "📚 Consulting the writing gods...", 
+  "📚 Consulting the writing gods...",
   "🎭 Giving characters personality...",
   "🗺️ Drawing treasure maps...",
   "🔮 Gazing into plot crystals...",
@@ -33,8 +37,38 @@ const DEFAULT_MESSAGES = [
   "🎯 Aiming for the perfect word...",
   "🧪 Mixing character chemistry...",
   "⚡ Charging creative batteries...",
-  "🌊 Surfing waves of imagination..."
-]
+  "🌊 Surfing waves of imagination...",
+
+  // — Fun facts & trivia about writing —
+  "📖 Fun fact: Agatha Christie wrote more than 2 billion books—third only to Shakespeare & the Bible.",
+  "⌨️ George R.R. Martin still writes on a 1980s DOS machine using WordStar 4.0.",
+  "📝 Stephen King threw the first pages of *Carrie* away; his wife rescued them.",
+  "🏃 Haruki Murakami runs a marathon every year to keep his writing discipline sharp.",
+  "📚 J.K. Rowling’s original *Harry Potter* pitch was rejected by 12 publishers.",
+  "✉️ Marcel Proust wrote some sentences that ran longer than 400 words.",
+  "🕰️ Victor Hugo wrote *Les Misérables* over 12 years—and in exile.",
+  "✂️ Hemingway revised the ending of *A Farewell to Arms* 39 times.",
+  "📏 Nabokov plotted *Lolita* on index cards he could shuffle at will.",
+  "🐈 Edgar Allan Poe had a beloved cat named Catterina who sat on his shoulder while he wrote.",
+  "📅 Maya Angelou drafted nearly every book in a tiny hotel room—then rewrote by hand.",
+  "✍️ Douglas Adams famously said: ‘I love deadlines. I like the whooshing sound they make as they fly by.’",
+  "🔍 Sir Arthur Conan Doyle based Sherlock Holmes on his medical school professor, Dr. Joseph Bell.",
+  "🚂 Agatha Christie once disappeared for 11 days; the mystery has never been solved.",
+  "🗺️ Tolkien created Middle-earth languages before writing the stories.",
+  "🛑 Mark Twain popularised the saying ‘Kill your darlings’ (cut beloved lines for clarity).",
+  "🦉 Kafka wrote *The Metamorphosis* in three weeks but edited it for months.",
+  "💡 Isaac Asimov published in every category of the Dewey Decimal System except Philosophy.",
+  "📜 The longest novel ever written is *In Search of Lost Time* (~1.2 million words).",
+  "🎖️ Kurt Vonnegut tried (and failed) to sell the film rights to *Slaughterhouse-Five* for $100 early on.",
+  "🪶 Shakespeare invented over 1,700 words still used today, including ‘bedazzled’.",
+
+  // — Motivational quotes —
+  "🖋️ ‘You can, you should, and if you’re brave enough to start, you will.’ – Stephen King",
+  "📚 ‘The first draft is just you telling yourself the story.’ – Terry Pratchett",
+  "✨ ‘A word after a word after a word is power.’ – Margaret Atwood",
+  "🔧 ‘Easy reading is damn hard writing.’ – Nathaniel Hawthorne",
+  "🎨 ‘Creativity is intelligence having fun.’ – Albert Einstein"
+] as const
 
 export function CreativeLoader({
   isVisible,
@@ -45,7 +79,8 @@ export function CreativeLoader({
   size = 'md',
   onTimeout,
   timeoutMs = 120000, // 2 minutes default
-  fullScreen = false
+  fullScreen = false,
+  messageIntervalMs = 10000 // Default: change message every 10 seconds
 }: CreativeLoaderProps) {
   console.log('🎭 CreativeLoader render called with:', { isVisible, progress, stage, size })
   
@@ -54,16 +89,16 @@ export function CreativeLoader({
 
   const messages = customMessages || DEFAULT_MESSAGES
 
-  // Rotate messages every 3 seconds
+  // Rotate messages at the configured interval (default 10s)
   useEffect(() => {
     if (!isVisible) return
 
     const interval = setInterval(() => {
       setCurrentMessageIndex((prev) => (prev + 1) % messages.length)
-    }, 3000)
+    }, messageIntervalMs)
 
     return () => clearInterval(interval)
-  }, [isVisible, messages.length])
+  }, [isVisible, messages.length, messageIntervalMs])
 
   // Track elapsed time and handle timeout
   useEffect(() => {
