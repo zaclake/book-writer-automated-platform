@@ -283,23 +283,17 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           
           {/* Navigation Tabs */}
           <div className="flex space-x-1 mb-6 border-b">
-            {[
-              { id: 'overview', label: 'Overview' },
-              { id: 'chapters', label: 'Chapters' },
-              { id: 'progress', label: 'Progress' },
-              { id: 'references', label: 'References' },
-              { id: 'cover-art', label: 'Cover Art' }
-            ].map((tab) => (
+            {(['overview', 'chapters', 'progress', 'references', 'cover-art'] as const).map((tab) => (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 font-medium text-sm rounded-t-lg ${
+                  activeTab === tab
+                    ? 'bg-blue-100 text-blue-700 border-b-2 border-blue-500'
+                    : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                {tab.label}
+                {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
               </button>
             ))}
           </div>
@@ -307,7 +301,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           {/* Tab Content */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Project Stats */}
+              {/* Quick Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardContent className="p-4 text-center">
@@ -323,40 +317,65 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 </Card>
                 <Card>
                   <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-purple-600">{chapters.filter(c => c.director_notes_count > 0).length}</div>
-                    <div className="text-sm text-gray-500">Chapters with Notes</div>
+                    <div className="text-2xl font-bold text-purple-600">{Math.ceil(progressStats.totalWords / 250)}</div>
+                    <div className="text-sm text-gray-500">Estimated Pages</div>
                   </CardContent>
                 </Card>
               </div>
 
+              {/* Chapter Status Grid */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Chapter Status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
+                    {Array.from({ length: project.settings.target_chapters }, (_, i) => {
+                      const chapterNumber = i + 1
+                      const status = getChapterStatus(chapterNumber)
+                      return (
+                        <button
+                          key={chapterNumber}
+                          className={`aspect-square rounded-lg border-2 flex items-center justify-center text-sm font-medium transition-colors ${
+                            status === 'complete' ? 'bg-green-100 border-green-300 text-green-800' :
+                            status === 'revision' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
+                            status === 'draft' ? 'bg-blue-100 border-blue-300 text-blue-800' :
+                            'bg-gray-50 border-gray-200 text-gray-400'
+                          } hover:scale-105`}
+                          onClick={() => handleChapterClick(chapterNumber)}
+                        >
+                          {chapterNumber}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Recent Activity */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Recent Activity</CardTitle>
+                  <CardTitle>Recent Chapters</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {chapters
-                      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-                      .slice(0, 5)
-                      .map((chapter) => (
-                        <div key={chapter.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <div className="font-medium">{chapter.title}</div>
-                            <div className="text-sm text-gray-500">
-                              {chapter.word_count} words • {chapter.stage} • 
-                              Updated {new Date(chapter.updated_at).toLocaleDateString()}
-                            </div>
+                    {chapters.slice(0, 5).map((chapter) => (
+                      <div key={chapter.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <div className="font-medium">{chapter.title}</div>
+                          <div className="text-sm text-gray-500">
+                            {chapter.word_count} words • {chapter.stage}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => onEditChapter?.(chapter.id)}
-                          >
-                            Edit
-                          </Button>
                         </div>
-                      ))}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onEditChapter?.(chapter.id)}
+                        >
+                          Edit
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -365,57 +384,38 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
           {activeTab === 'chapters' && (
             <div className="space-y-6">
-              {/* Chapter Timeline */}
+              {/* Chapter Progress Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-2xl font-bold text-blue-600">{chapters.filter(c => c.stage === 'draft').length}</div>
+                    <div className="text-sm text-gray-500">Draft</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-2xl font-bold text-yellow-600">{chapters.filter(c => c.stage === 'revision').length}</div>
+                    <div className="text-sm text-gray-500">In Revision</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-2xl font-bold text-green-600">{chapters.filter(c => c.stage === 'complete').length}</div>
+                    <div className="text-sm text-gray-500">Complete</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-2xl font-bold text-orange-600">{chapters.filter(c => c.director_notes_count > 0).length}</div>
+                    <div className="text-sm text-gray-500">Has Notes</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Chapters List */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Chapter Timeline</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-                    {Array.from({ length: summary?.total_chapters || 25 }, (_, i) => i + 1).map((chapterNumber) => {
-                      const chapter = chapters.find(c => c.chapter_number === chapterNumber)
-                      const status = getChapterStatus(chapterNumber)
-                      const qualityColor = getChapterQualityColor(chapter?.quality_scores)
-
-                      return (
-                        <div
-                          key={chapterNumber}
-                          onClick={() => handleChapterClick(chapterNumber)}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                            status === 'complete' ? 'bg-green-50 border-green-200' :
-                            status === 'revision' ? 'bg-yellow-50 border-yellow-200' :
-                            status === 'draft' ? 'bg-blue-50 border-blue-200' :
-                            'bg-gray-50 border-gray-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium">Ch. {chapterNumber}</span>
-                            {chapter?.quality_scores && (
-                              <div className={`w-3 h-3 rounded-full ${qualityColor}`} title={`Quality: ${chapter.quality_scores.overall_rating}/10`} />
-                            )}
-                          </div>
-                          {chapter ? (
-                            <div className="text-xs text-gray-600">
-                              <div>{chapter.word_count} words</div>
-                              <div className="capitalize">{chapter.stage}</div>
-                              {chapter.director_notes_count > 0 && (
-                                <div className="text-orange-600">{chapter.director_notes_count} notes</div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-gray-400">Not started</div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Chapter List */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Chapter Details</CardTitle>
+                  <CardTitle>All Chapters</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
@@ -426,41 +426,104 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                             <span className="font-medium">Chapter {chapter.chapter_number}</span>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                               chapter.stage === 'complete' ? 'bg-green-100 text-green-800' :
-                                                          chapter.stage === 'revision' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {chapter.stage.charAt(0).toUpperCase() + chapter.stage.slice(1)}
-                          </span>
+                              chapter.stage === 'revision' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-blue-100 text-blue-800'
+                            }`}>
+                              {chapter.stage.charAt(0).toUpperCase() + chapter.stage.slice(1)}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {chapter.title}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {chapter.word_count.toLocaleString()} words
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-600 mt-1">
-                          {chapter.title}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {chapter.word_count.toLocaleString()} words
+                        
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onEditChapter && onEditChapter(chapter.id)}
+                          >
+                            Edit
+                          </Button>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onEditChapter && onEditChapter(chapter.id)}
-                        >
-                          Edit
-                        </Button>
+                    ))}
+                    
+                    {chapters.length === 0 && (
+                      <div className="text-center text-gray-500 py-8">
+                        No chapters found. Start by creating your first chapter.
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'progress' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Writing Progress</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Overall Progress</span>
+                        <span>{Math.round(progressStats.percentage)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full" 
+                          style={{ width: `${progressStats.percentage}%` }}
+                        />
                       </div>
                     </div>
-                  ))}
-                  
-                  {chapters.length === 0 && (
-                    <div className="text-center text-gray-500 py-8">
-                      No chapters found. Start by creating your first chapter.
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <span className="text-sm text-gray-500">Chapters Completed</span>
+                        <div className="text-2xl font-bold">{progressStats.completed} / {progressStats.total}</div>
+                      </div>
+                      <div>
+                        <span className="text-sm text-gray-500">Total Words</span>
+                        <div className="text-2xl font-bold">{progressStats.totalWords.toLocaleString()}</div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'references' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Reference Materials</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-gray-600">Reference files and character sheets will be displayed here.</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'cover-art' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Cover Art Generator</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <CoverArtGenerator projectId={projectId} />
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
       </div>
     </div>
