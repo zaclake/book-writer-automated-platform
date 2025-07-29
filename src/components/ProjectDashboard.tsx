@@ -426,6 +426,45 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                             <span className="font-medium">Chapter {chapter.chapter_number}</span>
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                               chapter.stage === 'complete' ? 'bg-green-100 text-green-800' :
-                              chapter.stage === 'revision' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-blue-100 text-blue-800'
-                            }`
+                                                          chapter.stage === 'revision' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {chapter.stage.charAt(0).toUpperCase() + chapter.stage.slice(1)}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {chapter.title}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {chapter.word_count.toLocaleString()} words
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onEditChapter && onEditChapter(chapter.id)}
+                        >
+                          Edit
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {chapters.length === 0 && (
+                    <div className="text-center text-gray-500 py-8">
+                      No chapters found. Start by creating your first chapter.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default ProjectDashboard
