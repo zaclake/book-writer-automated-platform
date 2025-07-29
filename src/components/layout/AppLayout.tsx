@@ -223,6 +223,20 @@ const AppLayout: React.FC<AppLayoutProps> = ({
 
   // Get current active tab
   const getActiveTab = () => {
+    // For project navigation, extract the page type from the pathname
+    if (showProjectNavigation && currentProject) {
+      // pathname format: /project/{projectId}/{page}
+      const pathSegments = pathname.split('/')
+      const pageType = pathSegments[3] // e.g., 'overview', 'publish', 'chapters', etc.
+      
+      if (pageType) {
+        const matchingTab = activeTabs.find(tab => tab.id === pageType)
+        return matchingTab || activeTabs[0]
+      }
+      return activeTabs[0] // default to first tab (overview)
+    }
+    
+    // For main navigation, use the original logic
     return activeTabs.find(tab => pathname.startsWith(tab.href)) || activeTabs[0]
   }
 
