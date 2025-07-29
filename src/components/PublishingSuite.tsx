@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,7 @@ import { CreativeLoader } from '@/components/ui/CreativeLoader'
 import { Book, Download, FileText, Settings, Eye, CheckCircle } from 'lucide-react'
 import { usePublishJob } from '@/hooks/usePublishJob'
 import { Project } from '@/types/project'
+import { useAuth } from '@clerk/nextjs'
 
 interface PublishingSuiteProps {
   projectId: string
@@ -53,6 +54,7 @@ interface PublishFormData {
 export default function PublishingSuite({ projectId, project }: PublishingSuiteProps) {
   const [activeTab, setActiveTab] = useState('details')
   const { startPublishJob, jobStatus, isLoading, error, downloadUrls } = usePublishJob()
+  const { getToken } = useAuth()
 
   const form = useForm<PublishFormData>({
     defaultValues: {
@@ -106,24 +108,51 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
     }
   }
 
-  const getProjectStats = () => {
-    // Prefer detailed chapter data when available
-    if (project.chapters && project.chapters.length > 0) {
-      const chapterCount = project.chapters.length
-      const wordCount = project.chapters.reduce((total, chapter) => {
-        return total + (chapter.content?.split(' ').length || 0)
-      }, 0)
-      return { chapterCount, wordCount }
-    }
+  const [projectStats, setProjectStats] = useState({ chapterCount: 0, wordCount: 0 })
 
-    // Fallback to progress-based statistics when chapters are not loaded
-    return {
-      chapterCount: project.progress?.chapters_completed || 0,
-      wordCount: project.progress?.current_word_count || 0,
+  // Fetch real chapter statistics on mount
+  useEffect(() => {
+    const fetchChapterStats = async () => {
+      try {
+        const token = await getToken()
+        if (!token) return
+        
+        const response = await fetch(`/api/projects/${projectId}/chapters`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          const chapters = data.chapters || []
+          const chapterCount = chapters.length
+          
+          // Calculate total word count from chapter metadata
+          const wordCount = chapters.reduce((total: number, chapter: any) => {
+            return total + (chapter.word_count || chapter.metadata?.word_count || 0)
+          }, 0)
+          
+          setProjectStats({ chapterCount, wordCount })
+        } else {
+          // Fallback to project progress data
+          setProjectStats({
+            chapterCount: project.progress?.chapters_completed || 0,
+            wordCount: project.progress?.current_word_count || 0,
+          })
+        }
+      } catch (error) {
+        console.error('Failed to fetch chapter stats:', error)
+        // Fallback to project progress data
+        setProjectStats({
+          chapterCount: project.progress?.chapters_completed || 0,
+          wordCount: project.progress?.current_word_count || 0,
+        })
+      }
     }
-  }
+    
+    fetchChapterStats()
+  }, [projectId, getToken, project.progress])
 
-  const { chapterCount, wordCount } = getProjectStats()
+  const { chapterCount, wordCount } = projectStats
 
   // Show progress if job is running
   if (isLoading || (jobStatus && !['completed', 'failed'].includes(jobStatus.status))) {
