@@ -14,6 +14,18 @@ const nextConfig = {
     // Temporarily ignore TypeScript errors during builds for deployment
     ignoreBuildErrors: true,
   },
+  // Fix development server reloading issues
+  webpack: (config, { dev, isServer }) => {
+    if (dev && !isServer) {
+      // Reduce aggressive file watching in development
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+        ignored: /node_modules|\.git|\.next/,
+      }
+    }
+    return config
+  },
 }
 
 module.exports = nextConfig 

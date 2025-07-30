@@ -65,7 +65,7 @@ const subtitles = [
 ]
 
 export default function ImmersiveHero({ projectCount, mostActiveProject, onCreateProject }: ImmersiveHeroProps) {
-  const { user } = useAuth()
+  const { user, isLoaded } = useAuth()
   const [isVisible, setIsVisible] = useState(false)
   const [scrollY, setScrollY] = useState(0)
   const [currentSubtitle, setCurrentSubtitle] = useState(0)
@@ -160,9 +160,9 @@ export default function ImmersiveHero({ projectCount, mostActiveProject, onCreat
           {/* Enhanced typography with soft glow and styled "Writer" */}
           <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight drop-shadow-lg">
             <span className="block bg-gradient-to-r from-white via-white/95 to-white/90 bg-clip-text text-transparent">
-              {user?.firstName ? `Welcome back, ` : 'Welcome back, '}
+              Welcome back, 
               <span className="font-serif italic text-white/95 drop-shadow-xl">
-                {user?.firstName || 'Writer'}
+                {isLoaded && user?.firstName ? user.firstName : 'Writer'}
               </span>
             </span>
           </h1>

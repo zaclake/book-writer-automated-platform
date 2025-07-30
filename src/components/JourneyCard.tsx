@@ -216,9 +216,9 @@ const JourneyCard: React.FC<JourneyCardProps> = ({
   const formattedDate = formatDate(project.created_at)
 
   return (
-    <div className="group relative">
+    <div className="group relative antialiased">
       {/* Main card with enhanced styling */}
-      <div className="bg-gradient-to-br from-white via-brand-off-white to-brand-beige/40 rounded-2xl border border-brand-lavender/20 p-5 shadow-xl hover:shadow-2xl transition-all duration-500 hover:-translate-y-3 hover:rotate-1 hover:scale-[1.02] backdrop-blur-sm overflow-hidden">
+      <div className="bg-gradient-to-br from-white via-brand-off-white to-brand-beige/40 rounded-2xl border border-brand-lavender/20 p-5 shadow-xl hover:shadow-2xl transition-all duration-500 hover:-translate-y-3 hover:scale-[1.02] backdrop-blur-sm overflow-hidden transform-gpu will-change-transform">
         
         {/* Subtle paper texture overlay */}
         <div className="absolute inset-0 opacity-20 bg-gradient-to-br from-transparent via-white/30 to-transparent" />
@@ -246,7 +246,7 @@ const JourneyCard: React.FC<JourneyCardProps> = ({
           
           {/* Title and metadata - tighter spacing */}
           <div className="flex-1 min-w-0 pr-8">
-            <h3 className="text-lg font-bold text-brand-forest leading-tight mb-1 group-hover:text-brand-lavender transition-colors duration-300">
+            <h3 className="text-lg font-bold text-brand-forest leading-tight mb-1 group-hover:text-brand-lavender transition-colors duration-300 select-none">
               {project.metadata?.title || project.title || `Journey ${project.id}`}
             </h3>
             

@@ -322,16 +322,39 @@ export function AutoCompleteBookManager({
       return
     }
 
-    const projectId = localStorage.getItem('lastProjectId')
-    if (!projectId) {
+    const currentProjectId = projectId || localStorage.getItem('lastProjectId')
+    if (!currentProjectId) {
       setStatus('❌ No project selected - upload or select a Book Bible first')
       return
     }
 
-    const bookBible = localStorage.getItem(`bookBible-${projectId}`)
+    let bookBible = localStorage.getItem(`bookBible-${currentProjectId}`)
     if (!bookBible) {
-      setStatus('❌ Book Bible not found - please upload a Book Bible first')
-      return
+      // Try to fetch from backend
+      try {
+        const authHeaders = await getAuthHeaders()
+        const bookBibleResponse = await fetch(`/api/projects/${currentProjectId}/book-bible`, {
+          headers: authHeaders
+        })
+        
+        if (bookBibleResponse.ok) {
+          const bookBibleData = await bookBibleResponse.text()
+          if (bookBibleData && bookBibleData.trim().length > 0) {
+            bookBible = bookBibleData
+            // Cache it for future use
+            localStorage.setItem(`bookBible-${currentProjectId}`, bookBible)
+          } else {
+            setStatus('❌ Book Bible is empty - please create content in the Book Bible tab first')
+            return
+          }
+        } else {
+          setStatus('❌ Book Bible not found - please create a Book Bible first in the Book Bible tab')
+          return
+        }
+      } catch (error) {
+        setStatus('❌ Unable to load Book Bible - please ensure you have created one in the Book Bible tab')
+        return
+      }
     }
 
     setIsEstimating(true)
@@ -347,7 +370,7 @@ export function AutoCompleteBookManager({
           ...authHeaders
         },
         body: JSON.stringify({
-          project_id: projectId,
+          project_id: currentProjectId,
           book_bible: bookBible,
           target_chapters: config.targetChapterCount,
           words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount),
