@@ -109,7 +109,7 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
           metadata: {
             ...chapter.metadata,
             updated_at: new Date().toISOString(),
-            word_count: data.content.split(' ').length
+            word_count: data.content.split(/\s+/).filter(word => word.length > 0).length
           }
         }
       )
@@ -195,8 +195,8 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     } catch (error) {
       console.error('Error loading chapter:', error)
       toast({
-        title: "Error",
-        description: "Failed to load chapter. Please try again.",
+        title: "Looks like we hit a snag",
+        description: "We're having trouble loading your chapter. Let's try again!",
         variant: "destructive"
       })
     } finally {
@@ -224,8 +224,8 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
       if (response.ok) {
         const data = await response.json()
         toast({
-          title: "Success",
-          description: "Chapter saved successfully."
+          title: "Beautiful work! ✨",
+          description: "Your chapter has been saved. Keep blooming!"
         })
         
         // Reload the chapter to get updated data
@@ -240,8 +240,8 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     } catch (error) {
       console.error('Error saving chapter:', error)
       toast({
-        title: "Error",
-        description: "Failed to save chapter. Please try again.",
+        title: "Looks like we hit a snag",
+        description: "We couldn't save your chapter right now. Let's try again!",
         variant: "destructive"
       })
     } finally {
@@ -288,8 +288,8 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     } catch (error) {
       console.error('Error requesting rewrite:', error)
       toast({
-        title: "Error",
-        description: "Failed to request rewrite. Please try again.",
+        title: "Looks like we hit a snag",
+        description: "We couldn't start the rewrite just now. Let's try again!",
         variant: "destructive"
       })
       setIsRewriting(false)
@@ -346,8 +346,8 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     } catch (error) {
       console.error('Error adding director note:', error)
       toast({
-        title: "Error",
-        description: "Failed to add note. Please try again.",
+        title: "Looks like we hit a snag",
+        description: "We couldn't save your note right now. Let's try again!",
         variant: "destructive"
       })
     }

@@ -56,6 +56,7 @@ class CoverArtRequest(BaseModel):
     """Request model for cover art generation."""
     user_feedback: Optional[str] = None
     regenerate: bool = False
+    options: Optional[Dict[str, Any]] = None
 
 def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = ""):
     """Update progress for a reference generation job."""
@@ -1497,15 +1498,27 @@ async def generate_cover_art(
         async def generate_cover_background():
             """Background task for cover art generation."""
             try:
+                logger.info(f"Starting background cover art generation for project {project_id}")
+                logger.info(f"Book bible content length: {len(book_bible_content)}")
+                logger.info(f"Reference files: {list(reference_files.keys())}")
+                logger.info(f"User feedback: {request.user_feedback}")
+                
                 job = await cover_art_service.generate_cover_art(
                     project_id=project_id,
                     user_id=user_id,
                     book_bible_content=book_bible_content,
                     reference_files=reference_files,
                     user_feedback=request.user_feedback,
+                    options=request.options,
                     job_id=job_id
                 )
                 _cover_art_jobs[job_id] = job
+                
+                logger.info(f"Cover art generation completed with status: {job.status}")
+                if job.status == 'completed':
+                    logger.info(f"Generated image URL: {job.image_url}")
+                elif job.status == 'failed':
+                    logger.error(f"Cover art generation failed: {job.error}")
                 
                 # Update job in Firestore
                 await db.firestore.update_cover_art_job(job_id, {
@@ -1513,6 +1526,7 @@ async def generate_cover_art(
                     'image_url': job.image_url,
                     'storage_path': job.storage_path,
                     'prompt': job.prompt,
+                    'error': job.error,
                     'completed_at': job.completed_at.isoformat() if job.completed_at else None
                 })
                 
@@ -1530,6 +1544,8 @@ async def generate_cover_art(
                 
             except Exception as e:
                 logger.error(f"Background cover art generation failed: {e}")
+                logger.error(f"Exception type: {type(e).__name__}")
+                logger.error(f"Exception details: {str(e)}")
                 failed_job = _cover_art_jobs.get(job_id)
                 if failed_job:
                     failed_job.status = 'failed'
@@ -1568,7 +1584,7 @@ async def get_cover_art_status(
     project_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get cover art generation status and result for a project."""
+    """Get cover art status for a project."""
     try:
         user_id = current_user.get('user_id')
         if not user_id:
@@ -1595,82 +1611,64 @@ async def get_cover_art_status(
                 detail="Access denied to this project"
             )
         
-        # Find cover art job for this project - check Firestore first
-        job = None
-        job_data = None
+        # Check service availability
+        service_available = cover_art_service.is_available()
+        openai_available = cover_art_service.openai_client is not None
+        firebase_available = cover_art_service.firebase_bucket is not None
         
-        # Get from Firestore
+        logger.info(f"Cover art service status check - Available: {service_available}, OpenAI: {openai_available}, Firebase: {firebase_available}")
+        
+        # Get latest cover art job for this project
+        from backend.database_integration import get_database_adapter
         db = get_database_adapter()
         user_jobs = await db.firestore.get_user_cover_art_jobs(user_id, project_id, limit=1)
+        
         if user_jobs:
-            job_data = user_jobs[0]
-        
-        # Fallback to in-memory store
-        if not job_data:
-            for job_id, existing_job in _cover_art_jobs.items():
-                if existing_job.project_id == project_id and existing_job.user_id == user_id:
-                    job = existing_job
-                    break
-        
-        if not job_data and not job:
+            latest_job = user_jobs[0]
+            job_id = latest_job.get('job_id')
+            
+            # Also check in-memory jobs
+            memory_job = _cover_art_jobs.get(job_id)
+            if memory_job:
+                return {
+                    'job_id': memory_job.job_id,
+                    'status': memory_job.status,
+                    'image_url': memory_job.image_url,
+                    'prompt': memory_job.prompt,
+                    'error': memory_job.error,
+                    'message': f'Cover art {memory_job.status}',
+                    'created_at': memory_job.created_at.isoformat() if memory_job.created_at else None,
+                    'completed_at': memory_job.completed_at.isoformat() if memory_job.completed_at else None,
+                    'attempt_number': memory_job.attempt_number,
+                    'service_available': service_available,
+                    'openai_available': openai_available,
+                    'firebase_available': firebase_available
+                }
+            else:
+                # Return Firestore job data
+                return {
+                    'job_id': latest_job.get('job_id'),
+                    'status': latest_job.get('status', 'unknown'),
+                    'image_url': latest_job.get('image_url'),
+                    'prompt': latest_job.get('prompt'),
+                    'error': latest_job.get('error'),
+                    'message': f'Cover art {latest_job.get("status", "unknown")}',
+                    'created_at': latest_job.get('created_at'),
+                    'completed_at': latest_job.get('completed_at'),
+                    'attempt_number': latest_job.get('attempt_number', 1),
+                    'service_available': service_available,
+                    'openai_available': openai_available,
+                    'firebase_available': firebase_available
+                }
+        else:
+            # No cover art jobs found
             return {
                 'status': 'not_started',
-                'message': 'No cover art generation has been started for this project',
-                'service_available': cover_art_service.is_available()
+                'message': 'No cover art generated yet',
+                'service_available': service_available,
+                'openai_available': openai_available,
+                'firebase_available': firebase_available
             }
-        
-        # Use Firestore data if available, otherwise in-memory job
-        if job_data:
-            response = {
-                'job_id': job_data.get('job_id'),
-                'status': job_data.get('status', 'unknown'),
-                'created_at': job_data.get('created_at').isoformat() if job_data.get('created_at') else None,
-                'completed_at': job_data.get('completed_at') if isinstance(job_data.get('completed_at'), str) else None,
-                'attempt_number': job_data.get('attempt_number', 1)
-            }
-        else:
-            # Return job status and details from in-memory store
-            response = {
-                'job_id': job.job_id,
-                'status': job.status,
-                'created_at': job.created_at.isoformat() if job.created_at else None,
-                'completed_at': job.completed_at.isoformat() if job.completed_at else None,
-                'attempt_number': job.attempt_number
-            }
-        
-        # Add additional fields based on status
-        current_status = job_data.get('status') if job_data else job.status
-        
-        if current_status == 'completed':
-            if job_data:
-                response.update({
-                    'image_url': job_data.get('image_url'),
-                    'prompt': job_data.get('prompt'),
-                    'message': 'Cover art generated successfully'
-                })
-            else:
-                response.update({
-                    'image_url': job.image_url,
-                    'prompt': job.prompt,
-                    'message': 'Cover art generated successfully'
-                })
-        elif current_status == 'failed':
-            if job_data:
-                response.update({
-                    'error': job_data.get('error'),
-                    'message': 'Cover art generation failed'
-                })
-            else:
-                response.update({
-                    'error': job.error,
-                    'message': 'Cover art generation failed'
-                })
-        elif current_status in ['pending', 'generating']:
-            response.update({
-                'message': 'Cover art generation is in progress'
-            })
-        
-        return response
         
     except HTTPException:
         raise
@@ -1680,3 +1678,59 @@ async def get_cover_art_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get cover art status"
         ) 
+
+# ----------------------------
+# DELETE COVER ART ENDPOINT
+# ----------------------------
+@router.delete("/{project_id}/cover-art/{job_id}")
+async def delete_cover_art(
+    project_id: str,
+    job_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Permanently delete a generated cover-art image and its job entry."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user auth")
+
+        # Verify ownership
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        owner_id = project.get('metadata', {}).get('owner_id')
+        collaborators = project.get('metadata', {}).get('collaborators', [])
+        if owner_id != user_id and user_id not in collaborators:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        from backend.database_integration import get_database_adapter
+        db = get_database_adapter()
+        job = await db.firestore.get_cover_art_job(job_id)
+        if not job or job.get('project_id') != project_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cover art job not found")
+
+        # Delete blob from Firebase Storage
+        if job.get('storage_path') and cover_art_service.firebase_bucket:
+            try:
+                blob = cover_art_service.firebase_bucket.blob(job['storage_path'])
+                blob.delete()
+            except Exception as e:
+                logger.warning(f"Failed to delete blob: {e}")
+
+        # Mark Firestore doc as deleted
+        await db.firestore.update_cover_art_job(job_id, {
+            'status': 'deleted',
+            'deleted_at': datetime.now(timezone.utc).isoformat()
+        })
+
+        # Remove from memory store
+        _cover_art_jobs.pop(job_id, None)
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete cover art job {job_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete cover art") 

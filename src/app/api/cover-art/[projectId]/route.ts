@@ -9,145 +9,165 @@ interface RouteParams {
   }
 }
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(
+  request: Request,
+  { params }: { params: { projectId: string } }
+) {
   try {
     const { projectId } = params
-
-    if (!projectId) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      )
-    }
-
-    // Get request body
     const body = await request.json()
-
-    // Get backend URL
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
-    if (!backendBaseUrl) {
-      return NextResponse.json(
-        { error: 'Backend URL not configured' },
-        { status: 500 }
-      )
-    }
-
-    // Get auth token from request headers
+    
+    // Get auth token
     const authHeader = request.headers.get('authorization')
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'Authentication required' },
+        { error: 'Authorization header required' },
         { status: 401 }
       )
     }
 
-    // Make request to backend
-    const backendUrl = `${backendBaseUrl}/v2/projects/${projectId}/cover-art`
+    const token = authHeader.substring(7)
     
-    const backendResponse = await fetch(backendUrl, {
+    console.log('Cover art generation request:', { projectId, body })
+    
+    // Forward to backend
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+    const response = await fetch(`${backendUrl}/v2/projects/${projectId}/cover-art`, {
       method: 'POST',
       headers: {
-        'Authorization': authHeader,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(body)
     })
 
-    if (!backendResponse.ok) {
-      const errorData = await backendResponse.text()
-      console.error('[cover-art] Backend error:', errorData)
-      
-      try {
-        const errorJson = JSON.parse(errorData)
-        return NextResponse.json(
-          { error: errorJson.detail || 'Failed to start cover art generation' },
-          { status: backendResponse.status }
-        )
-      } catch {
-        return NextResponse.json(
-          { error: 'Failed to start cover art generation' },
-          { status: backendResponse.status }
-        )
-      }
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Backend cover art generation error:', response.status, errorText)
+      return NextResponse.json(
+        { error: 'Failed to start cover art generation', details: errorText },
+        { status: response.status }
+      )
     }
 
-    const responseData = await backendResponse.json()
-    return NextResponse.json(responseData)
+    const data = await response.json()
+    console.log('Cover art generation response from backend:', data)
+    return NextResponse.json(data)
 
   } catch (error) {
-    console.error('[cover-art] Error:', error)
+    console.error('Cover art generation API error:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(
+  request: Request,
+  { params }: { params: { projectId: string } }
+) {
   try {
     const { projectId } = params
-
-    if (!projectId) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      )
-    }
-
-    // Get backend URL
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
-    if (!backendBaseUrl) {
-      return NextResponse.json(
-        { error: 'Backend URL not configured' },
-        { status: 500 }
-      )
-    }
-
-    // Get auth token from request headers
+    
+    // Get auth token
     const authHeader = request.headers.get('authorization')
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'Authentication required' },
+        { error: 'Authorization header required' },
         { status: 401 }
       )
     }
 
-    // Make request to backend
-    const backendUrl = `${backendBaseUrl}/v2/projects/${projectId}/cover-art`
+    const token = authHeader.substring(7)
     
-    const backendResponse = await fetch(backendUrl, {
-      method: 'GET',
+    // Forward to backend
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+    const response = await fetch(`${backendUrl}/v2/projects/${projectId}/cover-art`, {
       headers: {
-        'Authorization': authHeader,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       }
     })
 
-    if (!backendResponse.ok) {
-      const errorData = await backendResponse.text()
-      console.error('[cover-art] Backend error:', errorData)
-      
-      try {
-        const errorJson = JSON.parse(errorData)
-        return NextResponse.json(
-          { error: errorJson.detail || 'Failed to get cover art status' },
-          { status: backendResponse.status }
-        )
-      } catch {
-        return NextResponse.json(
-          { error: 'Failed to get cover art status' },
-          { status: backendResponse.status }
-        )
-      }
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Backend cover art status error:', response.status, errorText)
+      return NextResponse.json(
+        { error: 'Failed to get cover art status', details: errorText },
+        { status: response.status }
+      )
     }
 
-    const responseData = await backendResponse.json()
-    return NextResponse.json(responseData)
+    const data = await response.json()
+    console.log('Cover art status from backend:', data)
+    return NextResponse.json(data)
 
   } catch (error) {
-    console.error('[cover-art] Error:', error)
+    console.error('Cover art status API error:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { projectId: string } }
+) {
+  try {
+    const { projectId } = params
+    const body = await request.json()
+    const { jobId } = body
+    
+    if (!jobId) {
+      return NextResponse.json(
+        { error: 'Job ID is required for deletion' },
+        { status: 400 }
+      )
+    }
+    
+    // Get auth token
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Authorization header required' },
+        { status: 401 }
+      )
+    }
+
+    const token = authHeader.substring(7)
+    
+    console.log('Cover art deletion request:', { projectId, jobId })
+    
+    // Forward to backend
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+    const response = await fetch(`${backendUrl}/v2/projects/${projectId}/cover-art/${jobId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Backend cover art deletion error:', response.status, errorText)
+      return NextResponse.json(
+        { error: 'Failed to delete cover art', details: errorText },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    console.log('Cover art deletion response from backend:', data)
+    return NextResponse.json(data)
+
+  } catch (error) {
+    console.error('Cover art deletion API error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

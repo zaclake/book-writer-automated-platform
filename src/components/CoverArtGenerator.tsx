@@ -8,7 +8,7 @@ import { Textarea } from './ui/textarea'
 import { CreativeLoader } from './ui/CreativeLoader'
 import { Alert, AlertDescription } from './ui/alert'
 import { Badge } from './ui/badge'
-import { Download, Image as ImageIcon, RefreshCw, Sparkles, AlertCircle } from 'lucide-react'
+import { Download, Image as ImageIcon, RefreshCw, Sparkles, AlertCircle, Trash2 } from 'lucide-react'
 
 interface CoverArtGeneratorProps {
   projectId: string
@@ -132,6 +132,7 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
 
       if (response.ok) {
         const data = await response.json()
+        console.log('Cover art status response:', data)
         setCoverArtStatus(data)
         
         // Stop polling if completed or failed
@@ -139,6 +140,10 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
           setIsPolling(false)
           setIsGenerating(false)
         }
+      } else {
+        console.error('Failed to fetch cover art status:', response.status, response.statusText)
+        const errorData = await response.text()
+        console.error('Error response:', errorData)
       }
     } catch (error) {
       console.error('Failed to check cover art status:', error)
@@ -210,6 +215,39 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
     }
   }
 
+  const deleteCoverArt = async () => {
+    if (!coverArtStatus?.job_id) return
+    
+    try {
+      setError(null)
+      
+      const token = await getToken()
+      const response = await fetch(`/api/cover-art/${projectId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ jobId: coverArtStatus.job_id })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Reset the cover art status to null to show initial generation form
+        setCoverArtStatus(null)
+        setShowFeedbackForm(false)
+        // Also refresh the status from backend to ensure we have clean state
+        await checkCoverArtStatus()
+      } else {
+        setError(data.error || 'Failed to delete cover art')
+      }
+    } catch (error) {
+      console.error('Failed to delete cover art:', error)
+      setError('Failed to delete cover art')
+    }
+  }
+
   // Check if references are completed and service is available
   const referencesCompleted = referenceProgress?.completed === true
   const serviceAvailable = coverArtStatus?.service_available !== false // Default to true if unknown
@@ -266,9 +304,16 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
                 <div className="space-y-4">
                   <div className="text-center">
                     <img 
-                      src={coverArtStatus.image_url} 
+                      src={`${coverArtStatus.image_url}?t=${Date.now()}`} 
                       alt="Generated Cover Art"
                       className="max-w-sm mx-auto rounded-lg shadow-lg border"
+                      onError={(e) => {
+                        console.error('Failed to load cover art image:', coverArtStatus.image_url)
+                        console.error('Image load error:', e)
+                      }}
+                      onLoad={() => {
+                        console.log('Cover art loaded successfully:', coverArtStatus.image_url)
+                      }}
                     />
                   </div>
                   
@@ -283,6 +328,14 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
                     >
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Regenerate
+                    </Button>
+                    <Button 
+                      onClick={deleteCoverArt}
+                      variant="outline"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
                     </Button>
                   </div>
 
@@ -346,7 +399,7 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
           )}
 
           {/* Initial Generation Button */}
-          {(!coverArtStatus || coverArtStatus.status === 'not_started') && (
+          {(!coverArtStatus || coverArtStatus.status === 'not_started' || coverArtStatus.status === 'deleted') && (
             <div className="text-center space-y-4">
               {/* Title/Author Options */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">

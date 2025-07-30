@@ -3,6 +3,32 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// Transform backend chapter data to frontend-expected format
+function transformChapterData(chapter: any) {
+  const metadata = chapter.metadata || {}
+  const qualityScores = chapter.quality_scores || {}
+  
+  return {
+    id: chapter.id,
+    chapter_number: chapter.chapter_number || 0,
+    title: chapter.title || `Chapter ${chapter.chapter_number || 'Unknown'}`,
+    word_count: metadata.word_count || 0,
+    target_word_count: metadata.target_word_count || 2000,
+    stage: metadata.stage || 'draft',
+    created_at: metadata.created_at || chapter.created_at || new Date().toISOString(),
+    updated_at: metadata.updated_at || chapter.updated_at || new Date().toISOString(),
+    director_notes_count: metadata.director_notes_count || 0,
+    quality_scores: qualityScores.craft_scores ? {
+      overall_rating: qualityScores.overall_rating || 0,
+      prose: qualityScores.craft_scores.prose || 0,
+      character: qualityScores.craft_scores.character || 0,
+      story: qualityScores.craft_scores.story || 0,
+      emotion: qualityScores.craft_scores.emotion || 0,
+      freshness: qualityScores.craft_scores.freshness || 0
+    } : undefined
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { projectId: string } }
@@ -65,7 +91,16 @@ export async function GET(
     }
 
     const responseData = await backendResponse.json()
-    return NextResponse.json(responseData)
+    
+    // Transform the chapter data to match frontend expectations
+    const chapters = responseData.chapters || []
+    const transformedChapters = chapters.map(transformChapterData)
+    
+    return NextResponse.json({
+      chapters: transformedChapters,
+      total: transformedChapters.length,
+      project_id: projectId
+    })
 
   } catch (error) {
     console.error('[project-chapters] Error:', error)

@@ -77,8 +77,8 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) => {
     } catch (error) {
       console.error('Onboarding error:', error)
       toast({
-        title: "Error",
-        description: "Failed to complete setup. Please try again.",
+        title: "Looks like we hit a snag",
+        description: "We couldn't complete your setup just now. Let's try again!",
         variant: "destructive"
       })
     } finally {

@@ -21,6 +21,13 @@ import requests
 from PIL import Image
 import io
 
+# Optional advanced NLP
+try:
+    import spacy
+    _NLP = spacy.load("en_core_web_sm")  # small model, fast; install during build
+except Exception:
+    _NLP = None
+
 logger = logging.getLogger(__name__)
 
 # KDP cover specifications based on research
@@ -177,86 +184,17 @@ class CoverArtService:
                     details['genre'] = genre
                     break
             
-            # Extract setting and time period
-            setting_sections = ['setting', 'world', 'location', 'place']
-            for section in setting_sections:
-                if f'## {section}' in bible_lower or f'# {section}' in bible_lower:
-                    # Find the section and extract content
-                    section_start = bible_lower.find(f'## {section}')
-                    if section_start == -1:
-                        section_start = bible_lower.find(f'# {section}')
-                    
-                    if section_start != -1:
-                        section_end = book_bible_content.find('\n##', section_start + 1)
-                        if section_end == -1:
-                            section_end = book_bible_content.find('\n#', section_start + 1)
-                        if section_end == -1:
-                            section_end = len(book_bible_content)
-                        
-                        setting_text = book_bible_content[section_start:section_end]
-                        details['setting'] = setting_text[:500]  # First 500 chars
-                        break
+            # Extract setting from multiple sources with priority
+            self._extract_setting_details(details, book_bible_content, reference_files)
             
-            # Extract from reference files
-            if 'characters.md' in reference_files:
-                char_content = reference_files['characters.md']
-                # Extract main character names (look for ## or ### headers)
-                char_lines = char_content.split('\n')
-                for line in char_lines:
-                    if line.strip().startswith('##') and not line.strip().startswith('###'):
-                        char_name = line.replace('#', '').strip()
-                        if char_name and len(char_name) < 50:  # Reasonable name length
-                            details['main_characters'].append(char_name)
-                        if len(details['main_characters']) >= 3:  # Limit to top 3
-                            break
+            # Extract characters intelligently
+            self._extract_character_details(details, reference_files)
             
-            if 'themes-and-motifs.md' in reference_files:
-                themes_content = reference_files['themes-and-motifs.md']
-                # Extract theme keywords
-                theme_keywords = ['love', 'betrayal', 'redemption', 'courage', 'sacrifice', 
-                                'power', 'justice', 'revenge', 'family', 'friendship', 
-                                'identity', 'growth', 'survival', 'hope', 'loss']
-                themes_lower = themes_content.lower()
-                for keyword in theme_keywords:
-                    if keyword in themes_lower:
-                        details['themes'].append(keyword)
-                    if len(details['themes']) >= 3:
-                        break
+            # Extract themes intelligently
+            self._extract_theme_details(details, reference_files)
             
-            if 'style-guide.md' in reference_files:
-                style_content = reference_files['style-guide.md']
-                style_lower = style_content.lower()
-                
-                # Extract mood/tone
-                mood_keywords = {
-                    'dark': ['dark', 'gritty', 'somber', 'serious'],
-                    'light': ['light', 'humorous', 'funny', 'comedic'],
-                    'dramatic': ['dramatic', 'intense', 'emotional'],
-                    'mysterious': ['mysterious', 'enigmatic', 'secretive'],
-                    'romantic': ['romantic', 'passionate', 'loving'],
-                    'adventurous': ['adventurous', 'exciting', 'thrilling']
-                }
-                
-                for mood, keywords in mood_keywords.items():
-                    if any(keyword in style_lower for keyword in keywords):
-                        details['mood_tone'] = mood
-                        break
-            
-            # Extract visual elements from world-building
-            if 'world-building.md' in reference_files:
-                world_content = reference_files['world-building.md']
-                world_lower = world_content.lower()
-                
-                visual_keywords = ['castle', 'city', 'forest', 'mountain', 'desert', 'ocean', 
-                                 'village', 'palace', 'tower', 'bridge', 'river', 'valley',
-                                 'medieval', 'modern', 'futuristic', 'ancient', 'magical',
-                                 'industrial', 'rural', 'urban', 'wilderness']
-                
-                for keyword in visual_keywords:
-                    if keyword in world_lower:
-                        details['visual_elements'].append(keyword)
-                    if len(details['visual_elements']) >= 5:
-                        break
+            # Extract mood/tone from style guide
+            self._extract_mood_tone(details, reference_files)
             
             # Extract target audience
             if 'target-audience-profile.md' in reference_files:
@@ -288,9 +226,199 @@ class CoverArtService:
         except Exception as e:
             logger.error(f"Error extracting book details: {e}")
         
+        logger.info(f"Extracted book details: {details}")
         return details
     
-    def generate_cover_prompt(self, book_details: Dict[str, Any], user_feedback: Optional[str] = None) -> str:
+    def _extract_setting_details(self, details: Dict[str, Any], book_bible_content: str, reference_files: Dict[str, str]):
+        """Extract setting and visual elements intelligently from multiple sources."""
+        
+        # Priority 1: Look for explicit setting sections in book bible
+        setting_sections = ['setting', 'world', 'location', 'place', 'environment']
+        for section in setting_sections:
+            if f'## {section}' in book_bible_content.lower() or f'# {section}' in book_bible_content.lower():
+                section_start = book_bible_content.lower().find(f'## {section}')
+                if section_start == -1:
+                    section_start = book_bible_content.lower().find(f'# {section}')
+                
+                if section_start != -1:
+                    section_end = book_bible_content.find('\n##', section_start + 1)
+                    if section_end == -1:
+                        section_end = book_bible_content.find('\n#', section_start + 1)
+                    if section_end == -1:
+                        section_end = len(book_bible_content)
+                    
+                    setting_text = book_bible_content[section_start:section_end]
+                    details['setting'] = setting_text[:500]  # First 500 chars
+                    break
+        
+        # Priority 2: Extract from world-building file more intelligently
+        if 'world-building.md' in reference_files:
+            world_content = reference_files['world-building.md']
+            self._extract_visual_elements_smart(details, world_content)
+        
+        # Priority 3: Fall back to outline if no world-building
+        if not details['visual_elements'] and 'outline.md' in reference_files:
+            outline_content = reference_files['outline.md']
+            self._extract_visual_elements_smart(details, outline_content)
+    
+    def _extract_visual_elements_smart(self, details: Dict[str, Any], content: str):
+        """Smartly extract visual elements by analyzing context, not just keyword matching."""
+        content_lower = content.lower()
+        
+        # Look for setting descriptions with context
+        water_keywords = ['lake', 'ocean', 'sea', 'river', 'water', 'shore', 'dock', 'pier', 'boat', 'island']
+        forest_keywords = ['forest', 'woods', 'trees', 'woodland']
+        urban_keywords = ['city', 'town', 'urban', 'street']
+        rural_keywords = ['rural', 'countryside', 'farm', 'village']
+        mountain_keywords = ['mountain', 'hill', 'peak', 'cliff']
+        building_keywords = ['castle', 'palace', 'tower', 'mansion', 'cabin', 'house']
+        
+        # Analyze which environment dominates
+        water_score = sum(1 for keyword in water_keywords if keyword in content_lower)
+        forest_score = sum(1 for keyword in forest_keywords if keyword in content_lower)
+        urban_score = sum(1 for keyword in urban_keywords if keyword in content_lower)
+        rural_score = sum(1 for keyword in rural_keywords if keyword in content_lower)
+        mountain_score = sum(1 for keyword in mountain_keywords if keyword in content_lower)
+        building_score = sum(1 for keyword in building_keywords if keyword in content_lower)
+        
+        # Add dominant elements only
+        scores = [
+            (water_score, water_keywords),
+            (forest_score, forest_keywords),
+            (urban_score, urban_keywords),
+            (rural_score, rural_keywords),
+            (mountain_score, mountain_keywords),
+            (building_score, building_keywords)
+        ]
+        
+        # Sort by score and take top elements
+        scores.sort(key=lambda x: x[0], reverse=True)
+        
+        for score, keywords in scores[:3]:  # Top 3 environment types
+            if score > 0:
+                # Find the most mentioned keyword in this category
+                best_keyword = max(keywords, key=lambda k: content_lower.count(k))
+                if content_lower.count(best_keyword) > 0:
+                    details['visual_elements'].append(best_keyword)
+        
+        # Look for time period indicators
+        if any(word in content_lower for word in ['medieval', 'ancient', 'historical']):
+            details['visual_elements'].append('medieval')
+        elif any(word in content_lower for word in ['modern', 'contemporary', 'current']):
+            details['visual_elements'].append('modern')
+        elif any(word in content_lower for word in ['future', 'futuristic', 'sci-fi']):
+            details['visual_elements'].append('futuristic')
+
+        # === Advanced NLP extraction (spaCy) ===
+        if _NLP:
+            doc = _NLP(content)
+            # Pick up LOCATION / FACILITY / ORG nouns for scenery
+            candidate_tokens = [ent.text.lower() for ent in doc.ents if ent.label_ in {'GPE', 'LOC', 'FAC'}]
+            # Add top frequency tokens not already included
+            for tok in candidate_tokens:
+                if tok not in details['visual_elements'] and len(details['visual_elements']) < 5:
+                    details['visual_elements'].append(tok)
+    
+    def _extract_character_details(self, details: Dict[str, Any], reference_files: Dict[str, str]):
+        """Extract character names more intelligently."""
+        if 'characters.md' in reference_files:
+            char_content = reference_files['characters.md']
+            char_lines = char_content.split('\n')
+            
+            for line in char_lines:
+                # Look for character names in headers, but filter out generic section names
+                if line.strip().startswith('##') and not line.strip().startswith('###'):
+                    char_name = line.replace('#', '').strip()
+                    
+                    # Filter out section headers and generic terms
+                    skip_terms = ['character', 'profile', 'description', 'core', 'main', 'supporting', 
+                                'minor', 'antagonist', 'protagonist', 'cast', 'overview', 'summary']
+                    
+                    if (char_name and 
+                        len(char_name) < 50 and  # Reasonable name length
+                        not any(skip_term in char_name.lower() for skip_term in skip_terms) and
+                        not char_name.lower().endswith('s')):  # Avoid plural section names
+                        
+                        details['main_characters'].append(char_name)
+                        if len(details['main_characters']) >= 3:  # Limit to top 3
+                            break
+
+        # spaCy fallback for names
+        if _NLP and len(details['main_characters']) < 3:
+            combined_chars = "\n".join(reference_files.get('characters.md', '').split('\n')[:500])
+            doc = _NLP(combined_chars)
+            for ent in doc.ents:
+                if ent.label_ == 'PERSON' and 2 <= len(ent.text.split()) <= 4:
+                    name = ent.text.strip()
+                    if name not in details['main_characters']:
+                        details['main_characters'].append(name)
+                    if len(details['main_characters']) >= 3:
+                        break
+    
+    def _extract_theme_details(self, details: Dict[str, Any], reference_files: Dict[str, str]):
+        """Extract themes more intelligently."""
+        if 'themes-and-motifs.md' in reference_files:
+            themes_content = reference_files['themes-and-motifs.md']
+            themes_lower = themes_content.lower()
+            
+            # Look for explicit theme statements
+            theme_keywords = ['love', 'betrayal', 'redemption', 'courage', 'sacrifice', 
+                            'power', 'justice', 'revenge', 'family', 'friendship', 
+                            'identity', 'growth', 'survival', 'hope', 'loss', 'fear',
+                            'isolation', 'mystery', 'discovery', 'transformation']
+            
+            # Count frequency and take most mentioned
+            theme_counts = [(keyword, themes_lower.count(keyword)) for keyword in theme_keywords]
+            theme_counts.sort(key=lambda x: x[1], reverse=True)
+            
+            for theme, count in theme_counts[:3]:
+                if count > 0:
+                    details['themes'].append(theme)
+    
+    def _extract_mood_tone(self, details: Dict[str, Any], reference_files: Dict[str, str]):
+        """Extract mood and tone more intelligently."""
+        style_content = ""
+        
+        # Check multiple possible files
+        for filename in ['style-guide.md', 'outline.md', 'themes-and-motifs.md']:
+            if filename in reference_files:
+                style_content += reference_files[filename] + "\n"
+        
+        if style_content:
+            style_lower = style_content.lower()
+            
+            # More nuanced mood detection
+            mood_scores = {
+                'dark': sum(1 for word in ['dark', 'gritty', 'somber', 'serious', 'horror', 'scary', 'ominous'] if word in style_lower),
+                'light': sum(1 for word in ['light', 'humorous', 'funny', 'comedic', 'bright', 'cheerful'] if word in style_lower),
+                'dramatic': sum(1 for word in ['dramatic', 'intense', 'emotional', 'powerful'] if word in style_lower),
+                'mysterious': sum(1 for word in ['mysterious', 'enigmatic', 'secretive', 'mystery'] if word in style_lower),
+                'romantic': sum(1 for word in ['romantic', 'passionate', 'loving', 'romance'] if word in style_lower),
+                'adventurous': sum(1 for word in ['adventurous', 'exciting', 'thrilling', 'action'] if word in style_lower)
+            }
+            
+            # Take the highest scoring mood
+            if mood_scores:
+                best_mood = max(mood_scores.items(), key=lambda x: x[1])
+                if best_mood[1] > 0:
+                    details['mood_tone'] = best_mood[0]
+
+        # === Color palette detection ===
+        color_keywords = ['red', 'crimson', 'scarlet', 'blue', 'azure', 'navy', 'green', 'emerald', 'olive',
+                          'purple', 'violet', 'magenta', 'yellow', 'gold', 'amber', 'orange', 'teal', 'cyan',
+                          'white', 'black', 'gray', 'silver', 'brown']
+        palette = []
+        for word in color_keywords:
+            if word in style_lower:
+                palette.append(word)
+            if len(palette) >= 3:
+                break
+        if palette:
+            details['color_palette'] = palette
+        else:
+            details['color_palette'] = []
+    
+    def generate_cover_prompt(self, book_details: Dict[str, Any], user_feedback: Optional[str] = None, options: Optional[Dict[str, Any]] = None) -> str:
         """
         Generate a DALL-E 3 prompt for cover art based on book details.
         
@@ -303,8 +431,8 @@ class CoverArtService:
         """
         prompt_parts = []
         
-        # Start with base cover art instruction
-        prompt_parts.append("Create a professional book cover design")
+        # Start with base cover art instruction - be very explicit about 2D only
+        prompt_parts.append("Create a professional 2D book cover design viewed straight-on from the front, completely flat with no 3D elements or perspective")
         
         # Add genre-specific styling
         genre = book_details.get('genre', '').lower()
@@ -366,6 +494,34 @@ class CoverArtService:
         # Add user feedback if provided
         if user_feedback:
             prompt_parts.append(f"Incorporating this feedback: {user_feedback}")
+
+        # Handle options for title/author placement
+        if options:
+            include_title = options.get('include_title', False)
+            include_author = options.get('include_author', False)
+            title_text = (options.get('title_text') or '').strip()
+            author_text = (options.get('author_text') or '').strip()
+
+            if include_title and title_text:
+                prompt_parts.append(f"Include the book title text \"{title_text}\" in large, clear, stylish typography near the upper third of the cover.")
+            elif include_title:
+                prompt_parts.append("Reserve ample space near the upper third of the cover for the book title typography.")
+
+            if include_author and author_text:
+                prompt_parts.append(f"Include the author name \"{author_text}\" in smaller, complementary typography near the lower portion of the cover.")
+            elif include_author:
+                prompt_parts.append("Reserve subtle space near the lower portion of the cover for the author name typography.")
+
+            if not include_title and not include_author:
+                prompt_parts.append("No text, no typography, no title, no author name on the image.")
+
+        # Critical: ONLY the front cover, no 3D book mockup
+        prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
+
+        # Color palette guidance
+        if book_details.get('color_palette'):
+            palette_str = ', '.join(book_details['color_palette'])
+            prompt_parts.append(f"Primary color palette: {palette_str}")
         
         # Join all parts
         full_prompt = '. '.join(prompt_parts) + '.'
@@ -391,26 +547,55 @@ class CoverArtService:
             raise RuntimeError("OpenAI client not available")
         
         try:
-            logger.info("Starting DALL-E 3 image generation")
+            logger.info("Starting AI image generation (GPT-image-1 -> DALL-E 3 fallback)")
+            logger.info(f"Using prompt: {prompt}")
             
-            response = self.openai_client.images.generate(
-                model="dall-e-3",
-                prompt=prompt,
-                size="1024x1792",  # Closest to 1.6:1 aspect ratio available
-                quality="hd",
-                n=1,
-                response_format="url"
-            )
+            # Try GPT-image-1 first (ChatGPT-4o's superior text rendering model)
+            try:
+                logger.info("Attempting GPT-image-1 generation...")
+                response = self.openai_client.images.generate(
+                    model="gpt-image-1",
+                    prompt=prompt,
+                    size="1024x1536",  # Portrait (closest allowed)
+                    quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
+                    n=1
+                    # Note: GPT-image-1 doesn't support response_format parameter
+                )
+                logger.info("GPT-image-1 generation successful!")
+                
+            except Exception as gpt_image_error:
+                logger.warning(f"GPT-image-1 failed ({gpt_image_error}), falling back to DALL-E 3...")
+                # Fallback to DALL-E 3
+                response = self.openai_client.images.generate(
+                    model="dall-e-3",
+                    prompt=prompt,
+                    size="1024x1792",  # Closest to 1.6:1 aspect ratio available
+                    quality="hd",
+                    n=1,
+                    response_format="url"
+                )
             
-            image_url = response.data[0].url
-            logger.info(f"DALL-E 3 generated image URL: {image_url}")
-            
-            # Download the image
-            image_response = requests.get(image_url, timeout=60)
-            image_response.raise_for_status()
-            image_bytes = image_response.content
+            data_item = response.data[0]
+            # Determine whether we got a URL (DALL-E 3) or b64_json (GPT-image-1)
+            if getattr(data_item, 'b64_json', None):
+                import base64
+                logger.info("Received base64 image data from GPT-image-1")
+                image_bytes = base64.b64decode(data_item.b64_json)
+                image_url = None  # Will be set after upload to Firebase
+            else:
+                image_url = data_item.url
+                logger.info(f"AI generated image URL: {image_url}")
+                # Safety checker: log revised prompt (DALL-E 3 feature)
+                if getattr(data_item, 'revised_prompt', None):
+                    logger.warning(f"OpenAI revised prompt: {data_item.revised_prompt}")
+                logger.info("Downloading generated image from OpenAI...")
+                image_response = requests.get(image_url, timeout=60)
+                image_response.raise_for_status()
+                image_bytes = image_response.content
+                logger.info(f"Downloaded image: {len(image_bytes)} bytes")
             
             # Process image to meet KDP specifications
+            logger.info("Processing image for KDP specifications...")
             processed_bytes = await self._process_image_for_kdp(image_bytes)
             
             logger.info(f"Generated and processed cover image ({len(processed_bytes)} bytes)")
@@ -418,6 +603,8 @@ class CoverArtService:
             
         except Exception as e:
             logger.error(f"Failed to generate cover image: {e}")
+            logger.error(f"OpenAI client available: {self.openai_client is not None}")
+            logger.error(f"OpenAI API key configured: {os.getenv('OPENAI_API_KEY') is not None}")
             raise
     
     async def _process_image_for_kdp(self, image_bytes: bytes) -> bytes:
@@ -555,9 +742,14 @@ class CoverArtService:
             raise RuntimeError("Firebase Storage not available")
         
         try:
-            # Create storage path
+            # Create storage path with timestamp and random suffix for cache busting
+            import random
+            import string
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            filename = f"cover-art/{project_id}/{job_id}_{timestamp}.jpg"
+            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+            filename = f"cover-art/{project_id}/{job_id}_{timestamp}_{random_suffix}.jpg"
+            
+            logger.info(f"Uploading to Firebase Storage: {filename}")
             
             # Upload to Firebase Storage
             blob = self.firebase_bucket.blob(filename)
@@ -573,6 +765,7 @@ class CoverArtService:
             public_url = blob.public_url
             
             logger.info(f"Uploaded cover art to Firebase Storage: {filename}")
+            logger.info(f"Public URL: {public_url}")
             return public_url
             
         except Exception as e:
@@ -581,7 +774,8 @@ class CoverArtService:
     
     async def generate_cover_art(self, project_id: str, user_id: str, 
                                 book_bible_content: str, reference_files: Dict[str, str],
-                                user_feedback: Optional[str] = None, 
+                                user_feedback: Optional[str] = None,
+                                options: Optional[Dict[str, Any]] = None,
                                 job_id: Optional[str] = None) -> CoverArtJob:
         """
         Complete cover art generation workflow.
@@ -626,7 +820,7 @@ class CoverArtService:
             
             # Step 2: Generate prompt
             logger.info(f"Generating cover art prompt for project {project_id}")
-            prompt = self.generate_cover_prompt(book_details, user_feedback)
+            prompt = self.generate_cover_prompt(book_details, user_feedback, options)
             job.prompt = prompt
             
             # Step 3: Generate image

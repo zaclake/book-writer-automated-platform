@@ -121,10 +121,10 @@ export interface GenerationJob {
 // =====================================================================
 
 const POLLING_INTERVALS = {
-  projects: 30000,      // 30 seconds - less frequent updates for dashboard
-  chapters: 10000,      // 10 seconds - moderate updates  
-  activeJobs: 3000,     // 3 seconds - frequent updates for active jobs
-  completedJobs: 60000, // 60 seconds - infrequent updates for completed jobs
+  projects: 300000,     // 5 minutes - much less frequent for dashboard
+  chapters: 180000,     // 3 minutes - less disruptive for chapters
+  activeJobs: 15000,    // 15 seconds - still responsive for active jobs
+  completedJobs: 600000, // 10 minutes - very infrequent for completed jobs
 }
 
 // =====================================================================
@@ -194,12 +194,19 @@ function usePolling<T>(
 
     startPolling()
 
-    // Handle visibility changes
+    // Handle visibility changes (with throttling)
+    let lastRefreshTime = 0
+    const REFRESH_COOLDOWN = 30000 // 30 seconds cooldown
+    
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden
       if (isPageVisible) {
-        fetchData() // Refresh when page becomes visible
-        startPolling() // Restart polling
+        const now = Date.now()
+        if (now - lastRefreshTime > REFRESH_COOLDOWN) {
+          lastRefreshTime = now
+          fetchData() // Refresh when page becomes visible
+        }
+        startPolling() // Always restart polling
       }
     }
 
@@ -443,17 +450,29 @@ export function useUserProjects() {
 
     startPolling()
 
-    // Add window focus revalidation for better UX
+    // Throttle refreshes to prevent excessive data fetching
+    let lastRefreshTime = 0
+    const REFRESH_COOLDOWN = 30000 // 30 seconds cooldown
+
+    // Add window focus revalidation for better UX (with throttling)
     const handleFocus = () => {
-      fetchProjects()
+      const now = Date.now()
+      if (now - lastRefreshTime > REFRESH_COOLDOWN) {
+        lastRefreshTime = now
+        fetchProjects()
+      }
     }
 
-    // Pause/resume polling based on page visibility
+    // Pause/resume polling based on page visibility (with throttling)
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden
       if (isPageVisible) {
-        fetchProjects() // Refresh when page becomes visible
-        startPolling() // Restart polling
+        const now = Date.now()
+        if (now - lastRefreshTime > REFRESH_COOLDOWN) {
+          lastRefreshTime = now
+          fetchProjects() // Refresh when page becomes visible
+        }
+        startPolling() // Always restart polling
       }
     }
 
@@ -631,12 +650,19 @@ export function useProject(projectId: string | null) {
 
     startPolling()
 
-    // Handle visibility changes
+    // Handle visibility changes (with throttling)
+    let lastRefreshTime = 0
+    const REFRESH_COOLDOWN = 30000 // 30 seconds cooldown
+    
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden
       if (isPageVisible) {
-        fetchProject()
-        startPolling()
+        const now = Date.now()
+        if (now - lastRefreshTime > REFRESH_COOLDOWN) {
+          lastRefreshTime = now
+          fetchProject()
+        }
+        startPolling() // Always restart polling
       }
     }
 

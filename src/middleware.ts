@@ -1,7 +1,13 @@
 import { clerkMiddleware } from '@clerk/nextjs/server'
+import { NextResponse } from 'next/server'
 
 export default clerkMiddleware(async (auth, req) => {
   const { pathname } = req.nextUrl
+  
+  // Server-side redirect for authenticated users on landing page
+  if (pathname === '/' && auth().userId) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
+  }
   
   // Public API routes that don't need authentication
   const publicApiRoutes = [

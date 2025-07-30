@@ -25,31 +25,95 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // For now, return a basic summary structure that ProjectDashboard expects
-    // This can be enhanced later to fetch real prewriting data from backend
-    const summary = {
-      project_id: projectId,
-      title: "Project Summary",
-      genre: "Fiction",
-      premise: "A compelling story about...",
-      main_characters: [
-        {
-          name: "Main Character",
-          description: "The protagonist of the story"
-        }
-      ],
-      setting: {
-        description: "The story takes place in...",
-        time: "Present day",
-        place: "Various locations"
-      },
-      themes: ["Adventure", "Growth", "Discovery"],
-      chapter_outline: [],
-      total_chapters: 25,
-      word_count_target: 3800
+    // Get backend URL
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      // Return default summary if backend not configured
+      const defaultSummary = {
+        project_id: projectId,
+        title: "Project Summary",
+        genre: "Fiction",
+        premise: "A compelling story about...",
+        main_characters: [],
+        setting: {
+          description: "The story takes place in...",
+          time: "Present day",
+          place: "Various locations"
+        },
+        themes: ["Adventure", "Growth", "Discovery"],
+        chapter_outline: [],
+        total_chapters: 25,
+        word_count_target: 3800
+      }
+      return NextResponse.json({ summary: defaultSummary })
     }
 
-    return NextResponse.json({ summary })
+    try {
+      // Fetch project data from backend
+      const projectUrl = `${backendBaseUrl}/v2/projects/${encodeURIComponent(projectId)}`
+      
+      const projectResponse = await fetch(projectUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!projectResponse.ok) {
+        throw new Error(`Backend responded with ${projectResponse.status}`)
+      }
+
+      const projectData = await projectResponse.json()
+      const project = projectData.project || projectData
+
+      // Extract project settings and metadata
+      const settings = project.settings || {}
+      const metadata = project.metadata || {}
+      
+      // Build summary from actual project data
+      const summary = {
+        project_id: projectId,
+        title: metadata.title || "Untitled Project",
+        genre: settings.genre || "Fiction",
+        premise: "A compelling story...", // Could be extracted from book bible
+        main_characters: [],
+        setting: {
+          description: "The story takes place...",
+          time: "Present day",
+          place: "Various locations"
+        },
+        themes: ["Adventure", "Growth", "Discovery"],
+        chapter_outline: [],
+        total_chapters: settings.target_chapters || 25,
+        word_count_target: settings.word_count_per_chapter || 3800
+      }
+
+      return NextResponse.json({ summary })
+
+    } catch (backendError) {
+      console.error('[prewriting-summary] Backend error:', backendError)
+      
+      // Fallback to default summary with some project ID context
+      const fallbackSummary = {
+        project_id: projectId,
+        title: "Project Summary",
+        genre: "Fiction",
+        premise: "A compelling story about...",
+        main_characters: [],
+        setting: {
+          description: "The story takes place in...",
+          time: "Present day", 
+          place: "Various locations"
+        },
+        themes: ["Adventure", "Growth", "Discovery"],
+        chapter_outline: [],
+        total_chapters: 25,
+        word_count_target: 3800
+      }
+      
+      return NextResponse.json({ summary: fallbackSummary })
+    }
 
   } catch (error) {
     console.error('[prewriting-summary] Error:', error)

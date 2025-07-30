@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { PlayIcon, PauseIcon, StopIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
+import { PlayIcon, PauseIcon, StopIcon, Cog6ToothIcon, BoltIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
 import { useUser } from '@clerk/nextjs'
 
@@ -68,6 +68,9 @@ export function AutoCompleteBookManager({
   const [status, setStatus] = useState('')
   const [estimation, setEstimation] = useState<any>(null)
   const [progressStream, setProgressStream] = useState<EventSource | null>(null)
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [userUsage, setUserUsage] = useState<any>(null)
   
   const [config, setConfig] = useState<AutoCompleteConfig>({
     targetWordCount: 80000,
@@ -83,6 +86,9 @@ export function AutoCompleteBookManager({
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const isInitializedRef = useRef(false)
   const progressTrackingRef = useRef<string | null>(null)
+  const estimationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Cleanup function to prevent resource leaks
   const cleanupProgress = useCallback(() => {
@@ -96,8 +102,34 @@ export function AutoCompleteBookManager({
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
+    if (estimationTimeoutRef.current) {
+      clearTimeout(estimationTimeoutRef.current)
+      estimationTimeoutRef.current = null
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
     progressTrackingRef.current = null
+    reconnectAttemptsRef.current = 0
   }, [])
+
+  // Fetch user usage data
+  const fetchUserUsage = async () => {
+    try {
+      const authHeaders = await getAuthHeaders()
+      const response = await fetch('/api/users/v2/usage', {
+        headers: authHeaders
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setUserUsage(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch user usage:', error)
+    }
+  }
 
   // Single effect to handle initialization and job tracking
   useEffect(() => {
@@ -106,6 +138,14 @@ export function AutoCompleteBookManager({
       if (isLoaded && isSignedIn && !isInitializedRef.current) {
         isInitializedRef.current = true
         await checkForExistingJob()
+        await fetchUserUsage()
+        
+        // Auto-estimate cost if no active job and no existing estimation
+        estimationTimeoutRef.current = setTimeout(async () => {
+          if (!currentJob && !estimation) {
+            await estimateAutoCompletion()
+          }
+        }, 1000) // Small delay to let the UI settle
       }
       
       // Handle progress tracking when job changes
@@ -132,6 +172,18 @@ export function AutoCompleteBookManager({
     isInitializedRef.current = false
     cleanupProgress()
   }, [user?.id, cleanupProgress])
+
+  // Auto-refresh estimate when config changes
+  useEffect(() => {
+    if (isLoaded && isSignedIn && !currentJob && estimation) {
+      // Debounce config changes to avoid too many API calls
+      const debounceTimer = setTimeout(async () => {
+        await estimateAutoCompletion()
+      }, 500)
+
+      return () => clearTimeout(debounceTimer)
+    }
+  }, [config.targetWordCount, config.targetChapterCount, config.minimumQualityScore, isLoaded, isSignedIn, currentJob, estimation])
 
   const checkForExistingJob = async () => {
     try {
@@ -173,6 +225,41 @@ export function AutoCompleteBookManager({
       return
     }
 
+    // Guard against SSR
+    if (typeof window === 'undefined') {
+      setStatus('❌ Client-side features not available')
+      return
+    }
+
+    // Check for book bible before starting
+    const bookBible = localStorage.getItem(`bookBible-${projectId}`)
+    if (!bookBible) {
+      try {
+        // Try to fetch from backend
+        const authHeaders = await getAuthHeaders()
+        const bookBibleResponse = await fetch(`/api/projects/${projectId}/book-bible`, {
+          headers: authHeaders
+        })
+        
+        if (!bookBibleResponse.ok) {
+          setStatus('❌ Book Bible not found - please create a Book Bible first in the Book Bible tab')
+          return
+        }
+        
+        const bookBibleData = await bookBibleResponse.text()
+        if (!bookBibleData || bookBibleData.trim().length === 0) {
+          setStatus('❌ Book Bible is empty - please create content in the Book Bible tab first')
+          return
+        }
+        
+        // Cache the book bible locally
+        localStorage.setItem(`bookBible-${projectId}`, bookBibleData)
+      } catch (error) {
+        setStatus('❌ Unable to load Book Bible - please ensure you have created one in the Book Bible tab')
+        return
+      }
+    }
+
     setIsStarting(true)
     setStatus('🚀 Starting auto-completion...')
 
@@ -187,7 +274,9 @@ export function AutoCompleteBookManager({
         body: JSON.stringify({
           config: config,
           project_id: projectId,
-          user_id: user?.id
+          user_id: user?.id,
+          book_bible: bookBible || (typeof window !== 'undefined' ? localStorage.getItem(`bookBible-${projectId}`) : null),
+          estimated_total_cost: estimation?.estimated_total_cost
         })
       })
 
@@ -199,7 +288,21 @@ export function AutoCompleteBookManager({
         startProgressTracking(data.jobId)
         onJobStarted?.(data.jobId)
       } else {
-        setStatus(`❌ Failed to start: ${data.error}`)
+        // Handle specific error types
+        if (response.status === 409) {
+          setStatus(`🔄 Job already running: ${data.details || data.error}`)
+          if (data.existing_job_id) {
+            setStatus(`🔄 Resuming existing job: ${data.existing_job_id}`)
+            startProgressTracking(data.existing_job_id)
+          }
+        } else if (response.status === 402) {
+          setStatus(`💰 Budget exceeded: ${data.details || data.error}`)
+          if (data.estimated_cost && data.remaining_budget) {
+            setStatus(`💰 Budget exceeded: Cost $${data.estimated_cost} > Available $${data.remaining_budget.toFixed(2)}`)
+          }
+        } else {
+          setStatus(`❌ Failed to start: ${data.error || data.details || 'Unknown error'}`)
+        }
       }
     } catch (error) {
       setStatus(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -211,6 +314,11 @@ export function AutoCompleteBookManager({
   const estimateAutoCompletion = async () => {
     if (!isSignedIn) {
       setStatus('❌ Please sign in to get cost estimate')
+      return
+    }
+
+    // Guard against SSR
+    if (typeof window === 'undefined') {
       return
     }
 
@@ -279,55 +387,40 @@ export function AutoCompleteBookManager({
     }
   }
 
-  const startProgressTracking = (jobId: string) => {
+  const startProgressTracking = (jobId: string, isReconnect = false) => {
     // First, get initial status
     fetchJobStatus(jobId)
     
     // Set up real-time SSE connection
-    const eventSource = new EventSource(`/api/auto-complete/${jobId}/progress`)
-    setProgressStream(eventSource)
-    
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
+    try {
+      const eventSource = new EventSource(`/api/auto-complete/${jobId}/progress`)
+      setProgressStream(eventSource)
       
-      if (data.job_id) {
-        // Update job status from SSE data
-        const updatedJob = { ...currentJob } as AutoCompleteJob
-        if (updatedJob) {
-          updatedJob.status = data.status
-          updatedJob.error = data.error
-          updatedJob.result = data.result
-          updatedJob.progress = {
-            ...updatedJob.progress,
-            progress_percentage: data.progress_percentage,
-            current_step: data.current_step,
-            current_chapter: data.current_chapter,
-            chapters_completed: data.chapters_completed,
-            total_chapters: data.total_chapters,
-            estimated_time_remaining: data.estimated_time_remaining,
-            last_update: data.last_update,
-            detailed_status: data.detailed_status || `Processing chapter ${data.current_chapter}...`
-          }
-          setCurrentJob(updatedJob)
+      // Reset reconnect attempts on successful connection
+      if (!isReconnect) {
+        reconnectAttemptsRef.current = 0
+      }
+      
+      eventSource.onopen = () => {
+        console.log('SSE connection opened successfully')
+        reconnectAttemptsRef.current = 0 // Reset on successful connection
+        if (isReconnect) {
+          setStatus('🔄 Reconnected to progress updates')
         }
       }
-    }
-    
-    eventSource.addEventListener('progress', (event) => {
-      const data = JSON.parse(event.data)
       
-      if (data.job_id) {
-        // Create updated job object
-        setCurrentJob(prevJob => {
-          if (!prevJob) return prevJob
-          
-          return {
-            ...prevJob,
-            status: data.status,
-            error: data.error,
-            result: data.result,
-            progress: {
-              ...prevJob.progress,
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.job_id) {
+          // Update job status from SSE data
+          const updatedJob = { ...currentJob } as AutoCompleteJob
+          if (updatedJob) {
+            updatedJob.status = data.status
+            updatedJob.error = data.error
+            updatedJob.result = data.result
+            updatedJob.progress = {
+              ...updatedJob.progress,
               progress_percentage: data.progress_percentage,
               current_step: data.current_step,
               current_chapter: data.current_chapter,
@@ -337,54 +430,123 @@ export function AutoCompleteBookManager({
               last_update: data.last_update,
               detailed_status: data.detailed_status || `Processing chapter ${data.current_chapter}...`
             }
+            setCurrentJob(updatedJob)
           }
-        })
-      }
-    })
-    
-    eventSource.addEventListener('completion', (event) => {
-      const data = JSON.parse(event.data)
-      
-      if (data.type === 'final') {
-        if (data.status === 'completed') {
-          onJobCompleted?.(jobId, data.result)
         }
-        
-        // Clean up SSE connection
-        eventSource.close()
-        setProgressStream(null)
       }
-    })
-    
-    eventSource.addEventListener('error', (event) => {
-      const messageEvent = event as MessageEvent
-      if (messageEvent.data) {
-        try {
-          const data = JSON.parse(messageEvent.data)
-          setStatus(`❌ Stream error: ${data.message}`)
-          console.error('SSE error:', data)
-        } catch (e) {
+      
+      eventSource.addEventListener('progress', (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.job_id) {
+          // Create updated job object
+          setCurrentJob(prevJob => {
+            if (!prevJob) return prevJob
+            
+            return {
+              ...prevJob,
+              status: data.status,
+              error: data.error,
+              result: data.result,
+              progress: {
+                ...prevJob.progress,
+                progress_percentage: data.progress_percentage,
+                current_step: data.current_step,
+                current_chapter: data.current_chapter,
+                chapters_completed: data.chapters_completed,
+                total_chapters: data.total_chapters,
+                estimated_time_remaining: data.estimated_time_remaining,
+                last_update: data.last_update,
+                detailed_status: data.detailed_status || `Processing chapter ${data.current_chapter}...`
+              }
+            }
+          })
+        }
+      })
+      
+      eventSource.addEventListener('completion', (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'final') {
+          if (data.status === 'completed') {
+            onJobCompleted?.(jobId, data.result)
+          }
+          
+          // Clean up SSE connection
+          eventSource.close()
+          setProgressStream(null)
+          reconnectAttemptsRef.current = 0
+        }
+      })
+      
+      eventSource.addEventListener('error', (event) => {
+        const messageEvent = event as MessageEvent
+        if (messageEvent.data) {
+          try {
+            const data = JSON.parse(messageEvent.data)
+            setStatus(`❌ Stream error: ${data.message}`)
+            console.error('SSE error:', data)
+          } catch (e) {
+            setStatus('❌ Stream error: Connection failed')
+            console.error('SSE error:', event)
+          }
+        } else {
           setStatus('❌ Stream error: Connection failed')
           console.error('SSE error:', event)
         }
-      } else {
-        setStatus('❌ Stream error: Connection failed')
-        console.error('SSE error:', event)
+        
+        // Trigger reconnection
+        attemptReconnection(jobId)
+      })
+      
+      eventSource.onerror = (event) => {
+        console.error('SSE connection error:', event)
+        eventSource.close()
+        setProgressStream(null)
+        
+        // Attempt reconnection with exponential backoff
+        attemptReconnection(jobId)
       }
-    })
-    
-    eventSource.onerror = (event) => {
-      console.error('SSE connection error:', event)
-      setStatus('❌ Connection error - falling back to polling')
-      
-      // Fallback to polling
-      eventSource.close()
-      setProgressStream(null)
-      
-      intervalRef.current = setInterval(() => {
-        fetchJobStatus(jobId)
-      }, 5000)
+    } catch (error) {
+      console.error('Failed to create SSE connection:', error)
+      // Fallback to polling immediately
+      fallbackToPolling(jobId)
     }
+  }
+
+  const attemptReconnection = (jobId: string) => {
+    const maxAttempts = 5
+    const baseDelay = 1000 // 1 second
+    
+    if (reconnectAttemptsRef.current >= maxAttempts) {
+      console.log('Max reconnection attempts reached, falling back to polling')
+      setStatus('❌ Connection lost - using polling updates')
+      fallbackToPolling(jobId)
+      return
+    }
+    
+    reconnectAttemptsRef.current++
+    const delay = baseDelay * Math.pow(2, reconnectAttemptsRef.current - 1) // Exponential backoff
+    
+    setStatus(`🔄 Connection lost, reconnecting in ${delay/1000}s... (${reconnectAttemptsRef.current}/${maxAttempts})`)
+    
+    reconnectTimeoutRef.current = setTimeout(() => {
+      console.log(`Attempting reconnection ${reconnectAttemptsRef.current}/${maxAttempts}`)
+      startProgressTracking(jobId, true)
+    }, delay)
+  }
+
+  const fallbackToPolling = (jobId: string) => {
+    // Clean up any existing reconnection timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    
+    // Start polling fallback
+    intervalRef.current = setInterval(() => {
+      fetchJobStatus(jobId)
+    }, 5000)
   }
 
   const fetchJobStatus = async (jobId: string) => {
@@ -742,7 +904,7 @@ export function AutoCompleteBookManager({
           {/* Estimation Display */}
           {estimation && (
             <div className="mb-6 p-4 bg-blue-50 rounded-lg text-left">
-              <h4 className="font-medium text-blue-900 mb-2">💰 Cost Estimation</h4>
+                              <h4 className="font-medium text-blue-900 mb-2"><span aria-label="Money icon">💰</span> Cost Estimation</h4>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-blue-700">Total Chapters:</span>
@@ -790,27 +952,27 @@ export function AutoCompleteBookManager({
             <button
               onClick={estimateAutoCompletion}
               disabled={isEstimating}
-              className={`flex items-center px-4 py-2 rounded-lg font-medium ${
+              className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all ${
                 isEstimating
                   ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-brand-soft-purple text-white hover:bg-brand-lavender shadow-lg hover:shadow-xl'
               }`}
             >
-              💰
+                                <span aria-label="Money icon">💰</span>
               {isEstimating ? 'Estimating...' : 'Estimate Cost'}
             </button>
             
             <button
-              onClick={startAutoCompletion}
-              disabled={isStarting}
-              className={`flex items-center px-6 py-3 rounded-lg font-medium ${
-                isStarting
+              onClick={() => setShowConfirmModal(true)}
+              disabled={isStarting || !estimation}
+              className={`flex items-center px-6 py-3 rounded-lg font-medium transition-all ${
+                isStarting || !estimation
                   ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                  : 'bg-primary-600 text-white hover:bg-primary-700'
+                  : 'bg-brand-forest text-white hover:bg-brand-forest/90 shadow-lg hover:shadow-xl hover:scale-105'
               }`}
             >
               <PlayIcon className="w-5 h-5 mr-2" />
-              {isStarting ? 'Starting...' : 'Start Auto-Completion'}
+              {!estimation ? 'Get Estimate First' : 'Start Auto-Completion'}
             </button>
           </div>
         </div>
@@ -820,6 +982,161 @@ export function AutoCompleteBookManager({
       {status && (
         <div className="mt-4 p-3 bg-blue-50 rounded-lg">
           <div className="text-sm text-blue-800">{status}</div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && estimation && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-modal-title"
+        >
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 id="confirm-modal-title" className="text-xl font-semibold text-gray-900">Confirm Auto-Completion</h2>
+                <button
+                  onClick={() => {
+                    setShowConfirmModal(false)
+                    setConfirmText('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                  aria-label="Close confirmation dialog"
+                >
+                  <span className="sr-only">Close</span>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Cost Summary */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <div className="text-yellow-600 text-xl" aria-label="Warning icon">⚠️</div>
+                  <div>
+                    <h3 className="font-medium text-yellow-900 mb-2">Important: AI Generation Costs</h3>
+                    <div className="space-y-2 text-sm text-yellow-800">
+                      <p>This will automatically generate <strong>{estimation.total_chapters} chapters</strong> with approximately <strong>{estimation.total_words.toLocaleString()} words</strong>.</p>
+                      <p><strong>Estimated cost: ${estimation.estimated_total_cost}</strong></p>
+                      <p>Actual costs may vary based on content complexity and revisions needed.</p>
+                      {userUsage && (
+                        <p className="mt-2 pt-2 border-t border-yellow-300">
+                          <strong>Budget remaining: ${userUsage.remaining.monthly_cost_remaining.toFixed(2)}</strong>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Budget Warning */}
+              {userUsage && estimation && parseFloat(estimation.estimated_total_cost) > userUsage.remaining.monthly_cost_remaining && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="text-red-600 text-xl" aria-label="Error icon">🚫</div>
+                    <div>
+                      <h3 className="font-medium text-red-900 mb-2">Budget Exceeded</h3>
+                      <div className="space-y-1 text-sm text-red-800">
+                        <p>This operation would exceed your monthly budget limit.</p>
+                        <p>Cost: ${estimation.estimated_total_cost} | Available: ${userUsage.remaining.monthly_cost_remaining.toFixed(2)}</p>
+                        <p>Please contact support to increase your limit or wait until next month.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Cost Breakdown */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Cost Breakdown</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Chapters:</span>
+                    <span className="ml-2 font-medium">{estimation.total_chapters}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Words per Chapter:</span>
+                    <span className="ml-2 font-medium">{estimation.words_per_chapter.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Total Tokens:</span>
+                    <span className="ml-2 font-medium">{estimation.estimated_total_tokens.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Cost per Chapter:</span>
+                    <span className="ml-2 font-medium">${estimation.estimated_cost_per_chapter}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Safety Features */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-medium text-blue-900 mb-2">Safety Features</h4>
+                <div className="space-y-1 text-sm text-blue-800">
+                  <p>✓ Quality gates at {estimation.quality_threshold}% threshold</p>
+                  <p>✓ Progress tracking with pause/resume capability</p>
+                  <p>✓ Chapter-by-chapter generation (not all at once)</p>
+                  <p>✓ You can stop the process at any time</p>
+                </div>
+              </div>
+
+              {/* Confirmation Input */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  To confirm, type <strong>CONFIRM</strong> below:
+                </label>
+                <input
+                  type="text"
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Type CONFIRM to proceed"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => {
+                    setShowConfirmModal(false)
+                    setConfirmText('')
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirmText === 'CONFIRM') {
+                      setShowConfirmModal(false)
+                      setConfirmText('')
+                      startAutoCompletion()
+                    }
+                  }}
+                  disabled={
+                    confirmText !== 'CONFIRM' || 
+                    (userUsage && parseFloat(estimation.estimated_total_cost) > userUsage.remaining.monthly_cost_remaining)
+                  }
+                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    confirmText === 'CONFIRM' && 
+                    (!userUsage || parseFloat(estimation.estimated_total_cost) <= userUsage.remaining.monthly_cost_remaining)
+                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  {isStarting ? 'Starting...' : 
+                   userUsage && parseFloat(estimation.estimated_total_cost) > userUsage.remaining.monthly_cost_remaining
+                     ? 'Budget Exceeded'
+                     : `Confirm & Start ($${estimation.estimated_total_cost})`}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

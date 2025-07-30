@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * @deprecated This component is being replaced by the new TopNav layout.
+ * Still used in project pages but will be removed in a future update.
+ * New development should use TopNav + AppLayout pattern.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { 

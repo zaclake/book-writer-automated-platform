@@ -7,6 +7,7 @@ import PublishingSuite from '@/components/PublishingSuite'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Loader2 } from 'lucide-react'
+import ProjectLayout from '@/components/layout/ProjectLayout'
 
 export default function PublishPage() {
   const params = useParams()
@@ -16,59 +17,79 @@ export default function PublishPage() {
 
   if (loading) {
     return (
-      <div className="container max-w-4xl mx-auto py-8">
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <span className="ml-2">Loading project...</span>
+      <ProjectLayout 
+        projectId={projectId} 
+        projectTitle="Loading..."
+      >
+        <div className="container max-w-4xl mx-auto py-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <span className="ml-2">Loading project...</span>
+          </div>
         </div>
-      </div>
+      </ProjectLayout>
     )
   }
 
   if (error) {
     return (
-      <div className="container max-w-4xl mx-auto py-8">
-        <Alert variant="destructive">
-          <AlertDescription>
-            Failed to load project: {error.message}
-          </AlertDescription>
-        </Alert>
-      </div>
+      <ProjectLayout 
+        projectId={projectId} 
+        projectTitle="Error"
+      >
+        <div className="container max-w-4xl mx-auto py-8">
+          <Alert variant="destructive">
+            <AlertDescription>
+              Failed to load project: {error.message}
+            </AlertDescription>
+          </Alert>
+        </div>
+      </ProjectLayout>
     )
   }
 
   if (!project) {
     return (
-      <div className="container max-w-4xl mx-auto py-8">
-        <Alert>
-          <AlertDescription>
-            Project not found.
-          </AlertDescription>
-        </Alert>
-      </div>
+      <ProjectLayout 
+        projectId={projectId} 
+        projectTitle="Not Found"
+      >
+        <div className="container max-w-4xl mx-auto py-8">
+          <Alert>
+            <AlertDescription>
+              Project not found.
+            </AlertDescription>
+          </Alert>
+        </div>
+      </ProjectLayout>
     )
   }
 
   return (
-    <div className="container max-w-6xl mx-auto py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold">Publish Book</h1>
-        <p className="text-muted-foreground mt-2">
-          Convert your book to professional EPUB and PDF formats ready for publishing.
-        </p>
-      </div>
+    <ProjectLayout 
+      projectId={projectId} 
+      projectTitle={project?.metadata?.title || project?.title || `Project ${projectId}`}
+    >
+      <div className="container max-w-6xl mx-auto py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Publish Book</h1>
+          <p className="text-muted-foreground mt-2">
+            Convert your book to professional EPUB and PDF formats ready for publishing.
+          </p>
+        </div>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Project: {project.metadata?.title}</CardTitle>
-          <CardDescription>
-            Prepare your book for publication with professional formatting
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PublishingSuite projectId={projectId} project={project} />
-        </CardContent>
-      </Card>
-    </div>
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Project: {project.metadata?.title}</CardTitle>
+            <CardDescription>
+              Prepare your book for publication with professional formatting
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PublishingSuite projectId={projectId} project={project} />
+          </CardContent>
+        </Card>
+      </div>
+    </ProjectLayout>
   )
 } 

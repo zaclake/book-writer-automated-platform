@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAuthToken } from '@/lib/auth'
 import { CheckCircleIcon, PencilIcon, EyeIcon } from '@heroicons/react/24/outline'
+import ProjectLayout from '@/components/layout/ProjectLayout'
 
 interface ReferenceFile {
   name: string
@@ -325,162 +326,181 @@ export default function ReferenceReviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-clean">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-2xl font-bold text-gray-900">📘 Story Reference Review - {projectTitle}</h1>
-          <p className="text-gray-600 mt-1">
-            Review and approve your reference files before starting to write
-          </p>
+    <ProjectLayout 
+      projectId={actualProjectId || rawProjectId} 
+      projectTitle={projectTitle}
+    >
+      <div className="bg-brand-off-white">
+      {/* Beautiful Immersive Hero Section */}
+      <div className="relative min-h-[40vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
+        {/* Animated background particles */}
+        <div className="absolute inset-0">
+          <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white/20 rounded-full animate-float"></div>
+          <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-white/30 rounded-full animate-float" style={{animationDelay: '2s'}}></div>
+          <div className="absolute bottom-1/3 left-1/3 w-3 h-3 bg-white/10 rounded-full animate-float" style={{animationDelay: '4s'}}></div>
+        </div>
+        
+        {/* Radial overlay for focus */}
+        <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-black/10"></div>
+        
+        <div className="relative z-10 flex items-center justify-center min-h-[40vh] px-6 md:px-8 lg:px-12">
+          <div className="text-center max-w-4xl">
+            <h1 className="text-4xl md:text-5xl font-black text-white mb-4 drop-shadow-xl tracking-tight">
+              Reference Materials
+            </h1>
+            <p className="text-white/90 text-lg md:text-xl font-medium mb-6">
+              Your story's foundation: characters, world-building, and plot elements
+            </p>
+            <p className="text-white/80 text-base font-medium">
+              Project: {projectTitle}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200 px-6">
-        <div className="max-w-4xl mx-auto">
-          <nav className="flex space-x-8">
-            {REFERENCE_TABS.map((tab) => {
-              const isActive = activeTab === tab.id
-              const isApproved = files[tab.id]?.approved
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                    isActive
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  {isApproved && (
-                    <CheckCircleIcon className="w-4 h-4 text-green-600" />
-                  )}
-                </button>
-              )
-            })}
-          </nav>
-        </div>
-      </div>
-
-      {/* Content Area */}
-      <div className="prose-clean p-6 pb-24">
-        {status && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
-            {status}
+      {/* Main Content with New Theme */}
+      <div className="w-full px-6 md:px-8 lg:px-12 py-12">
+        {/* Show retry button if needed */}
+        {shouldShowRetry && (
+          <div className="mb-8 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-6 backdrop-blur-sm border border-amber-200 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-amber-800 mb-2">Generation Failed</h3>
+                <p className="text-amber-700 font-medium">Would you like to retry creating the reference files?</p>
+              </div>
+              <button
+                onClick={generateAllReferences} // Changed to generateAllReferences
+                disabled={loading}
+                className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all hover:scale-105 disabled:opacity-50"
+              >
+                {loading ? 'Generating...' : 'Retry Generation'}
+              </button>
+            </div>
           </div>
         )}
 
-        <Card>
-          <CardHeader className="border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg font-semibold">
-                  {activeTabData?.label}
-                </CardTitle>
-                <p className="text-sm text-gray-600 mt-1">
-                  {activeTabData?.description}
-                </p>
+        {/* Beautiful Tab Navigation */}
+        <div className="mb-8">
+          <div className="flex flex-wrap gap-2 p-2 bg-gradient-to-r from-white/40 to-brand-beige/30 rounded-2xl backdrop-blur-sm border border-white/50 shadow-xl">
+            {REFERENCE_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-6 py-3 font-bold text-sm rounded-xl transition-all duration-300 ${
+                  activeTab === tab.id
+                    ? 'bg-gradient-to-r from-brand-forest to-brand-lavender text-white shadow-xl'
+                    : 'text-brand-forest/70 hover:text-brand-forest hover:bg-white/60'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          
+          {/* Tab Description */}
+          <div className="mt-4 text-center">
+            <p className="text-brand-forest/70 font-medium">
+              {REFERENCE_TABS.find(tab => tab.id === activeTab)?.description}
+            </p>
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-8 backdrop-blur-sm border border-white/50 shadow-xl">
+          {loading ? (
+            /* Beautiful Loading State */
+            <div className="text-center py-16">
+              <div className="mb-8">
+                <div className="w-16 h-16 border-4 border-brand-lavender/30 border-t-brand-lavender rounded-full animate-spin mx-auto mb-6"></div>
               </div>
-              <div className="flex items-center space-x-2">
-                {!isEditing ? (
-                  <>
-                    <Button
-                      onClick={handleEdit}
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center space-x-1"
-                    >
-                      <PencilIcon className="w-4 h-4" />
-                      <span>Edit</span>
-                    </Button>
-                    <Button
-                      onClick={handleApprove}
-                      variant="default"
-                      size="sm"
-                      className="flex items-center space-x-1 bg-green-600 hover:bg-green-700"
-                      disabled={files[activeTab]?.approved}
-                    >
-                      <CheckCircleIcon className="w-4 h-4" />
-                      <span>{files[activeTab]?.approved ? 'Approved' : 'Approve'}</span>
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      onClick={handleCancel}
-                      variant="outline"
-                      size="sm"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSave}
-                      variant="default"
-                      size="sm"
-                    >
-                      Save Changes
-                    </Button>
-                  </>
-                )}
+              <h3 className="text-2xl font-bold text-brand-forest mb-4">Loading Reference Files</h3>
+              <p className="text-brand-forest/70 font-medium">
+                Gathering your story's essential materials...
+              </p>
+            </div>
+          ) : files[activeTab] ? (
+            /* Enhanced File Display */
+            <div className="space-y-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-black text-brand-forest">
+                  {activeTabData?.label}
+                </h3>
+                <div className="text-sm text-brand-forest/60 font-medium">
+                  Last updated: {new Date(files[activeTab].lastModified || '').toLocaleDateString()}
+                </div>
+              </div>
+              
+              <div className="bg-white/80 rounded-xl p-6 border border-brand-lavender/20 shadow-lg">
+                <div className="prose prose-lg max-w-none text-brand-forest">
+                  <div 
+                    className="whitespace-pre-wrap leading-relaxed"
+                    dangerouslySetInnerHTML={{ 
+                      __html: files[activeTab].content.replace(/\n/g, '<br/>') 
+                    }}
+                  />
+                </div>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="p-6">
-            {!currentFile ? (
-              <div className="text-center py-8">
-                <p className="text-gray-500 mb-4">
-                  {shouldShowRetry 
-                    ? "Reference generation failed due to rate limits. Please try again." 
-                    : "No reference file found"
-                  }
-                </p>
-                <Button onClick={generateAllReferences} className="bg-blue-600 hover:bg-blue-700">
-                  {shouldShowRetry ? "Retry Generation" : "Generate References"}
-                </Button>
-                {shouldShowRetry && (
-                  <p className="text-sm text-gray-400 mt-2">
-                    Generation will be retried with improved rate limiting.
-                  </p>
-                )}
+          ) : (
+            /* Beautiful Empty State */
+            <div className="text-center py-16">
+              <div className="mb-8">
+                <div className="w-20 h-20 mx-auto bg-gradient-to-br from-brand-lavender/20 to-brand-forest/20 rounded-full flex items-center justify-center mb-6">
+                  <span className="text-4xl">📚</span>
+                </div>
               </div>
-            ) : isEditing ? (
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full h-96 p-4 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-                placeholder="Edit your reference content here..."
-              />
-            ) : (
-              <div className="prose max-w-none">
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                  {currentFile.content}
-                </pre>
+              <h3 className="text-2xl font-bold text-brand-forest mb-4">
+                No {activeTabData?.label} Found
+              </h3>
+              <p className="text-brand-forest/70 font-medium mb-8 max-w-md mx-auto">
+                Reference files for this category haven't been created yet. They'll appear here once your project generates them.
+              </p>
+              <div className="space-y-3 text-sm text-brand-forest/60">
+                <p>Reference files are created when you:</p>
+                <ul className="inline-block text-left space-y-1">
+                  <li>• Upload a book bible</li>
+                  <li>• Generate chapters with AI</li>
+                  <li>• Use the reference generation tools</li>
+                </ul>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          )}
+        </div>
 
-      {/* Sticky Bottom CTA */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            {allApproved 
-              ? "✅ All references approved - ready to start writing!"
-              : `${REFERENCE_TABS.filter(tab => files[tab.id]?.approved).length} of ${REFERENCE_TABS.length} references approved`
-            }
+        {/* Enhanced Reference Generation Section */}
+        <div className="mt-12 bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-8 backdrop-blur-sm border border-white/50 shadow-xl">
+          <h3 className="text-2xl font-black text-brand-forest mb-6">Reference Generation</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white/60 rounded-xl p-6 border border-brand-lavender/20">
+              <h4 className="text-lg font-bold text-brand-forest mb-3">Manual Generation</h4>
+              <p className="text-brand-forest/70 mb-4 font-medium">
+                Trigger reference file generation based on your current project content.
+              </p>
+              <button
+                onClick={generateAllReferences}
+                disabled={loading}
+                className="bg-gradient-to-r from-brand-forest to-brand-lavender text-white px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-all hover:scale-105 disabled:opacity-50 w-full"
+              >
+                {loading ? 'Generating...' : 'Generate References'}
+              </button>
+            </div>
+            
+            <div className="bg-white/60 rounded-xl p-6 border border-brand-lavender/20">
+              <h4 className="text-lg font-bold text-brand-forest mb-3">Auto-Generation</h4>
+              <p className="text-brand-forest/70 mb-4 font-medium">
+                Reference files are automatically created when you generate chapters or upload content.
+              </p>
+              <div className="text-sm text-brand-forest/60 font-medium">
+                Current status: <span className="text-brand-forest font-bold">
+                  {Object.keys(files).length > 0 ? 'Active' : 'Pending'}
+                </span>
+              </div>
+            </div>
           </div>
-          <Button
-            onClick={handleFinishReview}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2"
-            size="lg"
-          >
-            Finish Review & Start Writing
-          </Button>
         </div>
       </div>
-    </div>
+      </div>
+    </ProjectLayout>
   )
 } 

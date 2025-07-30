@@ -73,6 +73,14 @@ interface ProjectDashboardProps {
   onCreateChapter?: (chapterNumber: number) => void
 }
 
+interface ReferenceFile {
+  filename: string
+  content: string
+  summary: string
+  last_modified: string
+  modified_by: string
+}
+
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   projectId,
   onEditChapter,
@@ -83,10 +91,11 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const [project, setProject] = useState<Project | null>(null)
   const [chapters, setChapters] = useState<Chapter[]>([])
   const [summary, setSummary] = useState<PrewritingSummary | null>(null)
+  const [references, setReferences] = useState<ReferenceFile[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadingReferences, setLoadingReferences] = useState(false)
   
   // UI state
-  const [activeTab, setActiveTab] = useState<'overview' | 'chapters' | 'references' | 'progress' | 'cover-art'>('overview')
   const [showReferencesSidebar, setShowReferencesSidebar] = useState(true)
 
   useEffect(() => {
@@ -102,9 +111,10 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       setIsLoading(true)
       
       console.log(`[ProjectDashboard] Loading data for project: ${projectId}`)
+      console.log(`[ProjectDashboard] User ID: ${user.id}`)
       
-      // Load project details, chapters, and summary in parallel
-      const [projectRes, chaptersRes, summaryRes] = await Promise.all([
+      // Load project details, chapters, summary, and references in parallel
+      const [projectRes, chaptersRes, summaryRes, referencesRes] = await Promise.all([
         fetch(`/api/projects/${projectId}`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
         }),
@@ -113,15 +123,30 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         }),
         fetch(`/api/prewriting/summary?project_id=${projectId}`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
+        }),
+        fetch(`/api/projects/${projectId}/references`, {
+          headers: { 'Authorization': `Bearer ${await getToken()}` }
         })
       ])
+
+      console.log(`[ProjectDashboard] Response status codes:`, {
+        project: projectRes.status,
+        chapters: chaptersRes.status,
+        summary: summaryRes.status,
+        references: referencesRes.status
+      })
 
       // Handle project data
       if (projectRes.ok) {
         const data = await projectRes.json()
         // API may return { project: {...} } or the object itself
         const p = data.project || data
-        console.log('[ProjectDashboard] Project data loaded:', p ? 'success' : 'no project')
+        console.log('[ProjectDashboard] Project data structure:', {
+          hasProject: !!p,
+          projectKeys: p ? Object.keys(p) : [],
+          title: p?.metadata?.title || p?.title,
+          settings: p?.settings
+        })
 
         if (p) {
           setProject({
@@ -147,9 +172,45 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       // Handle chapters data (empty is OK for new projects)
       if (chaptersRes.ok) {
         const chaptersData = await chaptersRes.json()
-        const ch = chaptersData.chapters || chaptersData // backend may return flat array
-        console.log('[ProjectDashboard] Chapters loaded:', ch.length || 0, 'chapters')
-        setChapters(ch)
+        const chapters = chaptersData.chapters || []
+        
+        console.log('[ProjectDashboard] Raw chapters data:', {
+          responseStructure: Object.keys(chaptersData),
+          chaptersArray: chapters,
+          chaptersCount: chapters.length,
+          firstChapterStructure: chapters[0] ? Object.keys(chapters[0]) : 'no chapters',
+          firstChapterSample: chapters[0] ? {
+            id: chapters[0].id,
+            title: chapters[0].title,
+            word_count: chapters[0].word_count,
+            metadata: chapters[0].metadata
+          } : 'no chapters'
+        })
+        
+        // Ensure all word_count values are numeric to prevent NaN in calculations
+        const sanitizedChapters = chapters.map((chapter: any) => {
+          const wordCount = Number(chapter.word_count) || 0
+          const targetWordCount = Number(chapter.target_word_count) || 2000
+          const directorNotesCount = Number(chapter.director_notes_count) || 0
+          
+          console.log(`[ProjectDashboard] Sanitizing chapter ${chapter.id}:`, {
+            originalWordCount: chapter.word_count,
+            sanitizedWordCount: wordCount,
+            originalTargetWordCount: chapter.target_word_count,
+            sanitizedTargetWordCount: targetWordCount
+          })
+          
+          return {
+            ...chapter,
+            word_count: wordCount,
+            target_word_count: targetWordCount,
+            director_notes_count: directorNotesCount
+          }
+        })
+        
+        console.log('[ProjectDashboard] Chapters loaded:', sanitizedChapters.length, 'chapters')
+        console.log('[ProjectDashboard] Sanitized chapters sample:', sanitizedChapters[0])
+        setChapters(sanitizedChapters)
       } else {
         console.error('[ProjectDashboard] Failed to load chapters:', chaptersRes.status, await chaptersRes.text())
         setChapters([]) // Empty is valid for new projects
@@ -158,7 +219,12 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       // Handle summary data (might not exist for new projects)
       if (summaryRes.ok) {
         const summaryData = await summaryRes.json()
-        console.log('[ProjectDashboard] Summary loaded:', summaryData.summary ? 'success' : 'no summary')
+        console.log('[ProjectDashboard] Summary data structure:', {
+          hasData: !!summaryData,
+          hasSummary: !!summaryData.summary,
+          summaryKeys: summaryData.summary ? Object.keys(summaryData.summary) : [],
+          totalChapters: summaryData.summary?.total_chapters
+        })
         setSummary(summaryData.summary)
       } else if (summaryRes.status === 404) {
         console.log('[ProjectDashboard] Summary not found (normal for new projects)')
@@ -166,6 +232,21 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       } else {
         console.error('[ProjectDashboard] Failed to load summary:', summaryRes.status, await summaryRes.text())
         setSummary(null)
+      }
+
+      // Handle references data  
+      setLoadingReferences(false)
+      if (referencesRes.ok) {
+        const referencesData = await referencesRes.json()
+        console.log('[ProjectDashboard] References data:', referencesData)
+        
+        // API now returns array directly
+        const references = Array.isArray(referencesData) ? referencesData : []
+        setReferences(references)
+        console.log(`[ProjectDashboard] Loaded ${references.length} reference files`)
+      } else {
+        console.warn('[ProjectDashboard] Failed to load references:', referencesRes.status)
+        setReferences([])
       }
 
       console.log('[ProjectDashboard] Data loading completed')
@@ -183,14 +264,61 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   }
 
   const getProgressStats = () => {
-    if (!summary) return { completed: 0, total: 0, percentage: 0, totalWords: 0 }
+    console.log('[ProjectDashboard] getProgressStats called with:', {
+      hasSummary: !!summary,
+      summary: summary,
+      chaptersCount: chapters.length,
+      chaptersArray: chapters
+    })
+    
+    // If no summary and no chapters, provide sensible defaults for new projects
+    if (!summary && chapters.length === 0) {
+      console.log('[ProjectDashboard] No summary and no chapters, returning default stats for new project')
+      return { completed: 0, total: 25, percentage: 0, totalWords: 0, chaptersWritten: 0 }
+    }
+    
+    if (!summary) {
+      console.log('[ProjectDashboard] No summary but have chapters, calculating from chapters')
+      const completed = chapters.filter(c => c.stage === 'complete').length
+      const chaptersWritten = chapters.length
+      const total = Math.max(chaptersWritten, 25) // Assume 25 chapters if no summary
+      const percentage = total > 0 ? Math.min(100, Math.max(0, (chaptersWritten / total) * 100)) : 0
+      const totalWords = chapters.reduce((sum, c) => {
+        const wordCount = Number(c.word_count) || 0
+        console.log(`[ProjectDashboard] Adding chapter ${c.chapter_number} word count: ${wordCount}`)
+        return sum + wordCount
+      }, 0)
+      
+      return { 
+        completed: Number(completed) || 0, 
+        total: Number(total) || 25, 
+        percentage: Number(percentage) || 0, 
+        totalWords: Number(totalWords) || 0,
+        chaptersWritten: Number(chaptersWritten) || 0
+      }
+    }
     
     const completed = chapters.filter(c => c.stage === 'complete').length
-    const total = summary.total_chapters
-    const percentage = total > 0 ? (completed / total) * 100 : 0
-    const totalWords = chapters.reduce((sum, c) => sum + c.word_count, 0)
+    const chaptersWritten = chapters.length
+    const total = summary.total_chapters || 25
+    const percentage = total > 0 ? Math.min(100, Math.max(0, (chaptersWritten / total) * 100)) : 0
+    const totalWords = chapters.reduce((sum, c) => {
+      const wordCount = Number(c.word_count) || 0
+      console.log(`[ProjectDashboard] Adding chapter ${c.chapter_number} word count: ${wordCount}`)
+      return sum + wordCount
+    }, 0)
     
-    return { completed, total, percentage, totalWords }
+    // Ensure all values are valid numbers
+    const result = { 
+      completed: Number(completed) || 0, 
+      total: Number(total) || 25, 
+      percentage: Number(percentage) || 0, 
+      totalWords: Number(totalWords) || 0,
+      chaptersWritten: Number(chaptersWritten) || 0
+    }
+    
+    console.log('[ProjectDashboard] getProgressStats result:', result)
+    return result
   }
 
   const getChapterStatus = (chapterNumber: number) => {
@@ -218,16 +346,51 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-pulse text-gray-500">Loading project dashboard...</div>
+      <div className="min-h-screen bg-brand-off-white">
+        {/* Immersive loading hero matching the main dashboard */}
+        <div className="relative min-h-[40vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
+          {/* Animated background particles */}
+          <div className="absolute inset-0">
+            <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white/20 rounded-full animate-float"></div>
+            <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-white/30 rounded-full animate-float" style={{animationDelay: '2s'}}></div>
+            <div className="absolute bottom-1/3 left-1/3 w-3 h-3 bg-white/10 rounded-full animate-float" style={{animationDelay: '4s'}}></div>
+          </div>
+          
+          <div className="relative z-10 flex items-center justify-center min-h-[40vh] px-6">
+            <div className="text-center">
+              <div className="mb-6">
+                <div className="w-12 h-12 border-3 border-white/30 border-t-white/80 rounded-full animate-spin mx-auto mb-4"></div>
+              </div>
+              <h1 className="text-3xl md:text-4xl font-bold text-white mb-3 drop-shadow-lg">
+                Loading your creative project...
+              </h1>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
 
   if (!project) {
     return (
-      <div className="text-center text-gray-500 p-8">
-        Project not found
+      <div className="min-h-screen bg-brand-off-white">
+        {/* Hero section for error state */}
+        <div className="relative min-h-[40vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
+          <div className="relative z-10 flex items-center justify-center min-h-[40vh] px-6">
+            <div className="text-center text-white">
+              <h2 className="text-2xl font-bold mb-4">Project Not Found</h2>
+              <p className="text-white/90 mb-6">
+                We couldn't load the project data. This might be due to permissions or connection issues.
+              </p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="bg-white/20 backdrop-blur-sm text-white px-6 py-3 rounded-xl font-semibold hover:bg-white/30 transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -235,113 +398,97 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const progressStats = getProgressStats()
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">{project.title}</h1>
-          <p className="text-gray-600">
-            {project.genre} • {project.status} • {progressStats.completed}/{progressStats.total} chapters complete
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          <Button
-            variant="outline"
-            onClick={() => setShowReferencesSidebar(!showReferencesSidebar)}
-          >
-            {showReferencesSidebar ? 'Hide References' : 'Show References'}
-          </Button>
-          <Button onClick={() => setActiveTab('chapters')}>
-            View Chapters
-          </Button>
+    <div className="w-full">
+      {/* Project Summary Header */}
+      <div className="relative bg-gradient-to-r from-brand-lavender/10 via-white/60 to-brand-blush-orange/10 px-6 md:px-8 lg:px-12 py-8 border-b border-brand-lavender/20">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-black text-brand-forest mb-2">Project Overview</h2>
+              <p className="text-brand-forest/70 font-medium">
+                {project.genre} • {progressStats.completed}/{progressStats.total} chapters complete • {progressStats.totalWords.toLocaleString()} words
+              </p>
+            </div>
+            
+            {/* Compact Progress Ring */}
+            <div className="flex items-center space-x-6">
+              <div className="relative">
+                <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 100 100">
+                  <circle
+                    cx="50" cy="50" r="40"
+                    stroke="rgba(177, 142, 255, 0.3)"
+                    strokeWidth="6"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="50" cy="50" r="40"
+                    stroke="#B18EFF"
+                    strokeWidth="6"
+                    fill="transparent"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 40}`}
+                    strokeDashoffset={`${2 * Math.PI * 40 * (1 - progressStats.percentage / 100)}`}
+                    className="transition-all duration-700 ease-out"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-sm font-black text-brand-forest">
+                    {Math.round(progressStats.percentage)}%
+                  </span>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => setShowReferencesSidebar(!showReferencesSidebar)}
+                className="bg-white/60 backdrop-blur-sm text-brand-forest px-4 py-2 rounded-xl font-semibold hover:bg-white/80 transition-all border border-brand-lavender/20"
+              >
+                {showReferencesSidebar ? 'Hide References' : 'Show References'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <Card className="mb-6">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Project Progress</span>
-            <span className="text-sm text-gray-500">{Math.round(progressStats.percentage)}%</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progressStats.percentage}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-sm text-gray-500 mt-2">
-            <span>{progressStats.completed} chapters complete</span>
-            <span>{progressStats.totalWords.toLocaleString()} words written</span>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Main Content */}
+      <div className="w-full px-6 md:px-8 lg:px-12 py-8">
+        <div className={`grid grid-cols-1 ${showReferencesSidebar ? 'lg:grid-cols-4' : ''} gap-8`}>
+          {/* Main Content Area */}
+          <div className={`${showReferencesSidebar ? 'lg:col-span-3' : ''}`}>
+            
+            {/* Project Overview Content */}
+              <div className="space-y-8">
+                {/* Beautiful Stats Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-gradient-to-br from-white/60 via-brand-beige/40 to-brand-lavender/10 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl text-center hover:shadow-2xl transition-all hover:-translate-y-1">
+                    <div className="text-3xl font-black text-brand-forest mb-2">{progressStats.chaptersWritten}</div>
+                    <div className="text-sm font-bold text-brand-forest/70 uppercase tracking-wide">Chapters Written</div>
+                  </div>
+                  <div className="bg-gradient-to-br from-white/60 via-brand-beige/40 to-emerald-50 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl text-center hover:shadow-2xl transition-all hover:-translate-y-1">
+                    <div className="text-3xl font-black text-emerald-600 mb-2">{progressStats.totalWords.toLocaleString()}</div>
+                    <div className="text-sm font-bold text-brand-forest/70 uppercase tracking-wide">Words Written</div>
+                  </div>
+                  <div className="bg-gradient-to-br from-white/60 via-brand-beige/40 to-purple-50 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl text-center hover:shadow-2xl transition-all hover:-translate-y-1">
+                    <div className="text-3xl font-black text-purple-600 mb-2">{Math.ceil((progressStats.totalWords || 0) / 250)}</div>
+                    <div className="text-sm font-bold text-brand-forest/70 uppercase tracking-wide">Estimated Pages</div>
+                  </div>
+                </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Main Content */}
-        <div className={`${showReferencesSidebar ? 'lg:col-span-3' : 'lg:col-span-4'}`}>
-          
-          {/* Navigation Tabs */}
-          <div className="flex space-x-1 mb-6 border-b">
-            {(['overview', 'chapters', 'progress', 'references', 'cover-art'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 font-medium text-sm rounded-t-lg ${
-                  activeTab === tab
-                    ? 'bg-blue-100 text-blue-700 border-b-2 border-blue-500'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab Content */}
-          {activeTab === 'overview' && (
-            <div className="space-y-6">
-              {/* Quick Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-blue-600">{progressStats.completed}</div>
-                    <div className="text-sm text-gray-500">Chapters Complete</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-green-600">{progressStats.totalWords.toLocaleString()}</div>
-                    <div className="text-sm text-gray-500">Words Written</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-purple-600">{Math.ceil(progressStats.totalWords / 250)}</div>
-                    <div className="text-sm text-gray-500">Estimated Pages</div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Chapter Status Grid */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Chapter Status</CardTitle>
-                </CardHeader>
-                <CardContent>
+                {/* Enhanced Chapter Status Grid */}
+                <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-8 backdrop-blur-sm border border-white/50 shadow-xl">
+                  <h3 className="text-2xl font-black text-brand-forest mb-6">Chapter Status</h3>
                   <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
-                    {Array.from({ length: project.settings.target_chapters }, (_, i) => {
+                    {Array.from({ length: project?.settings.target_chapters || 25 }, (_, i) => {
                       const chapterNumber = i + 1
                       const status = getChapterStatus(chapterNumber)
                       return (
                         <button
                           key={chapterNumber}
-                          className={`aspect-square rounded-lg border-2 flex items-center justify-center text-sm font-medium transition-colors ${
-                            status === 'complete' ? 'bg-green-100 border-green-300 text-green-800' :
-                            status === 'revision' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' :
-                            status === 'draft' ? 'bg-blue-100 border-blue-300 text-blue-800' :
-                            'bg-gray-50 border-gray-200 text-gray-400'
-                          } hover:scale-105`}
+                          className={`aspect-square rounded-xl border-2 flex items-center justify-center text-sm font-bold transition-all hover:scale-110 ${
+                            status === 'complete' ? 'bg-emerald-100 border-emerald-300 text-emerald-800 shadow-lg' :
+                            status === 'revision' ? 'bg-amber-100 border-amber-300 text-amber-800 shadow-lg' :
+                            status === 'draft' ? 'bg-blue-100 border-blue-300 text-blue-800 shadow-lg' :
+                            'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
+                          }`}
                           onClick={() => handleChapterClick(chapterNumber)}
                         >
                           {chapterNumber}
@@ -349,179 +496,73 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                       )
                     })}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Recent Activity */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Chapters</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
+                {/* Recent Activity with Enhanced Design */}
+                <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-8 backdrop-blur-sm border border-white/50 shadow-xl">
+                  <h3 className="text-2xl font-black text-brand-forest mb-6">Recent Chapters</h3>
+                  <div className="space-y-4">
                     {chapters.slice(0, 5).map((chapter) => (
-                      <div key={chapter.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div key={chapter.id} className="flex items-center justify-between p-4 bg-white/60 rounded-xl border border-brand-lavender/20 hover:bg-white/80 transition-all hover:shadow-lg">
                         <div>
-                          <div className="font-medium">{chapter.title}</div>
-                          <div className="text-sm text-gray-500">
-                            {chapter.word_count} words • {chapter.stage}
+                          <div className="font-bold text-brand-forest">{chapter.title}</div>
+                          <div className="text-sm text-brand-forest/70 font-semibold">
+                            {chapter.word_count.toLocaleString()} words • {chapter.stage}
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
+                        <button
                           onClick={() => onEditChapter?.(chapter.id)}
+                          className="bg-gradient-to-r from-brand-forest to-brand-lavender text-white px-4 py-2 rounded-lg font-semibold hover:shadow-lg transition-all hover:scale-105"
                         >
                           Edit
-                        </Button>
+                        </button>
                       </div>
                     ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'chapters' && (
-            <div className="space-y-6">
-              {/* Chapter Progress Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-blue-600">{chapters.filter(c => c.stage === 'draft').length}</div>
-                    <div className="text-sm text-gray-500">Draft</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-yellow-600">{chapters.filter(c => c.stage === 'revision').length}</div>
-                    <div className="text-sm text-gray-500">In Revision</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-green-600">{chapters.filter(c => c.stage === 'complete').length}</div>
-                    <div className="text-sm text-gray-500">Complete</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-orange-600">{chapters.filter(c => c.director_notes_count > 0).length}</div>
-                    <div className="text-sm text-gray-500">Has Notes</div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Chapters List */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>All Chapters</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {chapters.map((chapter) => (
-                      <div key={chapter.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3">
-                            <span className="font-medium">Chapter {chapter.chapter_number}</span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              chapter.stage === 'complete' ? 'bg-green-100 text-green-800' :
-                              chapter.stage === 'revision' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-blue-100 text-blue-800'
-                            }`}>
-                              {chapter.stage.charAt(0).toUpperCase() + chapter.stage.slice(1)}
-                            </span>
-                          </div>
-                          <div className="text-sm text-gray-600 mt-1">
-                            {chapter.title}
-                          </div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {chapter.word_count.toLocaleString()} words
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onEditChapter && onEditChapter(chapter.id)}
-                          >
-                            Edit
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    
                     {chapters.length === 0 && (
-                      <div className="text-center text-gray-500 py-8">
-                        No chapters found. Start by creating your first chapter.
+                      <div className="text-center text-brand-forest/60 py-8">
+                        <div className="text-lg font-semibold mb-2">No chapters found</div>
+                        <div className="text-sm">Start by creating your first chapter</div>
                       </div>
                     )}
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                </div>
+              </div>
+          </div>
 
-          {activeTab === 'progress' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Writing Progress</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>Overall Progress</span>
-                        <span>{Math.round(progressStats.percentage)}%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div 
-                          className="bg-blue-600 h-2 rounded-full" 
-                          style={{ width: `${progressStats.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <span className="text-sm text-gray-500">Chapters Completed</span>
-                        <div className="text-2xl font-bold">{progressStats.completed} / {progressStats.total}</div>
-                      </div>
-                      <div>
-                        <span className="text-sm text-gray-500">Total Words</span>
-                        <div className="text-2xl font-bold">{progressStats.totalWords.toLocaleString()}</div>
-                      </div>
-                    </div>
+          {/* Enhanced References Sidebar */}
+          {showReferencesSidebar && (
+            <div className="lg:col-span-1">
+              <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl">
+                <h3 className="text-xl font-black text-brand-forest mb-4">References</h3>
+                {loadingReferences ? (
+                  <div className="animate-pulse space-y-3">
+                    <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                    <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                    <div className="h-4 bg-gray-200 rounded w-5/6"></div>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'references' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Reference Materials</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-gray-600">Reference files and character sheets will be displayed here.</p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'cover-art' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Cover Art Generator</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CoverArtGenerator projectId={projectId} />
-                </CardContent>
-              </Card>
+                ) : references.length > 0 ? (
+                  <div className="space-y-3">
+                    {references.map((ref, index) => (
+                      <div key={index} className="p-3 bg-white/60 rounded-xl border border-brand-lavender/20 hover:bg-white/80 transition-all cursor-pointer">
+                        <div className="font-bold text-sm text-brand-forest">
+                          {ref.filename}
+                        </div>
+                        <div className="text-xs text-brand-forest/60 mt-1 line-clamp-2">
+                          {ref.summary}
+                        </div>
+                        <div className="text-xs text-brand-forest/40 mt-2">
+                          Modified {new Date(ref.last_modified).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center text-brand-forest/60 py-6">
+                    <div className="text-sm font-semibold">No reference files found</div>
+                    <div className="text-xs mt-1">Reference files will appear here when available</div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

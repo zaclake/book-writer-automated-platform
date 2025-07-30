@@ -1178,6 +1178,11 @@ class FirestoreService:
             month_year = now.strftime('%Y-%m')
             tracking_id = f"{month_year}-{user_id}"
             
+            # Separate numeric usage data from metadata
+            numeric_keys = {'cost', 'api_calls', 'chapters_generated', 'words_generated', 'tokens_used', 'ai_generations', 'generation_cost'}
+            numeric_usage = {k: v for k, v in usage_data.items() if k in numeric_keys and isinstance(v, (int, float))}
+            metadata = {k: v for k, v in usage_data.items() if k not in numeric_keys}
+            
             doc_ref = self.db.collection('usage_tracking').document(tracking_id)
             doc = doc_ref.get()
             
@@ -1196,13 +1201,24 @@ class FirestoreService:
                         'cost': 0.0,
                         'chapters_generated': 0,
                         'words_generated': 0,
-                        'tokens_used': 0
+                        'tokens_used': 0,
+                        'ai_generations': 0,
+                        'metadata': []
                     }
                 
-                # Add to daily totals
-                for key, value in usage_data.items():
+                # Add to daily totals (only numeric values)
+                for key, value in numeric_usage.items():
                     current_data['daily_usage'][daily_key][key] = \
                         current_data['daily_usage'][daily_key].get(key, 0) + value
+                
+                # Add metadata if any
+                if metadata:
+                    if 'metadata' not in current_data['daily_usage'][daily_key]:
+                        current_data['daily_usage'][daily_key]['metadata'] = []
+                    current_data['daily_usage'][daily_key]['metadata'].append({
+                        'timestamp': now.isoformat(),
+                        **metadata
+                    })
                 
                 # Update monthly totals
                 if 'monthly_totals' not in current_data:
@@ -1211,11 +1227,13 @@ class FirestoreService:
                         'total_api_calls': 0,
                         'total_chapters': 0,
                         'total_words': 0,
-                        'total_tokens': 0
+                        'total_tokens': 0,
+                        'total_ai_generations': 0
                     }
                 
-                for key, value in usage_data.items():
-                    if key in ['cost']:
+                # Update monthly totals with numeric values only
+                for key, value in numeric_usage.items():
+                    if key in ['cost', 'generation_cost']:
                         current_data['monthly_totals']['total_cost'] += value
                     elif key in ['api_calls']:
                         current_data['monthly_totals']['total_api_calls'] += value
@@ -1225,6 +1243,8 @@ class FirestoreService:
                         current_data['monthly_totals']['total_words'] += value
                     elif key in ['tokens_used']:
                         current_data['monthly_totals']['total_tokens'] += value
+                    elif key in ['ai_generations']:
+                        current_data['monthly_totals']['total_ai_generations'] += value
                 
                 current_data['updated_at'] = now
                 doc_ref.update(current_data)
@@ -1232,18 +1252,26 @@ class FirestoreService:
             else:
                 # Create new tracking document
                 daily_key = now.strftime('%Y-%m-%d')
+                daily_data = dict(numeric_usage)
+                if metadata:
+                    daily_data['metadata'] = [{
+                        'timestamp': now.isoformat(),
+                        **metadata
+                    }]
+                
                 new_data = {
                     'user_id': user_id,
                     'month_year': month_year,
                     'daily_usage': {
-                        daily_key: usage_data
+                        daily_key: daily_data
                     },
                     'monthly_totals': {
-                        'total_cost': usage_data.get('cost', 0.0),
-                        'total_api_calls': usage_data.get('api_calls', 0),
-                        'total_chapters': usage_data.get('chapters_generated', 0),
-                        'total_words': usage_data.get('words_generated', 0),
-                        'total_tokens': usage_data.get('tokens_used', 0)
+                        'total_cost': numeric_usage.get('cost', 0.0) + numeric_usage.get('generation_cost', 0.0),
+                        'total_api_calls': numeric_usage.get('api_calls', 0),
+                        'total_chapters': numeric_usage.get('chapters_generated', 0),
+                        'total_words': numeric_usage.get('words_generated', 0),
+                        'total_tokens': numeric_usage.get('tokens_used', 0),
+                        'total_ai_generations': numeric_usage.get('ai_generations', 0)
                     },
                     'created_at': now,
                     'updated_at': now

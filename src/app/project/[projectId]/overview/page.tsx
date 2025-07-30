@@ -1,12 +1,17 @@
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
+import { useProject } from '@/hooks/useFirestore'
 import ProjectDashboard from '@/components/ProjectDashboard'
+import ProjectLayout from '@/components/layout/ProjectLayout'
 
 export default function ProjectOverviewPage() {
   const params = useParams()
   const router = useRouter()
   const projectId = params.projectId as string
+  
+  // Get project data for the navigation title
+  const { project } = useProject(projectId)
 
   if (!projectId) {
     return (
@@ -20,16 +25,21 @@ export default function ProjectOverviewPage() {
   }
 
   return (
-    <ProjectDashboard
-      projectId={projectId}
-      onEditChapter={(chapterId) => {
-        // Navigate to chapters page where editing can happen
-        router.push(`/project/${projectId}/chapters`)
-      }}
-      onCreateChapter={(chapterNumber) => {
-        // Navigate to chapters page for creation
-        router.push(`/project/${projectId}/chapters`)
-      }}
-    />
+    <ProjectLayout 
+      projectId={projectId} 
+      projectTitle={project?.metadata?.title || project?.title || `Project ${projectId}`}
+    >
+      <ProjectDashboard
+        projectId={projectId}
+        onEditChapter={(chapterId) => {
+          // Navigate to chapters page where editing can happen
+          router.push(`/project/${projectId}/chapters`)
+        }}
+        onCreateChapter={(chapterNumber) => {
+          // Navigate to chapters page for creation
+          router.push(`/project/${projectId}/chapters`)
+        }}
+      />
+    </ProjectLayout>
   )
 } 

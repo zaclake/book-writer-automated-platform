@@ -7,8 +7,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Book Writer Dashboard',
-  description: 'AI-powered chapter generation and quality assessment dashboard',
+  title: 'WriterBloom - Your Creative Writing Journey',
+  description: 'Transform your stories into published books with AI-powered guidance, gentle encouragement, and professional tools.',
 }
 
 export default function RootLayout({

@@ -1,23 +1,38 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+import LandingPage from '@/components/LandingPage'
 
 export default function Home() {
+  const { user, isLoaded } = useUser()
   const router = useRouter()
 
   useEffect(() => {
-    // Redirect to dashboard immediately
-    router.replace('/dashboard')
-  }, [router])
+    // If user is authenticated, redirect to dashboard
+    if (isLoaded && user) {
+      router.replace('/dashboard')
+    }
+  }, [isLoaded, user, router])
 
-  // Show loading state while redirecting
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-        <p className="text-gray-600">Redirecting to dashboard...</p>
+  // Show loading state while checking auth
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-brand-sand flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-soft-purple mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your creative space...</p>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
+
+  // If authenticated user, let useEffect handle redirect (show nothing)
+  if (user) {
+    return null
+  }
+
+  // Show landing page for anonymous users
+  return <LandingPage />
 } 

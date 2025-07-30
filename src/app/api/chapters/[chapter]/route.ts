@@ -92,6 +92,115 @@ export async function GET(
   }
 }
 
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { chapter: string } }
+) {
+  try {
+    const chapterNumber = parseInt(params.chapter)
+    
+    if (isNaN(chapterNumber) || chapterNumber < 1) {
+      return NextResponse.json(
+        { error: 'Invalid chapter number' },
+        { status: 400 }
+      )
+    }
+
+    // Get project ID from query parameters
+    const url = new URL(request.url)
+    const projectId = url.searchParams.get('project_id')
+    
+    if (!projectId) {
+      return NextResponse.json(
+        { error: 'Project ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Get the request body
+    const body = await request.json()
+    const { content, title, stage } = body
+
+    if (!content) {
+      return NextResponse.json(
+        { error: 'Chapter content is required' },
+        { status: 400 }
+      )
+    }
+
+    // Get backend URL
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    
+    if (!backendBaseUrl) {
+      console.error('[chapters/{chapter}] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured' },
+        { status: 500 }
+      )
+    }
+
+    // Use the backend's project/chapter endpoint for updates
+    const targetUrl = `${backendBaseUrl}/v2/chapters/project/${encodeURIComponent(projectId)}/chapter/${chapterNumber}`
+    console.log('[chapters/{chapter}] PUT Target URL:', targetUrl)
+
+    // Prepare headers for the backend request
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Forward the Authorization header if present
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
+    console.log('[chapters/{chapter}] Making PUT request to backend')
+
+    // Make the request to the backend
+    const backendResponse = await fetch(targetUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        content,
+        title: title || `Chapter ${chapterNumber}`,
+        stage: stage || 'draft'
+      })
+    })
+
+    console.log('[chapters/{chapter}] Backend PUT response status:', backendResponse.status)
+
+    if (!backendResponse.ok) {
+      const errorText = await backendResponse.text()
+      console.error('[chapters/{chapter}] Backend PUT error:', errorText)
+      
+      // Try to parse as JSON first, fall back to text
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText }
+      }
+      
+      return NextResponse.json(
+        errorData,
+        { status: backendResponse.status }
+      )
+    }
+
+    const data = await backendResponse.json()
+    console.log('[chapters/{chapter}] Backend PUT success:', data)
+
+    return NextResponse.json(data)
+
+  } catch (error: any) {
+    console.error('[chapters/{chapter}] PUT request failed:', error)
+    return NextResponse.json(
+      { error: `Failed to update chapter: ${error.message}` },
+      { status: 500 }
+    )
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { chapter: string } }

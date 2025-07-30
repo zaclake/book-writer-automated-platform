@@ -520,8 +520,8 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
     } catch (error) {
       console.error('Book Bible creation error:', error)
       toast({
-        title: "Error",
-        description: "Failed to create book bible. Please try again.",
+        title: "Looks like we hit a snag",
+        description: "We couldn't create your book bible just now. Let's try again!",
         variant: "destructive"
       })
     } finally {

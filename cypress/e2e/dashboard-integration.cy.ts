@@ -9,9 +9,9 @@ describe('Dashboard Integration', () => {
   it('should display dashboard header correctly', () => {
     cy.visit('/dashboard')
     
-    // Check header content
+    // Check header content (updated for new branding)
     cy.contains('WriterBloom').should('be.visible')
-    cy.contains('Your creative writing studio').should('be.visible')
+    cy.contains('Welcome back to your creative space').should('be.visible')
   })
 
   it('should show empty state when no projects exist', () => {
@@ -21,10 +21,10 @@ describe('Dashboard Integration', () => {
     cy.visit('/dashboard')
     cy.wait('@getProjects')
     
-    // Check empty state content
-    cy.contains('Welcome to WriterBloom!').should('be.visible')
-    cy.contains('Your AI-Powered Writing Studio').should('be.visible')
-    cy.contains('Create Your First Project').should('be.visible')
+    // Check empty state content (updated for new branding)
+    cy.contains('Ready to bloom? Start your first writing journey!').should('be.visible')
+    cy.contains('Your story is waiting to bloom').should('be.visible')
+    cy.contains('Begin a new journey').should('be.visible')
   })
 
   it('should display projects and chapter count when projects exist', () => {

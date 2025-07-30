@@ -54,6 +54,14 @@ class Analytics {
     }
   }
 
+  // Generic page view event for easy usage across app
+  pageViewed(page: string) {
+    this.track('Page Viewed', {
+      page,
+      category: 'Navigation'
+    })
+  }
+
   // Dashboard specific events
   dashboardViewed() {
     this.track('Dashboard Viewed')
