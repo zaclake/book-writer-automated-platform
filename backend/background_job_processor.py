@@ -359,8 +359,15 @@ class BackgroundJobProcessor:
                     orchestrator_job_id = orchestrator.start_auto_completion(user_initiated=False)
                     self.logger.info(f"Job {job_id}: Started orchestrator with job ID {orchestrator_job_id}")
                     
-                    # Run auto-completion
+                    # Run auto-completion with progress monitoring
+                    self.logger.info(f"Job {job_id}: Starting orchestrator execution")
+                    progress_callback(0, target_chapters, "Starting auto-completion")
+                    
                     result = await orchestrator.run_auto_completion()
+                    
+                    # Final progress update
+                    chapters_generated = len(result.get('chapters_generated', []))
+                    progress_callback(chapters_generated, target_chapters, f"Completed {chapters_generated} chapters")
                     
                     return {
                         'success': True,
@@ -383,7 +390,7 @@ class BackgroundJobProcessor:
                         progress = {
                             'current_chapter': i,
                             'total_chapters': target_chapters,
-                            'progress_percentage': (i / target_chapters) * 100,
+                            'progress_percentage': round((i / target_chapters) * 100, 1),
                             'status': f'Generating chapter {i} (simulation)',
                             'project_id': project_id
                         }

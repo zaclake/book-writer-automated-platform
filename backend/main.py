@@ -1152,6 +1152,7 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
     async def event_stream():
         """Stream progress updates using event-driven pattern."""
         last_update = None
+        last_token_check = datetime.utcnow()
         
         # Create event for this job if it doesn't exist
         if job_id not in job_update_events:
@@ -1176,6 +1177,18 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
         
         while True:
             try:
+                # Periodic token validation (every 5 minutes)
+                now = datetime.utcnow()
+                if (now - last_token_check).total_seconds() > 300:  # 5 minutes
+                    try:
+                        from fastapi.security import HTTPAuthorizationCredentials
+                        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+                        await verify_token(creds)
+                        last_token_check = now
+                    except:
+                        logger.warning(f"SSE stream for job {job_id} closed due to token expiry")
+                        break
+                
                 # Wait for job update event or timeout after 30 seconds
                 try:
                     await asyncio.wait_for(event.wait(), timeout=30.0)
