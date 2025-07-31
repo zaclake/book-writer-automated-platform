@@ -397,6 +397,20 @@ export function AutoCompleteBookManager({
     setEstimation(null)
 
     try {
+      const requestPayload = {
+        project_id: currentProjectId,
+        book_bible: bookBible,
+        starting_chapter: 1,
+        target_chapters: config.targetChapterCount,
+        quality_threshold: config.minimumQualityScore,
+        words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
+      }
+      
+      console.log('Auto-complete estimate request payload:', {
+        ...requestPayload,
+        book_bible: `${bookBible?.substring(0, 200)}... (${bookBible?.length} chars)` // Log truncated bible for debugging
+      })
+      
       const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/auto-complete/estimate', {
         method: 'POST',
@@ -404,14 +418,7 @@ export function AutoCompleteBookManager({
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        body: JSON.stringify({
-          project_id: currentProjectId,
-          book_bible: bookBible,
-          starting_chapter: 1,
-          target_chapters: config.targetChapterCount,
-          quality_threshold: config.minimumQualityScore,
-          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
-        })
+        body: JSON.stringify(requestPayload)
       })
 
       const data = await response.json()

@@ -37,6 +37,10 @@ export async function POST(request: NextRequest) {
       headers['Authorization'] = authHeader
     }
 
+    console.log('[auto-complete/estimate] Request payload:', {
+      ...requestBody,
+      book_bible: requestBody.book_bible ? `${requestBody.book_bible.substring(0, 100)}... (${requestBody.book_bible.length} chars)` : 'undefined'
+    })
     console.log('[auto-complete/estimate] Making request to backend')
 
     // Make the request to the backend
@@ -56,6 +60,9 @@ export async function POST(request: NextRequest) {
       let errorData
       try {
         errorData = JSON.parse(errorText)
+        if (backendResponse.status === 422) {
+          console.error('[auto-complete/estimate] Validation errors:', JSON.stringify(errorData, null, 2))
+        }
       } catch {
         errorData = { detail: errorText }
       }
