@@ -308,7 +308,7 @@ export function AutoCompleteBookManager({
           book_bible: bookBible || (typeof window !== 'undefined' ? localStorage.getItem(`bookBible-${projectId}`) : null),
           starting_chapter: 1,
           target_chapters: config.targetChapterCount,
-          quality_threshold: config.minimumQualityScore,
+          quality_threshold: config.minimumQualityScore / 10.0, // Convert from 0-100 scale to 0-10 scale
           words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount),
           estimated_total_cost: estimation?.estimated_total_cost
         })
@@ -402,7 +402,7 @@ export function AutoCompleteBookManager({
         book_bible: bookBible,
         starting_chapter: 1,
         target_chapters: config.targetChapterCount,
-        quality_threshold: config.minimumQualityScore,
+        quality_threshold: config.minimumQualityScore / 10.0, // Convert from 0-100 scale to 0-10 scale
         words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
       }
       
