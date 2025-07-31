@@ -139,20 +139,31 @@ async def lifespan(app: FastAPI):
     try:
         # Try to import and initialize orchestration modules
         try:
-            from auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
+            # Try Railway path first (running from /app/backend/)
+            try:
+                from system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
+            except ImportError:
+                from backend.system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
             logger.info("AutoCompleteBookOrchestrator imported successfully")
         except ImportError as e:
             logger.warning(f"AutoCompleteBookOrchestrator not available: {e}")
             
         try:
-            from backend.background_job_processor import BackgroundJobProcessor
+            # Try local import first (Railway), then relative import
+            try:
+                from background_job_processor import BackgroundJobProcessor
+            except ImportError:
+                from backend.background_job_processor import BackgroundJobProcessor
             app.state.job_processor = BackgroundJobProcessor()
             logger.info("BackgroundJobProcessor initialized")
         except Exception as e:
             logger.warning(f"BackgroundJobProcessor initialization failed: {e}")
             
         try:
-            from chapter_context_manager import ChapterContextManager
+            try:
+                from system.chapter_context_manager import ChapterContextManager
+            except ImportError:
+                from backend.system.chapter_context_manager import ChapterContextManager
             logger.info("ChapterContextManager imported successfully")
         except ImportError as e:
             logger.warning(f"ChapterContextManager not available: {e}")
