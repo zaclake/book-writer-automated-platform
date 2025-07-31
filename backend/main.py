@@ -916,13 +916,7 @@ async def estimate_auto_complete_cost(
         words_per_chapter = auto_complete_request.words_per_chapter
         total_chapters = auto_complete_request.target_chapters or 20
         
-        # Import LLMOrchestrator for cost estimation
-        import sys
-        import os
-        from pathlib import Path
-        parent_dir = Path(__file__).parent.parent
-        sys.path.insert(0, str(parent_dir))
-        
+        # Import LLMOrchestrator for cost estimation (using stub if needed)
         try:
             from backend.llm_orchestrator import LLMOrchestrator, RetryConfig
         except ImportError as e:
