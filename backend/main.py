@@ -1009,6 +1009,7 @@ async def estimate_auto_complete_cost(
             base_tokens_per_chapter = round(words_per_chapter * 1.3)
             stage_multiplier = 2.5  # More realistic for complete stage with quality gates
             quality_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0 * 0.3)
+            max_retries = 3  # Default value for fallback calculation
             retry_multiplier = 1 + (max_retries / 20.0)
             
             total_multiplier = stage_multiplier * quality_multiplier * retry_multiplier
