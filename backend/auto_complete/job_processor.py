@@ -309,10 +309,7 @@ class BackgroundJobProcessor:
                 # Import orchestrator (with fallback to simulation if unavailable)
                 try:
                     # Try Railway path first (running from /app/backend/), then local dev path
-                    try:
-                        from system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator, AutoCompletionConfig
-                    except ImportError:
-                        from backend.system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator, AutoCompletionConfig
+                    from backend.auto_complete import AutoCompleteBookOrchestrator, AutoCompletionConfig
                     orchestrator_available = True
                 except ImportError as e:
                     self.logger.warning(f"AutoCompleteBookOrchestrator not available: {e}, using simulation")

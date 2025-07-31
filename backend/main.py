@@ -139,31 +139,20 @@ async def lifespan(app: FastAPI):
     try:
         # Try to import and initialize orchestration modules
         try:
-            # Try Railway path first (running from /app/backend/)
-            try:
-                from system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
-            except ImportError:
-                from backend.system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator
+            from backend.auto_complete import AutoCompleteBookOrchestrator
             logger.info("AutoCompleteBookOrchestrator imported successfully")
         except ImportError as e:
             logger.warning(f"AutoCompleteBookOrchestrator not available: {e}")
             
         try:
-            # Try local import first (Railway), then relative import
-            try:
-                from background_job_processor import BackgroundJobProcessor
-            except ImportError:
-                from backend.background_job_processor import BackgroundJobProcessor
+            from backend.auto_complete import BackgroundJobProcessor
             app.state.job_processor = BackgroundJobProcessor()
             logger.info("BackgroundJobProcessor initialized")
         except Exception as e:
             logger.warning(f"BackgroundJobProcessor initialization failed: {e}")
             
         try:
-            try:
-                from system.chapter_context_manager import ChapterContextManager
-            except ImportError:
-                from backend.system.chapter_context_manager import ChapterContextManager
+            from backend.auto_complete.helpers.chapter_context_manager import ChapterContextManager
             logger.info("ChapterContextManager imported successfully")
         except ImportError as e:
             logger.warning(f"ChapterContextManager not available: {e}")
@@ -935,7 +924,7 @@ async def estimate_auto_complete_cost(
         sys.path.insert(0, str(parent_dir))
         
         try:
-            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.llm_orchestrator import LLMOrchestrator, RetryConfig
         except ImportError as e:
             logger.warning(f"LLMOrchestrator not available, using fallback estimation: {e}")
             
@@ -1279,7 +1268,7 @@ async def estimate_cost(
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         
         try:
-            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.llm_orchestrator import LLMOrchestrator, RetryConfig
         except ImportError:
             # Fallback to simple estimation if LLMOrchestrator is not available
             logger.warning("LLMOrchestrator not available, using fallback estimation")
@@ -1392,7 +1381,7 @@ async def generate_chapter(
                 sys.path.insert(0, dir_path)
         
         try:
-            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.llm_orchestrator import LLMOrchestrator, RetryConfig
             logger.info("Successfully imported LLMOrchestrator")
         except ImportError as e:
             logger.error(f"Failed to import LLMOrchestrator: {e}")
@@ -2606,7 +2595,7 @@ async def debug_sophisticated_system():
         
         # Test imports
         try:
-            from backend.system.llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.llm_orchestrator import LLMOrchestrator, RetryConfig
             debug_info["llm_orchestrator_import"] = "success"
         except Exception as e:
             debug_info["llm_orchestrator_import"] = f"failed: {e}"

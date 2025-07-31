@@ -14,7 +14,7 @@ from backend.models.firestore_models import (
     PublishRequest, PublishResult, PublishConfig, PublishFormat,
     PublishJobStatus, ProjectPublishingHistory
 )
-from backend.background_job_processor import (
+from backend.auto_complete import (
     BackgroundJobProcessor, JobStatus, JobInfo
 )
 

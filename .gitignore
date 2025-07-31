@@ -53,3 +53,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Temporary project directories
+temp_projects/
+local_storage/
+*.tmp
+*.temp
