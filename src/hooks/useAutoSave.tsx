@@ -55,7 +55,7 @@ export function useAutoSave<T>(
 
   // Save to localStorage
   const saveToLocalStorage = useCallback((data: T) => {
-    if (!enableLocalStorage) return
+    if (!enableLocalStorage || typeof window === 'undefined') return
 
     try {
       const saveData = {
@@ -72,7 +72,7 @@ export function useAutoSave<T>(
 
   // Load from localStorage
   const loadFromLocalStorage = useCallback((): T | null => {
-    if (!enableLocalStorage) return null
+    if (!enableLocalStorage || typeof window === 'undefined') return null
 
     try {
       const saved = localStorage.getItem(storageKey)
@@ -92,7 +92,7 @@ export function useAutoSave<T>(
 
   // Clear localStorage
   const clearLocalStorage = useCallback(() => {
-    if (!enableLocalStorage) return
+    if (!enableLocalStorage || typeof window === 'undefined') return
     
     try {
       localStorage.removeItem(storageKey)
@@ -346,7 +346,7 @@ export function useSessionRecovery<T>(
   const storageKey = `autosave_${key}_${user?.id || 'anonymous'}`
 
   useEffect(() => {
-    if (!isLoaded) return
+    if (!isLoaded || typeof window === 'undefined') return
 
     try {
       const saved = localStorage.getItem(storageKey)
@@ -389,7 +389,9 @@ export function useSessionRecovery<T>(
     setRecoveredData(null)
     // Clear the localStorage data
     try {
-      localStorage.removeItem(storageKey)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(storageKey)
+      }
     } catch (error) {
       console.error('Failed to clear localStorage:', error)
     }

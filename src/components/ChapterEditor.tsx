@@ -174,13 +174,13 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     
     try {
       setIsLoading(true)
-      const response = await fetch(`/api/chapters/${chapterId}`, {
+      const response = await fetch(`/api/chapters/${chapterId}?project_id=${encodeURIComponent(projectId)}`, {
         headers: {}
       })
 
       if (response.ok) {
         const data = await response.json()
-        const chapterData = data.chapter
+        const chapterData = data.chapter ?? data
         
         // Batch all state updates to prevent multiple re-renders
         startTransition(() => {
@@ -209,7 +209,7 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
 
     try {
       setIsSaving(true)
-      const response = await fetch(`/api/chapters/${chapterId}`, {
+      const response = await fetch(`/api/chapters/${chapterId}?project_id=${encodeURIComponent(projectId)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -314,7 +314,7 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     if (!user || !newNote.trim()) return
 
     try {
-      const response = await fetch(`/api/chapters/${chapterId}`, {
+      const response = await fetch(`/api/chapters/${chapterId}?project_id=${encodeURIComponent(projectId)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'

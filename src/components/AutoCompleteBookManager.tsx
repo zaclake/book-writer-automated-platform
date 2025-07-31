@@ -131,6 +131,37 @@ export function AutoCompleteBookManager({
     }
   }
 
+  // Clear book bible cache when it's updated
+  const clearBookBibleCache = useCallback(() => {
+    if (typeof window !== 'undefined' && projectId) {
+      try {
+        localStorage.removeItem(`bookBible-${projectId}`)
+        console.log('Cleared book bible cache for project:', projectId)
+      } catch (error) {
+        console.error('Failed to clear book bible cache:', error)
+      }
+    }
+  }, [projectId])
+
+  // Listen for book bible updates and clear cache
+  useEffect(() => {
+    const handleBookBibleUpdate = (event: CustomEvent) => {
+      if (event.detail.projectId === projectId) {
+        clearBookBibleCache()
+        // Also clear estimation to force re-estimation with new bible
+        setEstimation(null)
+        setStatus('📝 Book Bible updated - please re-estimate')
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('bookBibleUpdated', handleBookBibleUpdate as EventListener)
+      return () => {
+        window.removeEventListener('bookBibleUpdated', handleBookBibleUpdate as EventListener)
+      }
+    }
+  }, [projectId, clearBookBibleCache])
+
   // Single effect to handle initialization and job tracking
   useEffect(() => {
     const initializeAndTrack = async () => {
@@ -237,7 +268,7 @@ export function AutoCompleteBookManager({
       try {
         // Try to fetch from backend
         const authHeaders = await getAuthHeaders()
-        const bookBibleResponse = await fetch(`/api/projects/${projectId}/book-bible`, {
+        const bookBibleResponse = await fetch(`/api/book-bible/${projectId}`, {
           headers: authHeaders
         })
         
@@ -246,7 +277,8 @@ export function AutoCompleteBookManager({
           return
         }
         
-        const bookBibleData = await bookBibleResponse.text()
+        const projectData = await bookBibleResponse.json()
+        const bookBibleData = projectData?.book_bible?.content
         if (!bookBibleData || bookBibleData.trim().length === 0) {
           setStatus('❌ Book Bible is empty - please create content in the Book Bible tab first')
           return
@@ -333,12 +365,13 @@ export function AutoCompleteBookManager({
       // Try to fetch from backend
       try {
         const authHeaders = await getAuthHeaders()
-        const bookBibleResponse = await fetch(`/api/projects/${currentProjectId}/book-bible`, {
+        const bookBibleResponse = await fetch(`/api/book-bible/${currentProjectId}`, {
           headers: authHeaders
         })
         
         if (bookBibleResponse.ok) {
-          const bookBibleData = await bookBibleResponse.text()
+          const projectData = await bookBibleResponse.json()
+          const bookBibleData = projectData?.book_bible?.content
           if (bookBibleData && bookBibleData.trim().length > 0) {
             bookBible = bookBibleData
             // Cache it for future use

@@ -106,12 +106,14 @@ class ErrorMonitoring {
       console.error('🚨 Error Monitor:', errorEvent)
       
       // Store recent errors in localStorage for debugging
-      const recentErrors = JSON.parse(localStorage.getItem('recent_errors') || '[]')
-      recentErrors.unshift(errorEvent)
-      
-      // Keep only last 10 errors
-      const trimmedErrors = recentErrors.slice(0, 10)
-      localStorage.setItem('recent_errors', JSON.stringify(trimmedErrors))
+      if (typeof window !== 'undefined') {
+        const recentErrors = JSON.parse(localStorage.getItem('recent_errors') || '[]')
+        recentErrors.unshift(errorEvent)
+        
+        // Keep only last 10 errors
+        const trimmedErrors = recentErrors.slice(0, 10)
+        localStorage.setItem('recent_errors', JSON.stringify(trimmedErrors))
+      }
 
       // Example integration with Sentry (commented out)
       // if (window.Sentry) {

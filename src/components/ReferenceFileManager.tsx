@@ -62,9 +62,10 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
       })
       if (response.ok) {
         const data = await response.json()
-        if (data.success && data.files) {
+        const files = data.references ?? data.files
+        if (data.success && files) {
           const fileDetails = await Promise.all(
-            data.files.map(async (fileInfo: any) => {
+            files.map(async (fileInfo: any) => {
               try {
                 const fileResponse = await fetch(`/api/references/${fileInfo.name}?project_id=${projectId}`, {
                   headers: authHeaders

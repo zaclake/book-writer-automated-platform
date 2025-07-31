@@ -28,6 +28,14 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
     onComplete: (result) => {
       setIsInitializing(false)
       setStatus('✅ Project initialized successfully! References are ready.')
+      
+      // Dispatch event to clear AutoCompleteBookManager cache
+      if (typeof window !== 'undefined' && currentProjectId) {
+        window.dispatchEvent(new CustomEvent('bookBibleUpdated', {
+          detail: { projectId: currentProjectId }
+        }))
+      }
+      
       setTimeout(() => {
         onProjectInitialized(currentProjectId || undefined)
       }, 1500)
@@ -123,6 +131,14 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
           setStatus('✅ Book Bible uploaded successfully!')
           setIsUploading(false)
           const projectId = data.project_id || localStorage.getItem('lastProjectId')
+          
+          // Dispatch event to clear AutoCompleteBookManager cache
+          if (typeof window !== 'undefined' && projectId) {
+            window.dispatchEvent(new CustomEvent('bookBibleUpdated', {
+              detail: { projectId }
+            }))
+          }
+          
           onProjectInitialized(projectId) // Refresh project status
         }, 2000)
       } else {
