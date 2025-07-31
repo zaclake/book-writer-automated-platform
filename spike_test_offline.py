@@ -144,7 +144,7 @@ def main():
     # Step 2: Run quality gates
     print(f"\n🔍 Running quality gates on simulated chapter...")
     
-    cmd = [sys.executable, "system/brutal-assessment-scorer.py", "assess", "--chapter-file", test_chapter]
+    cmd = [sys.executable, "system/brutal_assessment_scorer.py", "assess", "--chapter-file", test_chapter]
     
     success, output = run_command(cmd)
     if not success:

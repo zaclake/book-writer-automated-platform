@@ -70,7 +70,7 @@ def main():
     required_files = [
         "system/llm_orchestrator.py",
         "system/prompt_manager.py", 
-        "system/brutal-assessment-scorer.py",
+        "system/brutal_assessment_scorer.py",
         "quality-gates.yml",
         "prompts/stage_1_strategic_planning.yaml",
         "prompts/stage_2_first_draft.yaml",
@@ -116,7 +116,7 @@ def main():
     test_chapter = "chapters/test-chapter.md"
     if Path(test_chapter).exists():
         success, output = run_command([
-            sys.executable, "system/brutal-assessment-scorer.py", 
+            sys.executable, "system/brutal_assessment_scorer.py", 
             "assess", "--chapter-file", test_chapter
         ])
         
@@ -151,7 +151,7 @@ The investigation was just beginning, and she had a feeling it would lead them d
         
         # Test quality gates again
         success, output = run_command([
-            sys.executable, "system/brutal-assessment-scorer.py", 
+            sys.executable, "system/brutal_assessment_scorer.py", 
             "assess", "--chapter-file", test_chapter
         ])
         
@@ -275,7 +275,7 @@ The investigation was just beginning, and she had a feeling it would lead them d
         },
         {
             "title": "Run quality assessment",
-            "command": "python3 system/brutal-assessment-scorer.py assess --chapter-file chapters/chapter-01.md"
+            "command": "python3 system/brutal_assessment_scorer.py assess --chapter-file chapters/chapter-01.md"
         },
         {
             "title": "Integrated write workflow",

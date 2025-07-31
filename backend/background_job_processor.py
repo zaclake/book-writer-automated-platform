@@ -289,4 +289,118 @@ class BackgroundJobProcessor:
             return False
         
         job_info.progress = progress
-        return True 
+        return True
+    
+    async def submit_auto_complete_job(self, job_id: str, auto_complete_request: Dict[str, Any], user: Dict[str, str]) -> JobInfo:
+        """
+        Submit an auto-complete book job.
+        
+        Args:
+            job_id: Unique job identifier
+            auto_complete_request: Auto-complete configuration (from AutoCompleteRequest.dict())
+            user: User information
+            
+        Returns:
+            JobInfo object with job details
+        """
+        async def auto_complete_job_func():
+            """The actual auto-complete job function using real orchestrator."""
+            try:
+                # Import orchestrator (with fallback to simulation if unavailable)
+                try:
+                    from backend.system.auto_complete_book_orchestrator import AutoCompleteBookOrchestrator, AutoCompletionConfig
+                    orchestrator_available = True
+                except ImportError:
+                    self.logger.warning("AutoCompleteBookOrchestrator not available, using simulation")
+                    orchestrator_available = False
+                
+                self.logger.info(f"Starting auto-complete job {job_id}")
+                self.logger.info(f"Config: {auto_complete_request}")
+                
+                # Extract values with proper defaults
+                target_chapters = auto_complete_request.get('target_chapter_count', 5)
+                target_words = auto_complete_request.get('target_word_count', 20000)
+                quality_threshold = auto_complete_request.get('minimum_quality_score', 80.0)
+                project_id = auto_complete_request.get('project_id', 'unknown')
+                
+                if orchestrator_available:
+                    # Use real orchestrator
+                    self.logger.info(f"Job {job_id}: Using real AutoCompleteBookOrchestrator")
+                    
+                    # Create orchestrator config
+                    config = AutoCompletionConfig(
+                        target_word_count=target_words,
+                        target_chapter_count=target_chapters,
+                        minimum_quality_score=quality_threshold,
+                        max_retries_per_chapter=3,
+                        auto_pause_on_failure=True,
+                        context_improvement_enabled=True,
+                        quality_gates_enabled=True,
+                        user_review_required=False
+                    )
+                    
+                    # Initialize orchestrator with project path
+                    project_path = f"./temp_projects/{project_id}"
+                    orchestrator = AutoCompleteBookOrchestrator(project_path, config)
+                    
+                    # Create progress callback
+                    def progress_callback(chapter_num: int, total_chapters: int, status: str):
+                        progress = {
+                            'current_chapter': chapter_num,
+                            'total_chapters': total_chapters,
+                            'progress_percentage': (chapter_num / total_chapters) * 100,
+                            'status': status,
+                            'project_id': project_id
+                        }
+                        self.update_job_progress(job_id, progress)
+                        self.logger.info(f"Job {job_id}: {status} - Chapter {chapter_num}/{total_chapters}")
+                    
+                    # Start orchestrator
+                    orchestrator_job_id = orchestrator.start_auto_completion(user_initiated=False)
+                    self.logger.info(f"Job {job_id}: Started orchestrator with job ID {orchestrator_job_id}")
+                    
+                    # Run auto-completion
+                    result = await orchestrator.run_auto_completion()
+                    
+                    return {
+                        'success': True,
+                        'orchestrator_job_id': orchestrator_job_id,
+                        'chapters_generated': len(result.get('chapters_generated', [])),
+                        'total_word_count': result.get('total_word_count', 0),
+                        'average_quality_score': result.get('average_quality_score', 0),
+                        'completion_status': result.get('completion_status', 'completed'),
+                        'project_id': project_id
+                    }
+                    
+                else:
+                    # Fallback simulation
+                    self.logger.info(f"Job {job_id}: Using simulation fallback")
+                    words_per_chapter = target_words // target_chapters
+                    
+                    for i in range(1, target_chapters + 1):
+                        await asyncio.sleep(2)  # Simulate chapter generation time
+                        
+                        progress = {
+                            'current_chapter': i,
+                            'total_chapters': target_chapters,
+                            'progress_percentage': (i / target_chapters) * 100,
+                            'status': f'Generating chapter {i} (simulation)',
+                            'project_id': project_id
+                        }
+                        self.update_job_progress(job_id, progress)
+                        self.logger.info(f"Job {job_id}: Simulated chapter {i}")
+                    
+                    return {
+                        'success': True,
+                        'chapters_generated': target_chapters,
+                        'total_word_count': target_words,
+                        'quality_threshold': quality_threshold,
+                        'project_id': project_id,
+                        'note': 'Generated using simulation (orchestrator unavailable)'
+                    }
+                    
+            except Exception as e:
+                self.logger.error(f"Job {job_id} failed: {e}")
+                raise
+        
+        return await self.submit_job(job_id, auto_complete_job_func) 

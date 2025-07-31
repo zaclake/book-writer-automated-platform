@@ -789,7 +789,7 @@ def main():
                 print(f"💰 Cost: ${result.cost_estimate:.4f}")
                 print(f"⏱️  Time: {result.metadata['generation_time']:.2f}s")
                 print(f"\n🔍 Next step: Run quality gates with:")
-                print(f"   python3 system/brutal-assessment-scorer.py assess --chapter-file {args.output}")
+                print(f"   python3 system/brutal_assessment_scorer.py assess --chapter-file {args.output}")
                 return 0
             else:
                 print("❌ Failed to save chapter")

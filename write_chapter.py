@@ -73,7 +73,7 @@ def main():
         print("\n🔍 Running quality assessment...")
         
         quality_cmd = [
-            sys.executable, "system/brutal-assessment-scorer.py",
+            sys.executable, "system/brutal_assessment_scorer.py",
             "assess", "--chapter-file", output_file,
             "--chapter-number", str(args.chapter)
         ]

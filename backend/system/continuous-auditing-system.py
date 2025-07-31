@@ -235,7 +235,7 @@ class ContinuousAuditingSystem:
             for chapter_file in chapter_files:
                 try:
                     result = subprocess.run([
-                        'python3', 'system/brutal-assessment-scorer.py', 'assess',
+                        'python3', 'system/brutal_assessment_scorer.py', 'assess',
                         '--chapter-file', str(chapter_file)
                     ], capture_output=True, text=True, cwd=self.project_path)
                     

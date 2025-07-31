@@ -145,7 +145,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"AutoCompleteBookOrchestrator not available: {e}")
             
         try:
-            from background_job_processor import BackgroundJobProcessor
+            from backend.background_job_processor import BackgroundJobProcessor
             app.state.job_processor = BackgroundJobProcessor()
             logger.info("BackgroundJobProcessor initialized")
         except Exception as e:
@@ -793,6 +793,24 @@ async def detailed_health_check(user: Dict = Depends(verify_token)):
             "error": str(e)
         }
 
+# Helper function to convert request to orchestrator config
+def convert_request_to_config(request: AutoCompleteRequest) -> Dict[str, Any]:
+    """Convert AutoCompleteRequest to AutoCompletionConfig parameters."""
+    target_chapters = request.target_chapters or 20
+    total_words = target_chapters * request.words_per_chapter
+    
+    return {
+        "project_id": request.project_id,
+        "target_word_count": total_words,
+        "target_chapter_count": target_chapters,
+        "minimum_quality_score": request.quality_threshold * 10.0,  # Convert 0-10 scale back to 0-100
+        "max_retries_per_chapter": 3,  # Default value
+        "auto_pause_on_failure": True,  # Default value
+        "context_improvement_enabled": True,  # Default value
+        "quality_gates_enabled": True,  # Default value
+        "user_review_required": False  # Default value
+    }
+
 # Auto-complete endpoints
 @app.post("/auto-complete/start")
 @limiter.limit("5/minute")
@@ -804,6 +822,43 @@ async def start_auto_complete(
 ):
     """Start auto-complete book generation."""
     try:
+        # Calculate estimated cost for budget check
+        target_chapters = request.target_chapters or 20
+        words_per_chapter = request.words_per_chapter
+        total_words = target_chapters * words_per_chapter
+        
+        # Rough cost estimation: $0.002 per 1000 words (similar to GPT-4 pricing)
+        estimated_cost = (total_words / 1000) * 0.002
+        
+        # Check user budget
+        try:
+            # Import users router functions
+            from backend.routers.users_v2 import firestore_service
+            user_data = await firestore_service.get_user(user["user_id"])
+            
+            if user_data and "usage" in user_data:
+                usage = user_data["usage"]
+                remaining_budget = usage.get("remaining", {}).get("monthly_cost_remaining", 0)
+                
+                if estimated_cost > remaining_budget:
+                    logger.warning(f"Budget exceeded for user {user['user_id']}: ${estimated_cost} > ${remaining_budget}")
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "error": "Insufficient budget",
+                            "estimated_cost": estimated_cost,
+                            "remaining_budget": remaining_budget,
+                            "message": f"Estimated cost ${estimated_cost:.2f} exceeds remaining budget ${remaining_budget:.2f}"
+                        }
+                    )
+                    
+                logger.info(f"Budget check passed: ${estimated_cost:.2f} within budget of ${remaining_budget:.2f}")
+        except HTTPException:
+            raise  # Re-raise budget errors
+        except Exception as e:
+            logger.warning(f"Budget check failed, proceeding with caution: {e}")
+            # Don't block on budget check failures, but log them
+        
         # Generate unique job ID
         job_id = str(uuid.uuid4())
         
@@ -824,9 +879,10 @@ async def start_auto_complete(
         # Store job in persistent storage
         await firestore_client.save_job(job_id, job_data)
         
-        # Submit job to background processor
+        # Submit job to background processor with proper config mapping
         if hasattr(app.state, 'job_processor'):
-            app.state.job_processor.submit_job(job_id, request.dict(), user)
+            orchestrator_config = convert_request_to_config(request)
+            await app.state.job_processor.submit_auto_complete_job(job_id, orchestrator_config, user)
         
         logger.info(f"Auto-complete job started: {job_id}")
         

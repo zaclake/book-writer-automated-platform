@@ -204,7 +204,7 @@ export function AutoCompleteBookManager({
     cleanupProgress()
   }, [user?.id, cleanupProgress])
 
-  // Auto-refresh estimate when config changes
+  // Auto-refresh estimate when config changes (only if we have an existing estimation)
   useEffect(() => {
     if (isLoaded && isSignedIn && !currentJob && estimation) {
       // Debounce config changes to avoid too many API calls
@@ -214,7 +214,7 @@ export function AutoCompleteBookManager({
 
       return () => clearTimeout(debounceTimer)
     }
-  }, [config.targetWordCount, config.targetChapterCount, config.minimumQualityScore, isLoaded, isSignedIn, currentJob, estimation])
+  }, [config.targetWordCount, config.targetChapterCount, config.minimumQualityScore, isLoaded, isSignedIn, currentJob])
 
   const checkForExistingJob = async () => {
     try {
@@ -309,8 +309,8 @@ export function AutoCompleteBookManager({
           starting_chapter: 1,
           target_chapters: config.targetChapterCount,
           quality_threshold: config.minimumQualityScore / 10.0, // Convert from 0-100 scale to 0-10 scale
-          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount),
-          estimated_total_cost: estimation?.estimated_total_cost
+          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
+          // Note: estimated_total_cost removed to match backend AutoCompleteRequest model
         })
       })
 
@@ -319,8 +319,8 @@ export function AutoCompleteBookManager({
       if (response.ok) {
         setStatus('✅ Auto-completion started successfully!')
         setCurrentJob(null) // Will be updated by progress tracking
-        startProgressTracking(data.jobId)
-        onJobStarted?.(data.jobId)
+        startProgressTracking(data.job_id)
+        onJobStarted?.(data.job_id)
       } else {
         // Handle specific error types
         if (response.status === 409) {
