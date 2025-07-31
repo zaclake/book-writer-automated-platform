@@ -304,10 +304,12 @@ export function AutoCompleteBookManager({
           ...authHeaders
         },
         body: JSON.stringify({
-          config: config,
           project_id: projectId,
-          user_id: user?.id,
           book_bible: bookBible || (typeof window !== 'undefined' ? localStorage.getItem(`bookBible-${projectId}`) : null),
+          starting_chapter: 1,
+          target_chapters: config.targetChapterCount,
+          quality_threshold: config.minimumQualityScore,
+          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount),
           estimated_total_cost: estimation?.estimated_total_cost
         })
       })
@@ -405,10 +407,10 @@ export function AutoCompleteBookManager({
         body: JSON.stringify({
           project_id: currentProjectId,
           book_bible: bookBible,
+          starting_chapter: 1,
           target_chapters: config.targetChapterCount,
-          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount),
           quality_threshold: config.minimumQualityScore,
-          starting_chapter: 1
+          words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
         })
       })
 
