@@ -25,17 +25,11 @@ except ImportError:
 
 # Local imports
 try:
-    from .prompt_manager import PromptManager
+    from backend.system.prompt_manager import PromptManager
 except ImportError:
-    # Fallback for direct execution or when imported from other modules
+    # Fallback to the root-level prompt_manager
     try:
-        import sys
-        from pathlib import Path
-        # Add the system directory to path if not already there
-        system_dir = Path(__file__).parent
-        if str(system_dir) not in sys.path:
-            sys.path.insert(0, str(system_dir))
-        from prompt_manager import PromptManager
+        from backend.prompt_manager import PromptManager
     except ImportError:
         # Final fallback - create a minimal PromptManager for testing
         class PromptManager:
@@ -73,15 +67,38 @@ class LLMOrchestrator:
     """Orchestrates LLM-based chapter generation with quality gate integration."""
     
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o", 
-                 retry_config: Optional[RetryConfig] = None, prompts_dir: str = "prompts"):
+                 retry_config: Optional[RetryConfig] = None, prompts_dir: str = "prompts",
+                 user_id: Optional[str] = None, enable_billing: Optional[bool] = None):
         """Initialize the orchestrator."""
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
         
         self.model = model
-        self.client = OpenAI(api_key=self.api_key)
+        self.user_id = user_id
         self.retry_config = retry_config or RetryConfig()
+        
+        # Initialize client - use billable client if user_id provided and billing enabled
+        billing_enabled = enable_billing if enable_billing is not None else os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true'
+        
+        if self.user_id and billing_enabled:
+            try:
+                from ..services.billable_client import create_billable_openai_client
+                self.client = create_billable_openai_client(user_id=self.user_id, api_key=self.api_key)
+                self.billable_client = True
+                self.logger = None  # Will be set up later
+                self._setup_logging()
+                self.logger.info(f"LLM Orchestrator initialized with billable client for user {user_id}")
+            except Exception as e:
+                # Fallback to regular client if billable client fails
+                self.client = OpenAI(api_key=self.api_key)
+                self.billable_client = False
+                self.logger = None
+                self._setup_logging()
+                self.logger.warning(f"Failed to initialize billable client, using regular client: {e}")
+        else:
+            self.client = OpenAI(api_key=self.api_key)
+            self.billable_client = False
         
         # Initialize prompt manager
         try:
@@ -177,8 +194,8 @@ class LLMOrchestrator:
         
         return False
     
-    def _make_api_call(self, messages: List[Dict[str, str]], **kwargs) -> dict:
-        """Make API call with retry logic."""
+    async def _make_api_call(self, messages: List[Dict[str, str]], **kwargs) -> dict:
+        """Make API call with retry logic. Returns (response, credits_charged)."""
         last_error = None
         
         for attempt in range(self.retry_config.max_retries + 1):
@@ -188,11 +205,32 @@ class LLMOrchestrator:
                 
                 self.logger.info(f"Making API call (attempt {attempt + 1}/{self.retry_config.max_retries + 1})")
                 
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    **kwargs
-                )
+                if self.billable_client:
+                    # Use billable client - this automatically handles credit billing
+                    billable_response = await self.client.chat_completions_create(
+                        model=self.model,
+                        messages=messages,
+                        **kwargs
+                    )
+                    response = billable_response.response
+                    credits_charged = billable_response.credits_charged
+                    
+                    # Add credits info to metadata for compatibility
+                    if hasattr(response, '_credits_charged'):
+                        response._credits_charged = credits_charged
+                    else:
+                        # If we can't attach to response, we'll handle it in calling methods
+                        pass
+                        
+                else:
+                    # Use regular client - no billing
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        **kwargs
+                    )
+                    if hasattr(response, '_credits_charged'):
+                        response._credits_charged = 0
                 
                 self.logger.info(f"API call successful on attempt {attempt + 1}")
                 return response
@@ -218,14 +256,14 @@ class LLMOrchestrator:
         # All retries exhausted
         raise last_error
     
-    def generate_chapter_spike(self, chapter_number: int, target_words: int = 3800) -> GenerationResult:
+    async def generate_chapter_spike(self, chapter_number: int, target_words: int = 3800) -> GenerationResult:
         """
         Phase 0 spike: Generate a chapter using hard-coded prompt.
         Maintained for backward compatibility.
         """
-        return self.generate_chapter(chapter_number, target_words, stage="spike")
+        return await self.generate_chapter(chapter_number, target_words, stage="spike")
     
-    def generate_chapter_5_stage(self, chapter_number: int, target_words: int = 3800,
+    async def generate_chapter_5_stage(self, chapter_number: int, target_words: int = 3800,
                                  context: Dict[str, Any] = None) -> List[GenerationResult]:
         """
         Generate a chapter using the complete 5-stage process.
@@ -266,7 +304,7 @@ class LLMOrchestrator:
         
         # Stage 1: Strategic Planning
         self.logger.info("Stage 1: Strategic Planning")
-        stage1_result = self._execute_stage(1, full_context)
+        stage1_result = await self._execute_stage(1, full_context)
         results.append(stage1_result)
         
         if not stage1_result.success:
@@ -281,7 +319,7 @@ class LLMOrchestrator:
         
         # Stage 2: First Draft Generation
         self.logger.info("Stage 2: First Draft Generation")
-        stage2_result = self._execute_stage(2, full_context)
+        stage2_result = await self._execute_stage(2, full_context)
         results.append(stage2_result)
         
         if not stage2_result.success:
@@ -299,7 +337,7 @@ class LLMOrchestrator:
             "theme_limits": "Justice, truth, determination - stay within limits",
             "inspiration_reference": "Modern detective thriller style"
         })
-        stage3_result = self._execute_stage(3, full_context)
+        stage3_result = await self._execute_stage(3, full_context)
         results.append(stage3_result)
         
         if not stage3_result.success:
@@ -324,13 +362,13 @@ class LLMOrchestrator:
             "theme_development": "Justice and truth themes building",
             "series_context": "Standalone chapter with series potential"
         })
-        stage5_result = self._execute_stage(5, full_context)
+        stage5_result = await self._execute_stage(5, full_context)
         results.append(stage5_result)
         
         self.logger.info("5-stage generation completed")
         return results
     
-    def _execute_stage(self, stage_number: int, context: Dict[str, Any]) -> GenerationResult:
+    async def _execute_stage(self, stage_number: int, context: Dict[str, Any]) -> GenerationResult:
         """Execute a specific stage with given context."""
         try:
             # Get template and render prompts
@@ -343,7 +381,7 @@ class LLMOrchestrator:
             ]
             
             # Make API call with stage-specific configuration
-            response = self._make_api_call(
+            response = await self._make_api_call(
                 messages=messages,
                 temperature=stage_config.get('temperature', 0.7),
                 max_tokens=stage_config.get('max_tokens', 4000),
@@ -398,7 +436,7 @@ class LLMOrchestrator:
                 error=str(e)
             )
 
-    def generate_chapter(self, chapter_number: int, target_words: int = 3800, 
+    async def generate_chapter(self, chapter_number: int, target_words: int = 3800, 
                         stage: str = "complete") -> GenerationResult:
         """
         Generate a chapter with robust error handling and retry logic.
@@ -421,7 +459,7 @@ class LLMOrchestrator:
         
         try:
             # Make API call with retry logic
-            response = self._make_api_call(
+            response = await self._make_api_call(
                 messages=messages,
                 temperature=0.7,
                 max_tokens=6000,
@@ -601,7 +639,7 @@ class LLMOrchestrator:
             "estimated_total_cost": input_cost + output_cost
         }
 
-def main():
+async def main():
     """Main function for command-line usage."""
     import argparse
     
@@ -648,7 +686,7 @@ def main():
     
     if args.stage == "5-stage":
         # 5-stage generation
-        results = orchestrator.generate_chapter_5_stage(args.chapter, args.words)
+        results = await orchestrator.generate_chapter_5_stage(args.chapter, args.words)
         
         if not results:
             print("❌ 5-stage generation failed: No results returned")
@@ -692,7 +730,7 @@ def main():
     
     else:
         # Single-stage generation
-        result = orchestrator.generate_chapter(args.chapter, args.words, args.stage)
+        result = await orchestrator.generate_chapter(args.chapter, args.words, args.stage)
         
         if result.success:
             # Save chapter
@@ -713,4 +751,5 @@ def main():
             return 1
 
 if __name__ == "__main__":
-    exit(main()) 
+    import asyncio
+    exit(asyncio.run(main())) 

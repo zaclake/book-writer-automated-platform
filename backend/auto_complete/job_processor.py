@@ -357,7 +357,8 @@ class BackgroundJobProcessor:
                         self.logger.info(f"Job {job_id}: {status} - Chapter {chapter_num}/{total_chapters}")
                     
                     # Start orchestrator
-                    orchestrator_job_id = orchestrator.start_auto_completion(user_initiated=False)
+                    # Provide job configuration as request data to orchestrator
+                    orchestrator_job_id = orchestrator.start_auto_completion(auto_complete_request)
                     self.logger.info(f"Job {job_id}: Started orchestrator with job ID {orchestrator_job_id}")
                     
                     # Run auto-completion with progress monitoring

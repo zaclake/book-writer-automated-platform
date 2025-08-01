@@ -10,6 +10,7 @@ import os
 import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional, Any
+from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
@@ -49,19 +50,24 @@ class FirestoreClientCompat:
                 
                 if db.use_firestore:
                     logger.info(f"🔥 [COMPAT] Using Firestore for job {job_id}")
-                    # Convert old format to new format
-                    new_job_data = {
-                        "job_id": job_id,
-                        "job_type": "auto_complete_book",  # Default type
-                        "project_id": job_data.get("project_id", ""),
-                        "user_id": job_data.get("user_id", ""),
-                        "status": job_data.get("status", "pending"),
-                        "progress": job_data.get("progress", {}),
-                        "auto_complete_data": job_data.get("book_completion_job", {})
-                    }
-                    result = await db.firestore.create_generation_job(new_job_data)
-                    logger.info(f"🔥 [COMPAT] Firestore save result: {result is not None}")
-                    return result is not None
+                    try:
+                        # Convert old format to new format
+                        new_job_data = {
+                            "job_id": job_id,
+                            "job_type": "auto_complete_book",  # Default type
+                            "project_id": job_data.get("project_id", ""),
+                            "user_id": job_data.get("user_id", ""),
+                            "status": job_data.get("status", "pending"),
+                            "progress": job_data.get("progress", {}),
+                            "auto_complete_data": job_data.get("book_completion_job", {})
+                        }
+                        # Use the async Firestore save operation directly
+                        result = await self._save_to_firestore_async(db, new_job_data)
+                        logger.info(f"🔥 [COMPAT] Firestore save result: {result is not None}")
+                        return result is not None
+                    except Exception as e:
+                        logger.error(f"🔥 [COMPAT] Firestore save failed: {e}, falling back to local storage")
+                        # Fall back to local storage if Firestore fails
                 else:
                     logger.warning(f"⚠️ [COMPAT] Firestore not enabled, falling back to local storage")
             else:
@@ -194,6 +200,15 @@ class FirestoreClientCompat:
         except Exception as e:
             logger.error(f"Failed to load local job {job_id}: {e}")
             return None
+    
+    async def _save_to_firestore_async(self, db, job_data: Dict[str, Any]) -> Optional[str]:
+        """Async Firestore save operation."""
+        try:
+            result = await db.firestore.create_generation_job(job_data)
+            return result
+        except Exception as e:
+            logger.error(f"Firestore async save failed: {e}")
+            raise  # Re-raise to trigger fallback
 
 # Create global instance for compatibility
 firestore_client = FirestoreClientCompat(use_firestore=False)

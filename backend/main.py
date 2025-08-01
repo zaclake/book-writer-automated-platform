@@ -157,6 +157,33 @@ async def lifespan(app: FastAPI):
         except ImportError as e:
             logger.warning(f"ChapterContextManager not available: {e}")
         
+        # Initialize credits system (optional)
+        try:
+            from backend.services.pricing_registry import initialize_pricing_registry
+            from backend.services.credits_service import initialize_credits_service
+            from backend.database_integration import get_database_adapter
+            
+            # Get database adapter
+            db_adapter = get_database_adapter()
+            if db_adapter and hasattr(db_adapter, 'firestore'):
+                # Initialize pricing registry
+                pricing_registry = initialize_pricing_registry(db_adapter.firestore)
+                await pricing_registry.initialize_firestore_documents()
+                logger.info("Pricing registry initialized")
+                
+                # Initialize credits service
+                credits_service = initialize_credits_service(db_adapter.firestore)
+                logger.info("Credits service initialized")
+                
+                app.state.credits_enabled = True
+            else:
+                logger.warning("Database adapter not available - credits system disabled")
+                app.state.credits_enabled = False
+                
+        except Exception as e:
+            logger.warning(f"Credits system initialization failed: {e}")
+            app.state.credits_enabled = False
+        
         # Start background job cleanup task (optional)
         try:
             import asyncio
@@ -340,6 +367,13 @@ try:
             sys.path.insert(0, parent_dir)
         logger.info(f"Updated Python path: {sys.path[:3]}...")
     
+    # Check if we're running from Railway /app directory
+    elif os.getcwd() == '/app' and os.path.exists('/app/backend'):
+        logger.info("Detected Railway /app environment - adding to Python path")
+        if '/app' not in sys.path:
+            sys.path.insert(0, '/app')
+        logger.info(f"Updated Python path: {sys.path[:3]}...")
+    
     try:
         # Preferred: running from monorepo root -> use absolute package path
         projects_v2 = importlib.import_module("backend.routers.projects_v2")
@@ -354,6 +388,14 @@ try:
         except ImportError as e_prewriting:
             logger.warning(f"Prewriting router disabled due to missing dependencies: {e_prewriting}")
             prewriting_v2 = None
+            
+        # Try to import credits router (optional, depends on credits system being enabled)
+        try:
+            credits_v2 = importlib.import_module("backend.routers.credits_v2")
+            logger.info("✅ Credits router imported successfully")
+        except ImportError as e_credits:
+            logger.warning(f"Credits router disabled due to missing dependencies: {e_credits}")
+            credits_v2 = None
             
     except (ModuleNotFoundError, ImportError) as e1:
         logger.warning(f"Failed to import via backend.* path: {e1}")
@@ -372,6 +414,14 @@ try:
                 logger.warning(f"Prewriting router disabled due to missing dependencies: {e_prewriting}")
                 prewriting_v2 = None
                 
+            # Try to import credits router (optional)
+            try:
+                credits_v2 = importlib.import_module("routers.credits_v2")
+                logger.info("✅ Credits router imported successfully")
+            except ImportError as e_credits:
+                logger.warning(f"Credits router disabled due to missing dependencies: {e_credits}")
+                credits_v2 = None
+                
         except (ModuleNotFoundError, ImportError) as e2:
             logger.error(f"Both import methods failed:")
             logger.error(f"  - backend.*: {e1}")
@@ -385,9 +435,18 @@ try:
     
     if prewriting_v2:
         app.include_router(prewriting_v2.router)
-        logger.info("✅ All v2 routers included successfully")
-    else:
-        logger.info("✅ Core v2 routers included successfully (prewriting disabled)")
+        
+    if credits_v2:
+        app.include_router(credits_v2.router)
+        
+    # Log router status
+    included_routers = ['projects_v2', 'chapters_v2', 'users_v2']
+    if prewriting_v2:
+        included_routers.append('prewriting_v2')
+    if credits_v2:
+        included_routers.append('credits_v2')
+        
+    logger.info(f"✅ Routers included successfully: {', '.join(included_routers)}")
 except Exception as e:
     logger.error(f"❌ CRITICAL: Failed to include routers: {e}")
     logger.error(f"Error type: {type(e).__name__}")
@@ -803,7 +862,8 @@ def convert_request_to_config(request: AutoCompleteRequest) -> Dict[str, Any]:
         "project_id": request.project_id,
         "target_word_count": total_words,
         "target_chapter_count": target_chapters,
-        "minimum_quality_score": request.quality_threshold * 10.0,  # Convert 0-10 scale back to 0-100
+        "words_per_chapter": request.words_per_chapter,
+        "minimum_quality_score": request.quality_threshold,  # 0-10 scale
         "max_retries_per_chapter": 3,  # Default value
         "auto_pause_on_failure": True,  # Default value
         "context_improvement_enabled": True,  # Default value
@@ -815,16 +875,16 @@ def convert_request_to_config(request: AutoCompleteRequest) -> Dict[str, Any]:
 @app.post("/auto-complete/start")
 @limiter.limit("5/minute")
 async def start_auto_complete(
-    request_obj: Request,
-    request: AutoCompleteRequest,
+    request: Request,
+    auto_complete_request: AutoCompleteRequest,
     background_tasks: BackgroundTasks,
     user: Dict = Depends(verify_token)
 ):
     """Start auto-complete book generation."""
     try:
         # Calculate estimated cost for budget check
-        target_chapters = request.target_chapters or 20
-        words_per_chapter = request.words_per_chapter
+        target_chapters = auto_complete_request.target_chapters or 20
+        words_per_chapter = auto_complete_request.words_per_chapter
         total_words = target_chapters * words_per_chapter
         
         # Rough cost estimation: $0.002 per 1000 words (similar to GPT-4 pricing)
@@ -838,7 +898,7 @@ async def start_auto_complete(
             
             if user_data and "usage" in user_data:
                 usage = user_data["usage"]
-                remaining_budget = usage.get("remaining", {}).get("monthly_cost_remaining", 0)
+                remaining_budget = usage.get("remaining", {}).get("monthly_cost_remaining", 10.0)  # Default to $10 for new users
                 
                 if estimated_cost > remaining_budget:
                     logger.warning(f"Budget exceeded for user {user['user_id']}: ${estimated_cost} > ${remaining_budget}")
@@ -849,6 +909,22 @@ async def start_auto_complete(
                             "estimated_cost": estimated_cost,
                             "remaining_budget": remaining_budget,
                             "message": f"Estimated cost ${estimated_cost:.2f} exceeds remaining budget ${remaining_budget:.2f}"
+                        }
+                    )
+            else:
+                # No user data found, use default budget for new users
+                remaining_budget = 10.0  # Default $10 monthly budget for new users
+                logger.info(f"No user budget data found, using default budget: ${remaining_budget}")
+                
+                if estimated_cost > remaining_budget:
+                    logger.warning(f"Budget exceeded for new user {user['user_id']}: ${estimated_cost} > ${remaining_budget}")
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "error": "Insufficient budget",
+                            "estimated_cost": estimated_cost,
+                            "remaining_budget": remaining_budget,
+                            "message": f"Estimated cost ${estimated_cost:.2f} exceeds default budget ${remaining_budget:.2f}"
                         }
                     )
                     
@@ -866,10 +942,10 @@ async def start_auto_complete(
         job_data = {
             "job_id": job_id,
             "user_id": user["user_id"],
-            "project_id": request.project_id,
+            "project_id": auto_complete_request.project_id,
             "status": "initializing",
-            "progress": {"current_chapter": 0, "total_chapters": request.target_chapters},
-            "config": request.dict(),
+            "progress": {"current_chapter": 0, "total_chapters": auto_complete_request.target_chapters},
+            "config": auto_complete_request.dict(),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
             "quality_scores": [],
@@ -881,7 +957,7 @@ async def start_auto_complete(
         
         # Submit job to background processor with proper config mapping
         if hasattr(app.state, 'job_processor'):
-            orchestrator_config = convert_request_to_config(request)
+            orchestrator_config = convert_request_to_config(auto_complete_request)
             await app.state.job_processor.submit_auto_complete_job(job_id, orchestrator_config, user)
         
         logger.info(f"Auto-complete job started: {job_id}")
@@ -890,7 +966,7 @@ async def start_auto_complete(
             "success": True,
             "job_id": job_id,
             "message": "Auto-complete job started successfully",
-            "estimated_completion_time": request.target_chapters * 15  # 15 minutes per chapter estimate
+            "estimated_completion_time": target_chapters * 15  # 15 minutes per chapter estimate
         }
         
     except Exception as e:

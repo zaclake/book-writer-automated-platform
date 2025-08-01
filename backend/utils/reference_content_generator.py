@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 class ReferenceContentGenerator:
     """Generates AI-powered content for reference files based on book bible and prompts."""
     
-    def __init__(self, prompts_dir: Optional[Path] = None):
+    def __init__(self, prompts_dir: Optional[Path] = None, user_id: Optional[str] = None):
         """
         Initialize the content generator.
         
         Args:
             prompts_dir: Directory containing YAML prompt files (defaults to prompts/reference-generation)
+            user_id: User ID for billing (if None, billing is disabled)
         """
         self.client = None
+        self.user_id = user_id
+        self.billable_client = False
         
         if prompts_dir:
             self.prompts_dir = prompts_dir
@@ -34,7 +37,21 @@ class ReferenceContentGenerator:
         # Initialize OpenAI client if API key is available
         api_key = os.getenv('OPENAI_API_KEY')
         if api_key:
-            self.client = OpenAI(api_key=api_key)
+            if self.user_id and os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true':
+                # Try to use billable client
+                try:
+                    from backend.services.billable_client import create_billable_openai_client
+                    self.client = create_billable_openai_client(user_id=self.user_id, api_key=api_key)
+                    self.billable_client = True
+                    logger.info(f"Reference content generator initialized with billable client for user {user_id}")
+                except Exception as e:
+                    # Fallback to regular client
+                    self.client = OpenAI(api_key=api_key)
+                    self.billable_client = False
+                    logger.warning(f"Failed to initialize billable client for reference generation: {e}")
+            else:
+                self.client = OpenAI(api_key=api_key)
+                self.billable_client = False
         else:
             logger.warning("OPENAI_API_KEY not found. Content generation will be disabled.")
     
@@ -42,7 +59,7 @@ class ReferenceContentGenerator:
         """Check if content generation is available (API key configured)."""
         return self.client is not None
     
-    def expand_book_bible(self, source_data: dict, creation_mode: str, book_specs: dict) -> str:
+    async def expand_book_bible(self, source_data: dict, creation_mode: str, book_specs: dict) -> str:
         """
         Expand QuickStart or Guided wizard data into a comprehensive book bible using OpenAI.
         
@@ -60,9 +77,9 @@ class ReferenceContentGenerator:
         try:
             # Build the expansion prompt based on creation mode
             if creation_mode == 'quickstart':
-                return self._expand_quickstart_data(source_data, book_specs)
+                return await self._expand_quickstart_data(source_data, book_specs)
             elif creation_mode == 'guided':
-                return self._expand_guided_data(source_data, book_specs)
+                return await self._expand_guided_data(source_data, book_specs)
             else:
                 raise ValueError(f"Unsupported creation mode: {creation_mode}")
                 
@@ -70,7 +87,7 @@ class ReferenceContentGenerator:
             logger.error(f"Failed to expand book bible for mode {creation_mode}: {e}")
             raise
     
-    def _expand_quickstart_data(self, data: dict, book_specs: dict) -> str:
+    async def _expand_quickstart_data(self, data: dict, book_specs: dict) -> str:
         """Expand QuickStart data into full book bible."""
         system_prompt = """You are an expert story development assistant. Your task is to take basic story elements and expand them into a comprehensive book bible that will guide the writing of a full novel.
 
@@ -132,9 +149,9 @@ Create a detailed book bible in markdown format that includes:
 
 Generate comprehensive, specific content that gives a writer everything needed to begin writing chapters immediately."""
 
-        return self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
+        return await self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
     
-    def _expand_guided_data(self, data: dict, book_specs: dict) -> str:
+    async def _expand_guided_data(self, data: dict, book_specs: dict) -> str:
         """Expand Guided wizard data into full book bible."""
         system_prompt = """You are an expert story development assistant. Your task is to take detailed story planning information and synthesize it into a comprehensive, professional book bible for novel writing.
 
@@ -198,9 +215,9 @@ Create a detailed, cohesive book bible in markdown format that includes:
 
 Ensure all elements work together cohesively and provide specific, actionable guidance for writing."""
 
-        return self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
+        return await self._make_openai_request(system_prompt, user_prompt, "book_bible_expansion")
     
-    def _make_openai_request(self, system_prompt: str, user_prompt: str, request_type: str) -> str:
+    async def _make_openai_request(self, system_prompt: str, user_prompt: str, request_type: str) -> str:
         """Make OpenAI API request with exponential back-off on rate limits."""
         messages = [
             {"role": "system", "content": system_prompt},
@@ -226,14 +243,28 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 
                 logger.info(f"Starting OpenAI API request for {request_type} (attempt {attempt + 1})")
                 
-                response = self.client.chat.completions.create(
-                    model='gpt-4o',
-                    messages=messages,
-                    temperature=0.7,
-                    max_tokens=1800,  # keep well under 10k TPM across multiple calls
-                    top_p=0.9,
-                    timeout=120  # 2 minute timeout for complex requests
-                )
+                if self.billable_client:
+                    # Use billable client
+                    billable_response = await self.client.chat_completions_create(
+                        model='gpt-4o',
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=1800,  # keep well under 10k TPM across multiple calls
+                        top_p=0.9
+                    )
+                    response = billable_response.response
+                    credits_charged = billable_response.credits_charged
+                    logger.info(f"Credits charged for {request_type}: {credits_charged}")
+                else:
+                    # Use regular client
+                    response = self.client.chat.completions.create(
+                        model='gpt-4o',
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=1800,  # keep well under 10k TPM across multiple calls
+                        top_p=0.9,
+                        timeout=120  # 2 minute timeout for complex requests
+                    )
                 
                 duration = time.time() - start_time
                 content = response.choices[0].message.content

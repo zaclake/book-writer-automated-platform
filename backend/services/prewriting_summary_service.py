@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-from llm_orchestrator import LLMOrchestrator, GenerationResult
+from backend.auto_complete.llm_orchestrator import LLMOrchestrator, GenerationResult
 
 logger = logging.getLogger(__name__)
 

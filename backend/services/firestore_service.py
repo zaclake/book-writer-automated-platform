@@ -9,6 +9,7 @@ import os
 import uuid
 import json
 import tempfile
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, asdict
@@ -17,6 +18,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from google.api_core.exceptions import NotFound, PermissionDenied
 from google.oauth2 import service_account
 from google.cloud import storage
+from concurrent.futures import ThreadPoolExecutor
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -225,7 +227,7 @@ class FirestoreService:
         """Get user document by ID."""
         try:
             doc_ref = self.db.collection('users').document(user_id)
-            doc = doc_ref.get()
+            doc = await asyncio.get_event_loop().run_in_executor(None, doc_ref.get)
             
             if doc.exists:
                 return doc.to_dict()
@@ -239,7 +241,7 @@ class FirestoreService:
         """Update user document."""
         try:
             doc_ref = self.db.collection('users').document(user_id)
-            doc_ref.update(updates)
+            await asyncio.get_event_loop().run_in_executor(None, doc_ref.update, updates)
             
             logger.info(f"User {user_id} updated successfully")
             return True
@@ -1035,9 +1037,9 @@ class FirestoreService:
                     'generation_time': 0.0
                 }
             
-            # Save to Firestore
+            # Save to Firestore using thread pool to avoid blocking
             doc_ref = self.db.collection('generation_jobs').document(job_id)
-            doc_ref.set(job_data)
+            await asyncio.get_event_loop().run_in_executor(None, doc_ref.set, job_data)
             
             logger.info(f"Generation job {job_id} created successfully")
             return job_id
@@ -1050,7 +1052,7 @@ class FirestoreService:
         """Get generation job document by ID."""
         try:
             doc_ref = self.db.collection('generation_jobs').document(job_id)
-            doc = doc_ref.get()
+            doc = await asyncio.get_event_loop().run_in_executor(None, doc_ref.get)
             
             if doc.exists:
                 return doc.to_dict()
@@ -1064,7 +1066,7 @@ class FirestoreService:
         """Update generation job document."""
         try:
             doc_ref = self.db.collection('generation_jobs').document(job_id)
-            doc_ref.update(updates)
+            await asyncio.get_event_loop().run_in_executor(None, doc_ref.update, updates)
             
             logger.info(f"Generation job {job_id} updated successfully")
             return True

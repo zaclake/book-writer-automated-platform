@@ -62,16 +62,31 @@ class CoverArtJob:
 class CoverArtService:
     """Service for generating book cover art using OpenAI DALL-E 3."""
     
-    def __init__(self):
+    def __init__(self, user_id: Optional[str] = None):
         """Initialize the cover art service."""
         self.openai_client = None
+        self.billable_client = False
         self.firebase_bucket = None
         self.available = False
         
-        # Initialize OpenAI client
+        # Initialize OpenAI client - use BillableClient if user_id provided and billing enabled
         openai_api_key = os.getenv('OPENAI_API_KEY')
+        enable_billing = os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true'
+        
         if openai_api_key:
-            self.openai_client = OpenAI(api_key=openai_api_key)
+            if user_id and enable_billing:
+                try:
+                    from backend.services.billable_client import BillableOpenAIClient
+                    self.openai_client = BillableOpenAIClient(user_id)
+                    self.billable_client = True
+                    logger.info(f"Initialized billable cover art service for user {user_id}")
+                except ImportError:
+                    logger.warning("BillableClient not available, using regular OpenAI client")
+                    self.openai_client = OpenAI(api_key=openai_api_key)
+                    self.billable_client = False
+            else:
+                self.openai_client = OpenAI(api_key=openai_api_key)
+                self.billable_client = False
         else:
             logger.warning("OPENAI_API_KEY not found. Cover art generation will be disabled.")
             
@@ -535,7 +550,7 @@ class CoverArtService:
     
     async def generate_cover_image(self, prompt: str) -> Tuple[str, bytes]:
         """
-        Generate cover image using OpenAI DALL-E 3.
+        Generate cover image using OpenAI GPT-image-1 (primary) or DALL-E 3 (fallback).
         
         Args:
             prompt: Text prompt for image generation
@@ -553,27 +568,55 @@ class CoverArtService:
             # Try GPT-image-1 first (ChatGPT-4o's superior text rendering model)
             try:
                 logger.info("Attempting GPT-image-1 generation...")
-                response = self.openai_client.images.generate(
-                    model="gpt-image-1",
-                    prompt=prompt,
-                    size="1024x1536",  # Portrait (closest allowed)
-                    quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
-                    n=1
-                    # Note: GPT-image-1 doesn't support response_format parameter
-                )
-                logger.info("GPT-image-1 generation successful!")
+                
+                if self.billable_client:
+                    # Use billable client
+                    response, credits_charged = await self.openai_client.images_generate(
+                        model="gpt-image-1",
+                        prompt=prompt,
+                        size="1024x1536",  # Portrait (closest allowed)
+                        quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
+                        n=1
+                        # Note: GPT-image-1 doesn't support response_format parameter
+                    )
+                    logger.info(f"GPT-image-1 generation successful! Credits charged: {credits_charged}")
+                else:
+                    # Use regular client
+                    response = self.openai_client.images.generate(
+                        model="gpt-image-1",
+                        prompt=prompt,
+                        size="1024x1536",  # Portrait (closest allowed)
+                        quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
+                        n=1
+                        # Note: GPT-image-1 doesn't support response_format parameter
+                    )
+                    logger.info("GPT-image-1 generation successful!")
                 
             except Exception as gpt_image_error:
                 logger.warning(f"GPT-image-1 failed ({gpt_image_error}), falling back to DALL-E 3...")
                 # Fallback to DALL-E 3
-                response = self.openai_client.images.generate(
-                    model="dall-e-3",
-                    prompt=prompt,
-                    size="1024x1792",  # Closest to 1.6:1 aspect ratio available
-                    quality="hd",
-                    n=1,
-                    response_format="url"
-                )
+                if self.billable_client:
+                    # Use billable client
+                    response, credits_charged = await self.openai_client.images_generate(
+                        model="dall-e-3",
+                        prompt=prompt,
+                        size="1024x1792",  # Closest to 1.6:1 aspect ratio available
+                        quality="hd",
+                        n=1,
+                        response_format="url"
+                    )
+                    logger.info(f"DALL-E 3 generation successful! Credits charged: {credits_charged}")
+                else:
+                    # Use regular client
+                    response = self.openai_client.images.generate(
+                        model="dall-e-3",
+                        prompt=prompt,
+                        size="1024x1792",  # Closest to 1.6:1 aspect ratio available
+                        quality="hd",
+                        n=1,
+                        response_format="url"
+                    )
+                    logger.info("DALL-E 3 generation successful!")
             
             data_item = response.data[0]
             # Determine whether we got a URL (DALL-E 3) or b64_json (GPT-image-1)

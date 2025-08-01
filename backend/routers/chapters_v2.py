@@ -298,21 +298,57 @@ Write Chapter {chapter_number} in full, ensuring it flows naturally from previou
             
             logger.info(f"📝 Prompt prepared ({len(formatted_prompt)} characters, ~{len(formatted_prompt)//4} tokens)")
             
-            # Call OpenAI API directly
-            import openai
-            
+            # Call OpenAI API with credits billing if enabled
             logger.info("🔗 Calling OpenAI API...")
-            client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a professional novelist writing high-quality fiction chapters."},
-                    {"role": "user", "content": formatted_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=4000
-            )
+            # Check if billing is enabled and use BillableClient
+            enable_billing = os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true'
+            
+            if enable_billing and user_id:
+                try:
+                    from backend.services.billable_client import BillableOpenAIClient
+                    billable_client = BillableOpenAIClient(user_id)
+                    
+                    response, credits_charged = await billable_client.chat_completions_create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "You are a professional novelist writing high-quality fiction chapters."},
+                            {"role": "user", "content": formatted_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=4000
+                    )
+                    
+                    logger.info(f"✅ AI generation completed with billing! Credits charged: {credits_charged}")
+                    
+                except ImportError:
+                    logger.warning("BillableClient not available, using regular OpenAI client")
+                    import openai
+                    client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                    
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "You are a professional novelist writing high-quality fiction chapters."},
+                            {"role": "user", "content": formatted_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=4000
+                    )
+            else:
+                # Use regular OpenAI client (billing disabled or no user_id)
+                import openai
+                client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "You are a professional novelist writing high-quality fiction chapters."},
+                        {"role": "user", "content": formatted_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=4000
+                )
             
             generated_content = response.choices[0].message.content
             

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from llm_orchestrator import LLMOrchestrator, GenerationResult
+from backend.auto_complete.llm_orchestrator import LLMOrchestrator, GenerationResult
 from brutal_assessment_scorer import BrutalAssessmentScorer
 from reader_engagement_scorer import ReaderEngagementScorer
 from quality_gate_validator import QualityGateValidator

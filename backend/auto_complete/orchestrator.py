@@ -358,7 +358,7 @@ class AutoCompleteBookOrchestrator:
             if str(system_dir) not in sys.path:
                 sys.path.insert(0, str(system_dir))
             
-            from llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.auto_complete.llm_orchestrator import LLMOrchestrator, RetryConfig
             
             # Initialize LLM orchestrator
             retry_config = RetryConfig(max_retries=3)
@@ -458,7 +458,7 @@ The narrative unfolds as the characters face new challenges and developments. Ea
             if str(system_dir) not in sys.path:
                 sys.path.insert(0, str(system_dir))
             
-            from llm_orchestrator import LLMOrchestrator, RetryConfig
+            from backend.auto_complete.llm_orchestrator import LLMOrchestrator, RetryConfig
             
             # Initialize LLM orchestrator
             retry_config = RetryConfig(max_retries=3)
