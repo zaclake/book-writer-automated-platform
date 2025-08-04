@@ -7,6 +7,7 @@ Handles Clerk JWT token validation and user authentication.
 import os
 import logging
 import requests
+import base64
 from typing import Dict, Optional
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -36,12 +37,25 @@ class ClerkAuthMiddleware:
         if self.clerk_publishable_key:
             # Extract the instance ID from the publishable key
             if self.clerk_publishable_key.startswith('pk_test_') or self.clerk_publishable_key.startswith('pk_live_'):
-                # For newer Clerk versions, use the instance-specific JWKS URL
-                jwks_url = f"https://clerk.{self.clerk_publishable_key.split('_')[2]}.lcl.dev/.well-known/jwks.json"
-                if self.clerk_publishable_key.startswith('pk_live_'):
-                    jwks_url = f"https://clerk.{self.clerk_publishable_key.split('_')[2]}.com/.well-known/jwks.json"
-                self.jwks_client = PyJWKClient(jwks_url)
-                logger.info(f"Initialized JWKS client with URL: {jwks_url}")
+                try:
+                    # For newer Clerk versions, decode the base64-encoded domain from the publishable key
+                    encoded_domain = self.clerk_publishable_key.split('_')[2]
+                    decoded_domain = base64.b64decode(encoded_domain).decode('utf-8')
+                    
+                    # For test keys, use lcl.dev; for live keys, use the decoded domain
+                    if self.clerk_publishable_key.startswith('pk_test_'):
+                        jwks_url = f"https://clerk.{decoded_domain}.lcl.dev/.well-known/jwks.json"
+                    else:  # pk_live_
+                        jwks_url = f"https://clerk.{decoded_domain}/.well-known/jwks.json"
+                    
+                    self.jwks_client = PyJWKClient(jwks_url)
+                    logger.info(f"Initialized JWKS client with URL: {jwks_url}")
+                except Exception as e:
+                    logger.error(f"Failed to decode Clerk publishable key: {e}")
+                    # Fallback to hardcoded URL for writerbloom.com
+                    jwks_url = "https://clerk.writerbloom.com/.well-known/jwks.json"
+                    self.jwks_client = PyJWKClient(jwks_url)
+                    logger.info(f"Using fallback JWKS URL: {jwks_url}")
         
         if not self.clerk_publishable_key and not self.development_mode:
             logger.critical("CRITICAL: Backend started without CLERK_PUBLISHABLE_KEY - all authenticated routes will fail with 500")
