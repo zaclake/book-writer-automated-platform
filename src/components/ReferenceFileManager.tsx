@@ -57,7 +57,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
         return
       }
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/references?project_id=${projectId}`, {
+      const response = await fetch(`/api/v2/projects/${projectId}/references`, {
         headers: authHeaders
       })
       if (response.ok) {
@@ -67,7 +67,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
           const fileDetails = await Promise.all(
             files.map(async (fileInfo: any) => {
               try {
-                const fileResponse = await fetch(`/api/references/${fileInfo.name}?project_id=${projectId}`, {
+                const fileResponse = await fetch(`/api/v2/projects/${projectId}/references/${fileInfo.name}`, {
                   headers: authHeaders
                 })
                 if (fileResponse.ok) {
@@ -128,9 +128,9 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/references/${fileName}?project_id=${projectId}`, {
-        headers: authHeaders
-      })
+          const response = await fetch(`/api/v2/projects/${projectId}/references/${fileName}`, {
+      headers: authHeaders
+    })
       
       if (response.ok) {
         const fileData = await response.json()
@@ -159,7 +159,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/references/${selectedFile.name}?project_id=${projectId}`, {
+      const response = await fetch(`/api/v2/projects/${projectId}/references/${selectedFile.name}`, {
         method: 'PUT',
         headers: {
           ...authHeaders,
@@ -215,13 +215,13 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/references/generate', {
+      const response = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: {
           ...authHeaders,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ project_id: projectId })
+        body: JSON.stringify({})
       })
 
       if (response.ok) {
@@ -269,13 +269,13 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/references/${fileName}/regenerate`, {
+      const response = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: {
           ...authHeaders,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ project_id: projectId })
+        body: JSON.stringify({ regenerate: true, filename: fileName })
       })
 
       if (response.ok) {

@@ -73,7 +73,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
       const authHeaders = await getAuthHeaders()
 
       // Load reference files for quick access
-      const referencesResponse = await fetch(`/api/references?project_id=${projectId}`, {
+              const referencesResponse = await fetch(`/api/v2/projects/${projectId}/references`, {
         headers: authHeaders
       })
       

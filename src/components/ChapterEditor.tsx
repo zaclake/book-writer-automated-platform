@@ -154,7 +154,7 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
     
     try {
       setIsLoadingReferences(true)
-      const response = await fetch(`/api/references?project_id=${projectId}`)
+              const response = await fetch(`/api/v2/projects/${projectId}/references`)
 
       if (response.ok) {
         const data = await response.json()
@@ -619,7 +619,7 @@ const ChapterEditor: React.FC<ChapterEditorProps> = ({
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => window.open(`/api/references/${file.name}?project_id=${projectId}`, '_blank')}
+                          onClick={() => window.open(`/api/v2/projects/${projectId}/references/${file.name}`, '_blank')}
                           className="mt-2 h-6 px-2 text-xs"
                         >
                           View Full
