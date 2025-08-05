@@ -115,16 +115,16 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       
       // Load project details, chapters, summary, and references in parallel
       const [projectRes, chaptersRes, summaryRes, referencesRes] = await Promise.all([
-        fetch(`/api/projects/${projectId}`, {
+        fetch(`/api/v2/projects/${projectId}`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
         }),
-        fetch(`/api/projects/${projectId}/chapters`, {
+        fetch(`/api/v2/projects/${projectId}/chapters`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
         }),
         fetch(`/api/prewriting/summary?project_id=${projectId}`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
         }),
-        fetch(`/api/projects/${projectId}/references`, {
+        fetch(`/api/v2/projects/${projectId}/references`, {
           headers: { 'Authorization': `Bearer ${await getToken()}` }
         })
       ])
@@ -189,14 +189,17 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         
         // Ensure all word_count values are numeric to prevent NaN in calculations
         const sanitizedChapters = chapters.map((chapter: any) => {
-          const wordCount = Number(chapter.word_count) || 0
-          const targetWordCount = Number(chapter.target_word_count) || 2000
+          // More robust word count extraction - try multiple possible locations
+          const wordCount = Number(chapter.metadata?.word_count || chapter.word_count || 0)
+          const targetWordCount = Number(chapter.metadata?.target_word_count || chapter.target_word_count || 2000)
           const directorNotesCount = Number(chapter.director_notes_count) || 0
           
           console.log(`[ProjectDashboard] Sanitizing chapter ${chapter.id}:`, {
             originalWordCount: chapter.word_count,
+            metadataWordCount: chapter.metadata?.word_count,
             sanitizedWordCount: wordCount,
             originalTargetWordCount: chapter.target_word_count,
+            metadataTargetWordCount: chapter.metadata?.target_word_count,
             sanitizedTargetWordCount: targetWordCount
           })
           
