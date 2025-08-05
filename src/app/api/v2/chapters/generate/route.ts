@@ -48,17 +48,30 @@ export async function POST(request: NextRequest) {
 
     // Get request body
     const body = await request.json()
+    console.log('[v2/chapters/generate] Request body keys:', Object.keys(body))
 
     const targetUrl = `${backendBaseUrl}/v2/chapters/generate`
     
     console.log('[v2/chapters/generate] Forwarding to:', targetUrl)
+    console.log('[v2/chapters/generate] Headers:', Object.keys(headers))
 
-    const backendResponse = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      cache: 'no-store'
-    })
+    let backendResponse;
+    try {
+      backendResponse = await fetch(targetUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(30000) // 30 second timeout
+      })
+      console.log('[v2/chapters/generate] Backend response status:', backendResponse.status)
+    } catch (fetchError) {
+      console.error('[v2/chapters/generate] Fetch error:', fetchError)
+      return NextResponse.json(
+        { error: 'Failed to connect to backend service', details: fetchError.message },
+        { status: 503 }
+      )
+    }
 
     const data = await backendResponse.json()
     
