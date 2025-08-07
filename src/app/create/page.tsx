@@ -4,6 +4,7 @@ import { BookBibleCreator } from '@/components/BookBibleCreator'
 import { BookBibleData } from '@/lib/types'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
+import { Card, CardContent } from '@/components/ui/card'
 
 export default function CreateProjectPage() {
   const router = useRouter()
@@ -73,19 +74,31 @@ export default function CreateProjectPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          Create New Project
-        </h1>
-        <p className="mt-2 text-lg text-gray-600">
-          Set up a new book writing project with AI assistance
-        </p>
+    <div className="min-h-screen bg-brand-off-white">
+      {/* Hero */}
+      <div className="relative min-h-[32vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white/20 rounded-full animate-float"></div>
+          <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-white/30 rounded-full animate-float" style={{animationDelay: '2s'}}></div>
+          <div className="absolute bottom-1/3 left-1/3 w-3 h-3 bg-white/10 rounded-full animate-float" style={{animationDelay: '4s'}}></div>
+        </div>
+        <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-black/10"></div>
+        <div className="relative z-10 flex items-center justify-center min-h-[32vh] px-6 md:px-8 lg:px-12">
+          <div className="text-center max-w-3xl">
+            <h1 className="text-4xl font-black text-white mb-3 tracking-tight">Start from My Idea</h1>
+            <p className="text-white/90 text-lg font-medium">Use QuickStart or the full Guided Wizard to transform your idea into a book bible.</p>
+          </div>
+        </div>
       </div>
 
-      <BookBibleCreator 
-        onComplete={handleComplete}
-      />
+      {/* Content */}
+      <div className="w-full px-6 md:px-8 lg:px-12 py-10">
+        <Card className="bg-white/60 backdrop-blur-sm border border-white/50 shadow-xl max-w-5xl mx-auto">
+          <CardContent className="p-0 md:p-2">
+            <BookBibleCreator onComplete={handleComplete} />
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 } 
