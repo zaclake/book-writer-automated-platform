@@ -26,7 +26,8 @@ import {
   TrashIcon,
   GiftIcon,
   LightBulbIcon,
-  ClipboardDocumentListIcon
+  ClipboardDocumentListIcon,
+  CurrencyDollarIcon
 } from '@heroicons/react/24/outline'
 
 export default function Dashboard() {
@@ -522,7 +523,7 @@ export default function Dashboard() {
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Gifts</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 2-4 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside pl-1">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc [text-indent:-.6rem] pl-6">
                       <li>Tell us about the recipient</li>
                       <li>Pick tone and theme</li>
                       <li>We set up your story space</li>
@@ -541,14 +542,14 @@ export default function Dashboard() {
                     }}
                     className="group p-6 border-2 border-gray-200 rounded-xl hover:border-brand-lavender/60 hover:bg-brand-lavender/5 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
-                    <ClipboardDocumentListIcon className="w-6 h-6 text-brand-lavender mb-2" />
+                    <LightBulbIcon className="w-6 h-6 text-brand-lavender mb-2" />
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Start from My Idea</h3>
                     <p className="text-gray-600 mb-2">Bring your idea. Go QuickStart or take the Guided path to shape it step by step.</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Any idea</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 5-15 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside pl-1">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc [text-indent:-.6rem] pl-6">
                       <li>QuickStart or Guided</li>
                       <li>Define story essentials</li>
                       <li>Jump into writing</li>
@@ -577,7 +578,7 @@ export default function Dashboard() {
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Speed</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1-2 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside pl-1">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc [text-indent:-.6rem] pl-6">
                       <li>Paste your notes</li>
                       <li>Confirm details</li>
                       <li>Start creating</li>
@@ -592,7 +593,7 @@ export default function Dashboard() {
                     title="Coming soon"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <LightBulbIcon className="w-6 h-6 text-brand-lavender" />
+                      <CurrencyDollarIcon className="w-6 h-6 text-brand-lavender" />
                       <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 font-semibold">Coming soon</span>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-1">Publish for Passive Income</h3>
@@ -601,7 +602,7 @@ export default function Dashboard() {
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Publishing</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1-2 min</span>
                     </div>
-                    <ul className="text-sm text-gray-500 space-y-0.5 list-disc list-inside">
+                    <ul className="text-sm text-gray-500 space-y-0.5 list-disc [text-indent:-.6rem] pl-6">
                       <li>Preview curated ideas</li>
                       <li>Pick your favorite</li>
                       <li>We set everything up</li>
