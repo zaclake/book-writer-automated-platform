@@ -14,6 +14,7 @@ const nextConfig = {
     // Temporarily ignore TypeScript errors during builds for deployment
     ignoreBuildErrors: true,
   },
+  // API requests are now handled by proper Next.js API routes with authentication
   // Fix development server reloading issues
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {

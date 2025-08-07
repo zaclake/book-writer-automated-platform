@@ -117,7 +117,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
         const token = await getToken()
         if (!token) return
         
-        const response = await fetch(`/api/projects/${projectId}/chapters`, {
+        const response = await fetch(`/api/v2/projects/${projectId}/chapters`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         

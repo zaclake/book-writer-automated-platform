@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { UserButton, useUser } from '@clerk/nextjs'
 import Image from 'next/image'
 import { UI_STRINGS } from '@/lib/strings'
+import { CreditBalance } from '@/components/CreditBalance'
 
 interface TopNavProps {
   currentProject?: {
@@ -168,7 +169,12 @@ const TopNav: React.FC<TopNavProps> = ({ currentProject }) => {
                 </button>
               )}
 
-              {user && <UserButton afterSignOutUrl="/" />}
+              {user && (
+                <>
+                  <CreditBalance variant="compact" className="hidden sm:flex" />
+                  <UserButton afterSignOutUrl="/" />
+                </>
+              )}
               
               {!user && (
                 <div className="flex items-center space-x-3">
@@ -208,6 +214,11 @@ const TopNav: React.FC<TopNavProps> = ({ currentProject }) => {
             aria-label="Mobile navigation"
           >
             <div className="px-4 py-6 space-y-4">
+              {/* Credits on mobile */}
+              <div className="pb-4 border-b border-gray-200">
+                <CreditBalance variant="full" />
+              </div>
+
               {/* Project info on mobile */}
               {currentProject && (
                 <div className="pb-4 border-b border-gray-200">

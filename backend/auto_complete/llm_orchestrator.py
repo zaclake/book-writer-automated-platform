@@ -210,6 +210,7 @@ class LLMOrchestrator:
                     billable_response = await self.client.chat_completions_create(
                         model=self.model,
                         messages=messages,
+                        timeout=120,  # 2 minute timeout for chapter generation
                         **kwargs
                     )
                     response = billable_response.response
@@ -227,6 +228,7 @@ class LLMOrchestrator:
                     response = self.client.chat.completions.create(
                         model=self.model,
                         messages=messages,
+                        timeout=120,  # 2 minute timeout for chapter generation
                         **kwargs
                     )
                     if hasattr(response, '_credits_charged'):

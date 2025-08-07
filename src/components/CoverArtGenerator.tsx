@@ -63,7 +63,7 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
       try {
         const token = await getToken()
         // fetch project
-        const projRes = await fetch(`/api/projects/${projectId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        const projRes = await fetch(`/api/v2/projects/${projectId}`, { headers: { 'Authorization': `Bearer ${token}` } })
         if (projRes.ok) {
           const data = await projRes.json()
           const p = data.project || data
@@ -104,7 +104,7 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
   const checkReferenceProgress = async () => {
     try {
       const token = await getToken()
-      const response = await fetch(`/api/projects/${projectId}/references/progress`, {
+              const response = await fetch(`/api/v2/projects/${projectId}/references/progress`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

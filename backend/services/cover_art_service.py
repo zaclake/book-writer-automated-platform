@@ -571,7 +571,7 @@ class CoverArtService:
                 
                 if self.billable_client:
                     # Use billable client
-                    response, credits_charged = await self.openai_client.images_generate(
+                    billable_response = await self.openai_client.images_generate(
                         model="gpt-image-1",
                         prompt=prompt,
                         size="1024x1536",  # Portrait (closest allowed)
@@ -579,6 +579,8 @@ class CoverArtService:
                         n=1
                         # Note: GPT-image-1 doesn't support response_format parameter
                     )
+                    response = billable_response.response
+                    credits_charged = billable_response.credits_charged
                     logger.info(f"GPT-image-1 generation successful! Credits charged: {credits_charged}")
                 else:
                     # Use regular client
@@ -597,7 +599,7 @@ class CoverArtService:
                 # Fallback to DALL-E 3
                 if self.billable_client:
                     # Use billable client
-                    response, credits_charged = await self.openai_client.images_generate(
+                    billable_response = await self.openai_client.images_generate(
                         model="dall-e-3",
                         prompt=prompt,
                         size="1024x1792",  # Closest to 1.6:1 aspect ratio available
@@ -605,6 +607,8 @@ class CoverArtService:
                         n=1,
                         response_format="url"
                     )
+                    response = billable_response.response
+                    credits_charged = billable_response.credits_charged
                     logger.info(f"DALL-E 3 generation successful! Credits charged: {credits_charged}")
                 else:
                     # Use regular client

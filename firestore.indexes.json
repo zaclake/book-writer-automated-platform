@@ -2,7 +2,7 @@
   "indexes": [
     {
       "collectionGroup": "chapters",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "project_id",
@@ -16,7 +16,7 @@
     },
     {
       "collectionGroup": "chapters",
-      "queryScope": "COLLECTION_GROUP",
+      "queryScope": "COLLECTION",
       "fields": [
         {
           "fieldPath": "project_id",
@@ -28,7 +28,38 @@
         }
       ]
     },
-
+    {
+      "collectionGroup": "cover_art_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "project_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "cover_art_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
     {
       "collectionGroup": "generation_jobs",
       "queryScope": "COLLECTION",
@@ -44,33 +75,29 @@
       ]
     },
     {
-      "collectionGroup": "cover_art_jobs",
+      "collectionGroup": "credits_transactions",
       "queryScope": "COLLECTION",
       "fields": [
-        {
-          "fieldPath": "project_id",
-          "order": "ASCENDING"
-        },
         {
           "fieldPath": "user_id",
           "order": "ASCENDING"
         },
         {
           "fieldPath": "created_at",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
           "order": "DESCENDING"
         }
       ]
     },
     {
-      "collectionGroup": "cover_art_jobs",
-      "queryScope": "COLLECTION", 
+      "collectionGroup": "credits_transactions",
+      "queryScope": "COLLECTION",
       "fields": [
         {
           "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
           "order": "ASCENDING"
         },
         {
@@ -78,7 +105,82 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "credits_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "credits_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "reason",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "metadata.owner_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "metadata.created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "projects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "metadata.owner_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "metadata.status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "metadata.updated_at",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "credits_transactions",
+      "fieldPath": "created_at",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    }
+  ]
 }

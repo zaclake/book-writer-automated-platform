@@ -64,6 +64,10 @@ export function ChapterGenerationForm({
       if (response.ok) {
         setStatus(`✅ Chapter ${chapterNumber} generated successfully!`)
         setChapterNumber(prev => prev + 1)
+        
+        // Trigger credit balance refresh after successful generation
+        window.dispatchEvent(new CustomEvent('refreshCreditBalance'))
+        
         onGenerationComplete()
       } else {
         setStatus(`❌ Generation failed: ${data.error || JSON.stringify(data)}`)

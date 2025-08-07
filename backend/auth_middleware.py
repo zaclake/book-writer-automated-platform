@@ -39,17 +39,33 @@ class ClerkAuthMiddleware:
             if self.clerk_publishable_key.startswith('pk_test_') or self.clerk_publishable_key.startswith('pk_live_'):
                 try:
                     # For newer Clerk versions, decode the base64-encoded domain from the publishable key
-                    encoded_domain = self.clerk_publishable_key.split('_')[2]
-                    decoded_domain = base64.b64decode(encoded_domain).decode('utf-8')
-                    
-                    # For test keys, use lcl.dev; for live keys, use the decoded domain
-                    if self.clerk_publishable_key.startswith('pk_test_'):
-                        jwks_url = f"https://clerk.{decoded_domain}.lcl.dev/.well-known/jwks.json"
-                    else:  # pk_live_
-                        jwks_url = f"https://clerk.{decoded_domain}/.well-known/jwks.json"
-                    
-                    self.jwks_client = PyJWKClient(jwks_url)
-                    logger.info(f"Initialized JWKS client with URL: {jwks_url}")
+                    key_parts = self.clerk_publishable_key.split('_')
+                    if len(key_parts) >= 3:
+                        encoded_domain = key_parts[2]
+                        
+                        # Add padding if needed for base64 decoding
+                        missing_padding = len(encoded_domain) % 4
+                        if missing_padding:
+                            encoded_domain += '=' * (4 - missing_padding)
+                        
+                        try:
+                            decoded_domain = base64.b64decode(encoded_domain, validate=True).decode('utf-8')
+                            
+                            # For test keys, use lcl.dev; for live keys, use the decoded domain
+                            if self.clerk_publishable_key.startswith('pk_test_'):
+                                jwks_url = f"https://clerk.{decoded_domain}.lcl.dev/.well-known/jwks.json"
+                            else:  # pk_live_
+                                jwks_url = f"https://clerk.{decoded_domain}/.well-known/jwks.json"
+                            
+                            self.jwks_client = PyJWKClient(jwks_url)
+                            logger.info(f"Initialized JWKS client with URL: {jwks_url}")
+                        except (ValueError, UnicodeDecodeError) as decode_error:
+                            logger.warning(f"Could not decode domain from publishable key: {decode_error}")
+                            raise
+                    else:
+                        logger.warning(f"Publishable key format unexpected: {len(key_parts)} parts")
+                        raise ValueError("Publishable key format invalid")
+                        
                 except Exception as e:
                     logger.error(f"Failed to decode Clerk publishable key: {e}")
                     # Fallback to hardcoded URL for writerbloom.com
@@ -125,16 +141,17 @@ class ClerkAuthMiddleware:
                 signing_key = self.jwks_client.get_signing_key_from_jwt(token)
             
             # Decode JWT token using the public key
+            # Support both RS256 (RSA) and EdDSA (Ed25519) algorithms used by Clerk tokens
             payload = jwt.decode(
                 token,
                 signing_key.key,
-                algorithms=["RS256"],
+                algorithms=["RS256", "EdDSA"],
                 options={"verify_exp": True, "verify_aud": False}
             )
             
             # Extract user information
             user_info = {
-                "user_id": payload.get("sub"),
+                "user_id": payload.get("sub") or payload.get("uid") or payload.get("user_id"),
                 "email": payload.get("email"),
                 "first_name": payload.get("given_name"),
                 "last_name": payload.get("family_name"),
@@ -147,7 +164,8 @@ class ClerkAuthMiddleware:
             if not user_info["user_id"]:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid token: missing user ID"
+                    detail="Invalid token: missing user ID",
+                    headers={"WWW-Authenticate": "Bearer", "X-Auth-Error": "missing-user-id"}
                 )
             
             logger.info(f"User authenticated: {user_info['user_id']}")
@@ -158,21 +176,21 @@ class ClerkAuthMiddleware:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token has expired",
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer", "X-Auth-Error": "token-expired"},
             )
         except jwt.InvalidTokenError as e:
             logger.warning(f"Invalid token: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer", "X-Auth-Error": f"invalid-token: {str(e)}"},
             )
         except Exception as e:
             logger.error(f"Token verification failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication failed",
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer", "X-Auth-Error": f"auth-failed: {str(e)}"},
             )
     
     def get_user_permissions(self, user_info: Dict[str, str]) -> Dict[str, bool]:

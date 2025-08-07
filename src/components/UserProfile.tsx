@@ -2,9 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth, useUser } from '@clerk/nextjs'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CreditBalance, useCreditsCheck } from '@/components/CreditBalance'
+import { useCreditsApi, type CreditTransaction } from '@/lib/api-client'
 import { 
   UserIcon, 
   PencilIcon, 
@@ -15,7 +19,11 @@ import {
   GlobeAltIcon,
   AcademicCapIcon,
   BriefcaseIcon,
-  HeartIcon
+  HeartIcon,
+  Zap,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline'
 
 interface UserProfileData {
@@ -40,11 +48,23 @@ interface UsageData {
 export default function UserProfile() {
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
+  const searchParams = useSearchParams()
   const [profileData, setProfileData] = useState<UserProfileData | null>(null)
   const [usageData, setUsageData] = useState<UsageData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [isEditing, setIsEditing] = useState(false)
+  
+  // Credits state
+  const creditsApi = useCreditsApi()
+  const { balance } = useCreditsCheck()
+  const [transactions, setTransactions] = useState<CreditTransaction[]>([])
+  const [transactionsLoading, setTransactionsLoading] = useState(false)
+  const [hasMoreTransactions, setHasMoreTransactions] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | undefined>()
+  
+  // Get active tab from URL params
+  const activeTab = searchParams.get('tab') || 'profile'
 
   useEffect(() => {
     if (isLoaded) {
@@ -79,6 +99,36 @@ export default function UserProfile() {
       setIsLoading(false)
     }
   }
+
+  const loadTransactions = async (cursor?: string) => {
+    try {
+      setTransactionsLoading(true)
+      const response = await creditsApi.getTransactions(25, cursor)
+      
+      if (response.ok && response.data) {
+        if (cursor) {
+          // Loading more - append to existing
+          setTransactions(prev => [...prev, ...response.data.transactions])
+        } else {
+          // Initial load - replace
+          setTransactions(response.data.transactions)
+        }
+        setHasMoreTransactions(response.data.has_more)
+        setNextCursor(response.data.next_cursor)
+      }
+    } catch (error) {
+      console.error('Error loading transactions:', error)
+    } finally {
+      setTransactionsLoading(false)
+    }
+  }
+
+  // Load transactions when Credits tab is active
+  useEffect(() => {
+    if (activeTab === 'credits' && user) {
+      loadTransactions()
+    }
+  }, [activeTab, user])
 
   const getPurposeIcon = (purpose: string) => {
     switch (purpose) {
@@ -127,6 +177,31 @@ export default function UserProfile() {
     }
   }
 
+  const formatTransactionType = (transaction: CreditTransaction) => {
+    const isCredit = transaction.type === 'credit'
+    return {
+      icon: isCredit ? ArrowUpIcon : ArrowDownIcon,
+      color: isCredit ? 'text-green-600' : 'text-red-600',
+      bgColor: isCredit ? 'bg-green-100' : 'bg-red-100',
+      sign: isCredit ? '+' : '-'
+    }
+  }
+
+  const formatTransactionReason = (reason: string) => {
+    const reasonMap: { [key: string]: string } = {
+      'beta_grant': 'Beta Credits',
+      'account_creation': 'Welcome Bonus',
+      'purchase': 'Credit Purchase',
+      'chapter_generation': 'Chapter Generation',
+      'reference_generation': 'Reference Creation',
+      'cover_art_generation': 'Cover Art',
+      'admin_grant': 'Admin Grant',
+      'refund': 'Refund',
+      'auto_complete': 'Auto-Complete Feature'
+    }
+    return reasonMap[reason] || reason.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+  }
+
   if (!isLoaded || isLoading) {
     return (
       <div className="min-h-screen bg-brand-off-white py-8">
@@ -156,7 +231,7 @@ export default function UserProfile() {
 
   return (
     <div className="min-h-screen bg-brand-off-white py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Profile Header */}
         <Card className="mb-8 overflow-hidden">
           <div className="bg-gradient-to-r from-brand-soft-purple via-brand-lavender to-brand-forest px-6 py-8">
@@ -191,16 +266,26 @@ export default function UserProfile() {
           </div>
         </Card>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Writing Preferences */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <BookOpenIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
-                Writing Profile
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
+        {/* Tabbed Content */}
+        <Tabs value={activeTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="credits">Credits</TabsTrigger>
+            <TabsTrigger value="account">Account</TabsTrigger>
+          </TabsList>
+
+          {/* Profile Tab */}
+          <TabsContent value="profile">
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Writing Preferences */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <BookOpenIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
+                    Writing Profile
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
               {profileData ? (
                 <>
                   {/* Purpose */}
@@ -278,32 +363,15 @@ export default function UserProfile() {
             </CardContent>
           </Card>
 
-          {/* Account & Billing */}
-          <div className="space-y-6">
-            {/* Credits & Usage */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <CreditCardIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
-                  Credits & Usage
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* Credits Display - Placeholder for future feature */}
-                  <div className="flex items-center justify-between p-4 bg-gradient-to-r from-brand-lavender/10 to-brand-soft-purple/10 rounded-lg border border-brand-lavender/20">
-                    <div>
-                      <div className="font-medium text-gray-900">Available Credits</div>
-                      <div className="text-2xl font-bold text-brand-soft-purple">∞</div>
-                      <div className="text-xs text-gray-500">Unlimited during beta</div>
-                    </div>
-                    <Button variant="outline" disabled className="opacity-50">
-                      Add Credits
-                      <span className="ml-2 text-xs">(Coming Soon)</span>
-                    </Button>
-                  </div>
-
-                  {/* Usage Stats - Placeholder */}
+              {/* Usage Stats */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <ChartBarIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
+                    Usage Stats
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="text-center p-3 bg-brand-sand/20 rounded-lg">
                       <div className="text-lg font-bold text-brand-forest">--</div>
@@ -314,47 +382,162 @@ export default function UserProfile() {
                       <div className="text-xs text-gray-600">Words Written</div>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Credits Tab */}
+          <TabsContent value="credits">
+            <div className="space-y-6">
+              {/* Credit Balance Overview */}
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="md:col-span-2">
+                  <CreditBalance variant="full" />
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Account Settings */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <UserIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
-                  Account Settings
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-brand-sand/20 rounded-lg">
-                    <div>
-                      <div className="font-medium text-gray-900">Email</div>
-                      <div className="text-sm text-gray-600">{user.emailAddresses[0]?.emailAddress}</div>
-                    </div>
-                    <Badge variant="outline">Verified</Badge>
-                  </div>
-                  
-                  <div className="flex items-center justify-between p-3 bg-brand-sand/20 rounded-lg">
-                    <div>
-                      <div className="font-medium text-gray-900">Account Type</div>
-                      <div className="text-sm text-gray-600">Beta User</div>
-                    </div>
-                    <Badge className="bg-brand-soft-purple text-white">Free</Badge>
-                  </div>
-
-                  <div className="pt-4 border-t border-gray-200">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center text-sm">
+                      <Zap className="w-4 h-4 mr-2 text-yellow-500" />
+                      Quick Actions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
                     <Button variant="outline" className="w-full" disabled>
-                      <span>Manage Billing</span>
-                      <span className="ml-2 text-xs opacity-60">(Coming Soon)</span>
+                      Purchase Credits
+                      <span className="ml-2 text-xs opacity-60">(Soon)</span>
                     </Button>
+                    <Button variant="ghost" className="w-full text-xs" onClick={() => loadTransactions()}>
+                      Refresh Balance
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Transaction History */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <ClockIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
+                    Transaction History
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {transactionsLoading && transactions.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-soft-purple mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading transactions...</p>
+                    </div>
+                  ) : transactions.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Zap className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions yet</h3>
+                      <p className="text-gray-600">Your credit transactions will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {transactions.map((transaction) => {
+                        const typeInfo = formatTransactionType(transaction)
+                        const Icon = typeInfo.icon
+                        
+                        return (
+                          <div key={transaction.txn_id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
+                            <div className="flex items-center space-x-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${typeInfo.bgColor}`}>
+                                <Icon className={`w-4 h-4 ${typeInfo.color}`} />
+                              </div>
+                              <div>
+                                <div className="font-medium text-gray-900">
+                                  {formatTransactionReason(transaction.reason)}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {new Date(transaction.created_at).toLocaleDateString()} at {new Date(transaction.created_at).toLocaleTimeString()}
+                                </div>
+                                {transaction.meta?.operation_type && (
+                                  <div className="text-xs text-gray-400">
+                                    {transaction.meta.operation_type} • {transaction.meta.model || 'N/A'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`font-medium ${typeInfo.color}`}>
+                                {typeInfo.sign}{transaction.amount.toLocaleString()} credits
+                              </div>
+                              {transaction.balance_after !== undefined && (
+                                <div className="text-sm text-gray-500">
+                                  Balance: {transaction.balance_after.toLocaleString()}
+                                </div>
+                              )}
+                              <Badge 
+                                variant={transaction.status === 'completed' ? 'outline' : 'secondary'}
+                                className="text-xs mt-1"
+                              >
+                                {transaction.status}
+                              </Badge>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      
+                      {hasMoreTransactions && (
+                        <div className="text-center pt-4">
+                          <Button 
+                            variant="outline" 
+                            onClick={() => loadTransactions(nextCursor)}
+                            disabled={transactionsLoading}
+                          >
+                            {transactionsLoading ? 'Loading...' : 'Load More'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Account Tab */}
+          <TabsContent value="account">
+            <div className="max-w-2xl space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <UserIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
+                    Account Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-brand-sand/20 rounded-lg">
+                      <div>
+                        <div className="font-medium text-gray-900">Email</div>
+                        <div className="text-sm text-gray-600">{user.emailAddresses[0]?.emailAddress}</div>
+                      </div>
+                      <Badge variant="outline">Verified</Badge>
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-3 bg-brand-sand/20 rounded-lg">
+                      <div>
+                        <div className="font-medium text-gray-900">Account Type</div>
+                        <div className="text-sm text-gray-600">Beta User</div>
+                      </div>
+                      <Badge className="bg-brand-soft-purple text-white">Free</Badge>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-200">
+                      <Button variant="outline" className="w-full" disabled>
+                        <span>Manage Billing</span>
+                        <span className="ml-2 text-xs opacity-60">(Coming Soon)</span>
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
 
         {/* Success Message */}
         {profileData && (

@@ -2,6 +2,9 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "./start.sh"
+startCommand = "bash start.sh"
 restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3 
+restartPolicyMaxRetries = 3
+
+[variables]
+PYTHONPATH = "/app" 

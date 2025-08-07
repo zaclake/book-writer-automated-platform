@@ -99,12 +99,9 @@
       "permanent": false
     }
   ],
-  "rewrites": [
-    {
-      "source": "/api/backend/(.*)",
-      "destination": "https://your-railway-backend.up.railway.app/api/$1"
-    }
-  ],
+  "env": {
+    "NEXT_PUBLIC_BACKEND_URL": "https://silky-loss-production.up.railway.app"
+  },
   "regions": ["iad1", "sfo1"],
   "crons": [
     {

@@ -90,7 +90,7 @@ export default function ReferenceReviewPage() {
     const findProjectId = async () => {
       try {
         const authHeaders = await getAuthHeaders()
-        const response = await fetch('/api/projects', {
+        const response = await fetch('/api/v2/projects', {
           method: 'GET',
           headers: authHeaders
         })

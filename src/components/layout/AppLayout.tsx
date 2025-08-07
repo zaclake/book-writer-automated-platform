@@ -6,6 +6,8 @@ import { useUser, useAuth } from '@clerk/nextjs'
 import TopNav from './TopNav'
 import { SyncStatusIndicator } from '@/lib/firestore-offline'
 import { ensureFirebaseInitialized } from '@/lib/firestore-client'
+import { BuyCreditsModal, useGlobalBuyCreditsModal } from '@/components/BuyCreditsModal'
+import { Toaster } from 'sonner'
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -25,6 +27,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
   const pathname = usePathname()
+  const { modalProps } = useGlobalBuyCreditsModal()
   
   // Feature flag for new layout (defaults to true, set to 'false' to rollback)
   const useNewLayout = process.env.NEXT_PUBLIC_USE_NEW_LAYOUT !== 'false'
@@ -53,7 +56,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
             return
           }
           
-          const response = await fetch('/api/projects', {
+          const response = await fetch('/api/v2/projects', {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
@@ -174,6 +177,12 @@ const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
         </div>
       </main>
+
+      {/* Global Buy Credits Modal */}
+      <BuyCreditsModal {...modalProps} />
+
+      {/* Global Toast Notifications */}
+      <Toaster position="top-right" richColors />
     </div>
   )
 }

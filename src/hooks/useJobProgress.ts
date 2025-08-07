@@ -40,7 +40,7 @@ export function useJobProgress(
   const pollProgress = useCallback(async (id: string) => {
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/projects/${id}/references/progress`, {
+      const response = await fetch(`/api/v2/projects/${id}/references/progress`, {
         headers: authHeaders
       })
       

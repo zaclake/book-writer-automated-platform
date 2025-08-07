@@ -33,6 +33,7 @@ class ChapterStage(str, Enum):
     DRAFT = "draft"
     REVISION = "revision"
     COMPLETE = "complete"
+    AI_GENERATED = "ai_generated"
 
 class JobStatus(str, Enum):
     PENDING = "pending"

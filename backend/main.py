@@ -23,6 +23,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi.exception_handlers import RequestValidationError
 from fastapi import status
+import platform
 
 # Configure structured logging
 logging.basicConfig(
@@ -277,6 +278,8 @@ app.add_middleware(
 # Add security headers and logging middleware
 @app.middleware("http")
 async def add_security_headers_and_logging(request, call_next):
+    """Add basic security headers and log request/response."""
+    
     """Add security headers and request logging to all responses."""
     # Generate request ID for tracing
     req_id = str(uuid.uuid4())[:8]
@@ -339,6 +342,18 @@ async def add_security_headers_and_logging(request, call_next):
         raise
 
 # Security
+# --------------------------------------------------------------------
+# Fix mixed-content redirects: ensure all Location headers use HTTPS
+# --------------------------------------------------------------------
+@app.middleware("http")
+async def enforce_https_in_redirects(request, call_next):
+    """Rewrite any Location header starting with http:// to https://"""
+    response = await call_next(request)
+    location = response.headers.get("location")
+    if location and location.startswith("http://"):
+        response.headers["location"] = location.replace("http://", "https://", 1)
+    return response
+
 security = HTTPBearer()
 
 from auth_middleware import get_current_user, security
@@ -452,6 +467,34 @@ except Exception as e:
     logger.error(f"Error type: {type(e).__name__}")
     import traceback
     logger.error(f"Full traceback: {traceback.format_exc()}")
+
+# Configuration endpoint
+@app.get("/config")
+async def get_config():
+    """Get backend configuration for frontend bootstrapping."""
+    try:
+        # Get pricing markup from environment
+        pricing_markup = float(os.getenv('CREDITS_MARKUP', '5.0'))
+        
+        # Check if credits system is enabled
+        credits_enabled = os.getenv('ENABLE_CREDITS_SYSTEM', 'false').lower() == 'true'
+        
+        # Get basic version info
+        backend_version = f"FastAPI-{platform.python_version()}"
+        
+        return {
+            "backend_version": backend_version,
+            "credits_enabled": credits_enabled,
+            "pricing_markup": pricing_markup,
+            "environment": os.getenv('RAILWAY_ENVIRONMENT', 'development'),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get config: {e}")
+        return {
+            "error": "Failed to load configuration",
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 # Debug endpoints
 @app.get("/debug/auth-config")
@@ -938,6 +981,74 @@ async def start_auto_complete(
         # Generate unique job ID
         job_id = str(uuid.uuid4())
         
+        # Provisional credit debit for the estimated job cost
+        provisional_txn_id = None
+        try:
+            from backend.auto_complete.estimate_utils import estimate_auto_complete_credits
+            
+            # Get credit estimate for the job (sync utility)
+            credit_estimate = estimate_auto_complete_credits(
+                total_chapters=auto_complete_request.target_chapters,
+                words_per_chapter=auto_complete_request.words_per_chapter,
+                quality_threshold=auto_complete_request.quality_threshold
+            )
+            
+            estimated_credits = credit_estimate.get('estimated_total_credits', 0)
+            
+            # Create provisional debit if credits service is available
+            if estimated_credits > 0:
+                try:
+                    from backend.services.credits_service import get_credits_service_instance
+                    credits_service = get_credits_service_instance()
+                    
+                    if credits_service and credits_service.is_available():
+                        # Check if user has enough credits
+                        balance_info = await credits_service.get_balance(user["user_id"])
+                        if not balance_info:
+                            # Initialize credits for new user
+                            await credits_service.initialize_user_credits(user["user_id"], 0, "auto_complete_job")
+                            balance_info = await credits_service.get_balance(user["user_id"])
+                        
+                        available_credits = balance_info.balance - balance_info.pending_debits
+                        
+                        if available_credits < estimated_credits:
+                            raise HTTPException(
+                                status_code=402,
+                                detail={
+                                    "error": "INSUFFICIENT_CREDITS",
+                                    "required": estimated_credits,
+                                    "available": available_credits,
+                                    "message": f"Insufficient credits for auto-completion: need {estimated_credits}, have {available_credits}"
+                                }
+                            )
+                        
+                        # Create provisional debit
+                        provisional_txn_id = await credits_service.provisional_debit(
+                            user_id=user["user_id"],
+                            amount=estimated_credits,
+                            reason="auto_complete_job_start",
+                            meta={
+                                "job_id": job_id,
+                                "project_id": auto_complete_request.project_id,
+                                "estimated_chapters": auto_complete_request.target_chapters,
+                                "estimated_words": auto_complete_request.words_per_chapter * auto_complete_request.target_chapters
+                            }
+                        )
+                        
+                        logger.info(f"Created provisional debit {provisional_txn_id} for {estimated_credits} credits (job {job_id})")
+                        
+                except ImportError:
+                    logger.warning("Credits service not available, proceeding without credit billing")
+                except Exception as e:
+                    logger.error(f"Credit provisioning failed for job {job_id}: {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Credit system error: {str(e)}"
+                    )
+        except Exception as e:
+            logger.error(f"Credit estimation failed for job {job_id}: {e}")
+            # Don't block on estimation failures in production
+            
         # Create job record
         job_data = {
             "job_id": job_id,
@@ -949,7 +1060,9 @@ async def start_auto_complete(
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
             "quality_scores": [],
-            "error_message": None
+            "error_message": None,
+            "provisional_txn_id": provisional_txn_id,  # Store for later finalization/voiding
+            "estimated_credits": estimated_credits if 'estimated_credits' in locals() else 0
         }
         
         # Store job in persistent storage
@@ -976,173 +1089,184 @@ async def start_auto_complete(
             detail=f"Failed to start auto-complete job: {str(e)}"
         )
 
-# Auto-complete cost estimation endpoint
+# Auto-complete credit estimation endpoint
 @app.post("/auto-complete/estimate")
 @limiter.limit("20/minute")
-async def estimate_auto_complete_cost(
+async def estimate_auto_complete_credits(
     request: Request,
     auto_complete_request: AutoCompleteRequest,
     user: Dict = Depends(verify_token)
 ):
-    """Estimate the total cost for auto-completing a book."""
+    """Estimate the total credits for auto-completing a book."""
     try:
-        logger.info(f"Estimating auto-complete cost for {auto_complete_request.target_chapters} chapters")
+        logger.info(f"Estimating auto-complete credits for {auto_complete_request.target_chapters} chapters")
         
         # Calculate words per chapter
         words_per_chapter = auto_complete_request.words_per_chapter
         total_chapters = auto_complete_request.target_chapters or 20
+        quality_threshold = auto_complete_request.quality_threshold
         
-        # Import LLMOrchestrator for cost estimation (using stub if needed)
+        # Import the credit estimation utility
         try:
-            from backend.llm_orchestrator import LLMOrchestrator, RetryConfig
-        except ImportError as e:
-            logger.warning(f"LLMOrchestrator not available, using fallback estimation: {e}")
+            from backend.auto_complete.estimate_utils import estimate_auto_complete_credits
             
-            # Fallback estimation calculation
-            base_tokens_per_chapter = round(words_per_chapter * 1.3)  # 1.3 tokens per word
-            stage_multiplier = 2  # Complete stage typically uses 2x tokens
-            retries_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0)  # Higher quality = more retries
+            # Use the new credit estimation utility
+            estimation_result = estimate_auto_complete_credits(
+                total_chapters=total_chapters,
+                words_per_chapter=words_per_chapter,
+                quality_threshold=quality_threshold,
+                model='gpt-4o'
+            )
             
-            tokens_per_chapter = base_tokens_per_chapter * stage_multiplier * retries_multiplier
-            total_tokens = tokens_per_chapter * total_chapters
-            total_cost = total_tokens * 0.015 / 1000  # $0.015 per 1K tokens for GPT-4o
-            
-            return {
-                "success": True,
-                "estimation": {
-                    "total_chapters": total_chapters,
-                    "words_per_chapter": words_per_chapter,
-                    "total_words": words_per_chapter * total_chapters,
-                    "estimated_tokens_per_chapter": int(tokens_per_chapter),
-                    "estimated_total_tokens": int(total_tokens),
-                    "estimated_cost_per_chapter": round(total_cost / total_chapters, 4),
-                    "estimated_total_cost": round(total_cost, 4),
-                    "quality_threshold": auto_complete_request.quality_threshold,
-                    "estimation_method": "fallback",
-                    "notes": [
-                        f"Estimation for {total_chapters} chapters at {words_per_chapter} words each",
-                        f"Quality threshold: {auto_complete_request.quality_threshold}% (affects retry costs)",
-                        "Fallback estimation used - install LLM orchestrator for precise estimates"
-                    ]
-                }
-            }
-        
-        # Use LLMOrchestrator for precise estimation
-        try:
-            retry_config = RetryConfig(max_retries=1)
-            orchestrator = LLMOrchestrator(retry_config=retry_config)
-            
-            # Estimate for a single chapter and multiply
-            system_prompt, user_prompt = orchestrator._build_comprehensive_prompts(1, words_per_chapter)
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            
-            single_chapter_estimate = orchestrator.get_cost_estimate(full_prompt, words_per_chapter)
-            
-            # Account for quality threshold affecting retries
-            quality_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0 * 0.5)  # Up to 50% increase for high quality
-            
-                         # Account for max retries per chapter (default to 3 if not specified)
-            max_retries = 3  # Default value
-            retry_multiplier = 1 + (max_retries / 10.0)  # Each retry adds ~10% cost
-            
-            total_multiplier = quality_multiplier * retry_multiplier
-            
-            tokens_per_chapter = single_chapter_estimate["estimated_total_tokens"] * total_multiplier
-            cost_per_chapter = single_chapter_estimate["estimated_total_cost"] * total_multiplier
-            
-            total_tokens = tokens_per_chapter * total_chapters
-            total_cost = cost_per_chapter * total_chapters
+            if 'error' in estimation_result:
+                # Fall back to basic calculation if service unavailable
+                logger.warning(f"Credit estimation service error: {estimation_result['error']}")
+                raise Exception(estimation_result['error'])
             
             return {
                 "success": True,
                 "estimation": {
-                    "total_chapters": total_chapters,
-                    "words_per_chapter": words_per_chapter,
-                    "total_words": words_per_chapter * total_chapters,
-                    "estimated_tokens_per_chapter": int(tokens_per_chapter),
-                    "estimated_total_tokens": int(total_tokens),
-                    "estimated_cost_per_chapter": round(cost_per_chapter, 4),
-                    "estimated_total_cost": round(total_cost, 4),
-                    "quality_threshold": auto_complete_request.quality_threshold,
-                    "max_retries_per_chapter": max_retries,
-                    "estimation_method": "llm_orchestrator",
-                    "quality_multiplier": round(quality_multiplier, 2),
-                    "retry_multiplier": round(retry_multiplier, 2),
-                    "notes": [
-                        f"Estimation for {total_chapters} chapters at {words_per_chapter} words each",
-                        f"Quality threshold: {auto_complete_request.quality_threshold}% (multiplier: {quality_multiplier:.2f})",
-                        f"Max retries per chapter: {max_retries} (multiplier: {retry_multiplier:.2f})",
-                        f"Total cost multiplier: {total_multiplier:.2f}",
-                        "Precise estimation using LLM orchestrator"
-                    ]
+                    "total_chapters": estimation_result['total_chapters'],
+                    "words_per_chapter": estimation_result['words_per_chapter'],
+                    "total_words": estimation_result['total_words'],
+                    "quality_threshold": estimation_result['quality_threshold'],
+                    "estimated_total_credits": estimation_result['estimated_total_credits'],
+                    "credits_per_chapter": estimation_result['credits_per_chapter'],
+                    "estimation_method": "credits_service",
+                    "notes": []  # Keep empty as requested
                 }
             }
             
-        except Exception as llm_error:
-            logger.warning(f"LLM orchestrator estimation failed: {llm_error}, using enhanced fallback")
+        except Exception as service_error:
+            logger.warning(f"Credit estimation service failed: {service_error}, using fallback")
             
-            # Enhanced fallback with better calculations
-            base_tokens_per_chapter = round(words_per_chapter * 1.3)
-            stage_multiplier = 2.5  # More realistic for complete stage with quality gates
-            quality_multiplier = 1 + (auto_complete_request.quality_threshold / 100.0 * 0.3)
-            max_retries = 3  # Default value for fallback calculation
-            retry_multiplier = 1 + (max_retries / 20.0)
+            # Fallback credit calculation
+            from backend.services.pricing_registry import get_pricing_registry
             
-            total_multiplier = stage_multiplier * quality_multiplier * retry_multiplier
-            tokens_per_chapter = base_tokens_per_chapter * total_multiplier
-            total_tokens = tokens_per_chapter * total_chapters
-            total_cost = total_tokens * 0.015 / 1000
-            
-            return {
-                "success": True,
-                "estimation": {
-                    "total_chapters": total_chapters,
-                    "words_per_chapter": words_per_chapter,
-                    "total_words": words_per_chapter * total_chapters,
-                    "estimated_tokens_per_chapter": int(tokens_per_chapter),
-                    "estimated_total_tokens": int(total_tokens),
-                    "estimated_cost_per_chapter": round(total_cost / total_chapters, 4),
-                    "estimated_total_cost": round(total_cost, 4),
-                    "quality_threshold": auto_complete_request.quality_threshold,
-                    "max_retries_per_chapter": max_retries,
-                    "estimation_method": "enhanced_fallback",
-                    "total_multiplier": round(total_multiplier, 2),
-                    "error": str(llm_error),
-                    "notes": [
-                        f"Estimation for {total_chapters} chapters at {words_per_chapter} words each",
-                        f"Enhanced fallback estimation with quality and retry factors",
-                        f"Total cost multiplier: {total_multiplier:.2f}",
-                        "LLM orchestrator estimation failed, using enhanced fallback"
-                    ]
+            try:
+                pricing_registry = get_pricing_registry()
+                
+                if pricing_registry and pricing_registry.is_available():
+                    # Basic token estimation
+                    base_tokens_per_chapter = int(words_per_chapter * 1.3)  # Input tokens
+                    output_tokens_per_chapter = int(words_per_chapter * 1.3)  # Output tokens
+                    
+                    # Apply quality multipliers
+                    quality_multiplier = 2.0 if quality_threshold >= 8.0 else 1.7 if quality_threshold >= 7.0 else 1.4
+                    retry_multiplier = 1.5 if quality_threshold >= 8.0 else 1.3 if quality_threshold >= 7.0 else 1.1
+                    
+                    # Calculate per chapter
+                    total_tokens_per_chapter = int((base_tokens_per_chapter + output_tokens_per_chapter) * quality_multiplier * retry_multiplier)
+                    
+                    usage_data = {
+                        'prompt_tokens': int(base_tokens_per_chapter * quality_multiplier),
+                        'completion_tokens': int(output_tokens_per_chapter * quality_multiplier * retry_multiplier),
+                        'total_tokens': total_tokens_per_chapter
+                    }
+                    
+                    # Get credit calculation for single chapter
+                    credit_calc = pricing_registry.estimate_credits('openai', 'gpt-4o', usage_data)
+                    credits_per_chapter = credit_calc.credits
+                    total_credits = credits_per_chapter * total_chapters
+                    
+                    # Add 5% overhead
+                    total_credits_with_overhead = int(total_credits * 1.05)
+                    
+                    return {
+                        "success": True,
+                        "estimation": {
+                            "total_chapters": total_chapters,
+                            "words_per_chapter": words_per_chapter,
+                            "total_words": words_per_chapter * total_chapters,
+                            "quality_threshold": quality_threshold,
+                            "estimated_total_credits": total_credits_with_overhead,
+                            "credits_per_chapter": credits_per_chapter,
+                            "estimation_method": "fallback_credits",
+                            "notes": []
+                        }
+                    }
+                else:
+                    raise Exception("Pricing registry unavailable")
+                    
+            except Exception as fallback_error:
+                logger.error(f"Fallback credit estimation failed: {fallback_error}")
+                
+                # Ultra-basic fallback (should rarely be needed)
+                estimated_credits_per_chapter = max(50, int(words_per_chapter / 10))  # ~50+ credits per chapter minimum
+                if quality_threshold >= 8.0:
+                    estimated_credits_per_chapter = int(estimated_credits_per_chapter * 2.0)
+                elif quality_threshold >= 7.0:
+                    estimated_credits_per_chapter = int(estimated_credits_per_chapter * 1.7)
+                
+                total_credits = estimated_credits_per_chapter * total_chapters
+                
+                return {
+                    "success": True,
+                    "estimation": {
+                        "total_chapters": total_chapters,
+                        "words_per_chapter": words_per_chapter,
+                        "total_words": words_per_chapter * total_chapters,
+                        "quality_threshold": quality_threshold,
+                        "estimated_total_credits": total_credits,
+                        "credits_per_chapter": estimated_credits_per_chapter,
+                        "estimation_method": "basic_fallback",
+                        "notes": []
+                    }
                 }
-            }
         
     except Exception as e:
-        logger.error(f"Failed to estimate auto-complete cost: {e}")
+        logger.error(f"Failed to estimate auto-complete credits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/auto-complete/{job_id}/status")
 async def get_job_status(job_id: str, user: Dict = Depends(verify_token)):
     """Get job status and progress."""
-    job_data = await firestore_client.load_job(job_id)
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Check if user owns this job
-    if job_data["user_id"] != user["user_id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    return JobStatusResponse(
-        job_id=job_id,
-        status=job_data["status"],
-        progress=job_data["progress"],
-        current_chapter=job_data["progress"].get("current_chapter"),
-        total_chapters=job_data["progress"].get("total_chapters"),
-        quality_scores=job_data["quality_scores"],
-        error_message=job_data.get("error_message"),
-        created_at=job_data["created_at"],
-        updated_at=job_data["updated_at"]
-    )
+    try:
+        job_data = await firestore_client.load_job(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if user owns this job
+        if job_data["user_id"] != user["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Ensure datetime fields are properly formatted
+        created_at = job_data.get("created_at")
+        updated_at = job_data.get("updated_at")
+        
+        # Convert datetime objects to datetime if they're strings
+        if isinstance(created_at, str):
+            try:
+                created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            except:
+                created_at = datetime.utcnow()
+        elif created_at is None:
+            created_at = datetime.utcnow()
+            
+        if isinstance(updated_at, str):
+            try:
+                updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            except:
+                updated_at = datetime.utcnow()
+        elif updated_at is None:
+            updated_at = datetime.utcnow()
+        
+        return JobStatusResponse(
+            job_id=job_id,
+            status=job_data["status"],
+            progress=job_data.get("progress", {}),
+            current_chapter=job_data.get("progress", {}).get("current_chapter"),
+            total_chapters=job_data.get("progress", {}).get("total_chapters"),
+            quality_scores=job_data.get("quality_scores", []),
+            error_message=job_data.get("error_message"),
+            created_at=created_at,
+            updated_at=updated_at
+        )
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"Error getting job status for {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/auto-complete/{job_id}/control")
 async def control_job(
@@ -1175,7 +1299,8 @@ async def control_job(
         job_data["status"] = "cancelled"
         # Try to cancel in background processor
         if hasattr(app.state, 'job_processor'):
-            app.state.job_processor.cancel_job(job_id)
+            # cancel_job is async
+            await app.state.job_processor.cancel_job(job_id)
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     
@@ -1235,13 +1360,27 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
         try:
             current_job = await firestore_client.load_job(job_id)
             if current_job:
+                # Handle datetime field that might be string or datetime object
+                updated_at = current_job["updated_at"]
+                if isinstance(updated_at, str):
+                    timestamp = updated_at
+                else:
+                    timestamp = updated_at.isoformat() if updated_at else datetime.utcnow().isoformat()
+                
                 data = {
                     "job_id": job_id,
                     "status": current_job["status"],
                     "progress": current_job["progress"],
-                    "timestamp": current_job["updated_at"].isoformat()
+                    "timestamp": timestamp
                 }
-                yield f"data: {json.dumps(data)}\n\n"
+                
+                # Send named event based on status
+                if current_job["status"] in ["completed", "failed", "cancelled"]:
+                    yield f"event: completion\n"
+                    yield f"data: {json.dumps(data)}\n\n"
+                else:
+                    yield f"event: progress\n"
+                    yield f"data: {json.dumps(data)}\n\n"
                 last_update = current_job["updated_at"]
         except Exception as e:
             logger.error(f"Error sending initial job state: {e}")
@@ -1275,14 +1414,27 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
                 
                 # Send update if job has changed
                 if current_job["updated_at"] != last_update:
+                    # Handle datetime field that might be string or datetime object  
+                    updated_at = current_job["updated_at"]
+                    if isinstance(updated_at, str):
+                        timestamp = updated_at
+                    else:
+                        timestamp = updated_at.isoformat() if updated_at else datetime.utcnow().isoformat()
+                    
                     data = {
                         "job_id": job_id,
                         "status": current_job["status"],
                         "progress": current_job["progress"],
-                        "timestamp": current_job["updated_at"].isoformat()
+                        "timestamp": timestamp
                     }
                     
-                    yield f"data: {json.dumps(data)}\n\n"
+                    # Send named event based on status
+                    if current_job["status"] in ["completed", "failed", "cancelled"]:
+                        yield f"event: completion\n"
+                        yield f"data: {json.dumps(data)}\n\n"
+                    else:
+                        yield f"event: progress\n"
+                        yield f"data: {json.dumps(data)}\n\n"
                     last_update = current_job["updated_at"]
                 
                 # Break if job is complete
@@ -1296,7 +1448,17 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
                 logger.error(f"Error in progress stream: {e}")
                 break
     
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    response = StreamingResponse(event_stream(), media_type="text/event-stream")
+    
+    # Add explicit CORS headers for SSE
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    response.headers["Access-Control-Allow-Origin"] = "*"  # Will be overridden by CORS middleware if needed
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Access-Control-Expose-Headers"] = "Content-Type"
+    
+    return response
 
 @app.get("/auto-complete/jobs")
 async def list_jobs(

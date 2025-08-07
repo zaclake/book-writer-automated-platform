@@ -50,4 +50,16 @@ export interface Project {
     content?: string
     word_count?: number
   }>
+}
+
+// Auto-complete estimation interface (credit-based)
+export interface AutoCompleteEstimate {
+  total_chapters: number
+  words_per_chapter: number
+  total_words: number
+  quality_threshold: number
+  estimated_total_credits: number
+  credits_per_chapter: number
+  estimation_method?: string
+  notes?: string[]
 } 

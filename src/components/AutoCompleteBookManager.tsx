@@ -4,6 +4,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { PlayIcon, PauseIcon, StopIcon, Cog6ToothIcon, BoltIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
 import { useUser } from '@clerk/nextjs'
+import { AutoCompleteEstimate } from '@/types/project'
+import apiClient from '@/lib/apiClient'
+import JobProgressBanner from '@/components/JobProgressBanner'
+import { useToast } from '@/components/ui/use-toast'
 
 interface AutoCompleteConfig {
   targetWordCount: number
@@ -61,12 +65,13 @@ export function AutoCompleteBookManager({
 }: AutoCompleteBookManagerProps) {
   const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const { user } = useUser()
+  const { toast } = useToast()
   const [currentJob, setCurrentJob] = useState<AutoCompleteJob | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [isEstimating, setIsEstimating] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
   const [status, setStatus] = useState('')
-  const [estimation, setEstimation] = useState<any>(null)
+  const [estimation, setEstimation] = useState<AutoCompleteEstimate | null>(null)
   const [progressStream, setProgressStream] = useState<EventSource | null>(null)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [confirmText, setConfirmText] = useState('')
@@ -89,6 +94,22 @@ export function AutoCompleteBookManager({
   const estimationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // localStorage helper functions for job persistence
+  const getStoredJobId = () => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem(`runningJobId-${projectId}`)
+  }
+
+  const storeJobId = (jobId: string) => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(`runningJobId-${projectId}`, jobId)
+  }
+
+  const clearStoredJobId = () => {
+    if (typeof window === 'undefined') return
+    localStorage.removeItem(`runningJobId-${projectId}`)
+  }
 
   // Cleanup function to prevent resource leaks
   const cleanupProgress = useCallback(() => {
@@ -216,6 +237,25 @@ export function AutoCompleteBookManager({
     }
   }, [config.targetWordCount, config.targetChapterCount, config.minimumQualityScore, isLoaded, isSignedIn, currentJob])
 
+  // Check for stored running job on component mount and reconnect
+  useEffect(() => {
+    if (isLoaded && isSignedIn && projectId && !currentJob) {
+      const storedJobId = getStoredJobId()
+      if (storedJobId) {
+        console.log('Found stored job ID, reconnecting:', storedJobId)
+        setStatus('🔄 Reconnecting to running job...')
+        startProgressTracking(storedJobId).catch(console.error)
+      }
+    }
+  }, [isLoaded, isSignedIn, projectId])
+
+  // Clear stored job ID when job completes or fails
+  useEffect(() => {
+    if (currentJob && (currentJob.status === 'completed' || currentJob.status === 'failed')) {
+      clearStoredJobId()
+    }
+  }, [currentJob?.status])
+
   const checkForExistingJob = async () => {
     try {
       const authHeaders = await getAuthHeaders()
@@ -297,45 +337,55 @@ export function AutoCompleteBookManager({
 
     try {
       const authHeaders = await getAuthHeaders()
+      // Use server-side proxy route to avoid client->Railway network issues
       const response = await fetch('/api/auto-complete/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeaders
+          ...authHeaders,
         },
         body: JSON.stringify({
-          project_id: projectId,
-          book_bible: bookBible || (typeof window !== 'undefined' ? localStorage.getItem(`bookBible-${projectId}`) : null),
-          starting_chapter: 1,
-          target_chapters: config.targetChapterCount,
-          quality_threshold: config.minimumQualityScore / 10.0, // Convert from 0-100 scale to 0-10 scale
+        project_id: projectId,
+        book_bible: bookBible || (typeof window !== 'undefined' ? localStorage.getItem(`bookBible-${projectId}`) : null),
+        starting_chapter: 1,
+        target_chapters: config.targetChapterCount,
+        quality_threshold: config.minimumQualityScore / 10.0, // Convert from 0-100 scale to 0-10 scale
           words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
-          // Note: estimated_total_cost removed to match backend AutoCompleteRequest model
         })
       })
 
-      const data = await response.json()
-
       if (response.ok) {
+        const data = await response.json()
         setStatus('✅ Auto-completion started successfully!')
         setCurrentJob(null) // Will be updated by progress tracking
-        startProgressTracking(data.job_id)
-        onJobStarted?.(data.job_id)
+        const jobId = data?.job_id
+        if (jobId) {
+          storeJobId(jobId) // Persist job ID for recovery
+          // Show toast notification about safe navigation
+          toast({
+            title: "🚀 Book generation started!",
+            description: "This process takes 30-45 minutes. You can safely close this tab and return later to check progress.",
+            variant: "default"
+          })
+        }
+        startProgressTracking(jobId).catch(console.error)
+        onJobStarted?.(jobId)
       } else {
-        // Handle specific error types
+        const errorData = await response.json().catch(() => ({}))
         if (response.status === 409) {
-          setStatus(`🔄 Job already running: ${data.details || data.error}`)
-          if (data.existing_job_id) {
-            setStatus(`🔄 Resuming existing job: ${data.existing_job_id}`)
-            startProgressTracking(data.existing_job_id)
+          setStatus(`🔄 Job already running: ${errorData.error || ''}`)
+          if (errorData?.existing_job_id) {
+            setStatus(`🔄 Resuming existing job: ${errorData.existing_job_id}`)
+            storeJobId(errorData.existing_job_id)
+            startProgressTracking(errorData.existing_job_id).catch(console.error)
           }
         } else if (response.status === 402) {
-          setStatus(`💰 Budget exceeded: ${data.details || data.error}`)
-          if (data.estimated_cost && data.remaining_budget) {
-            setStatus(`💰 Budget exceeded: Cost $${data.estimated_cost} > Available $${data.remaining_budget.toFixed(2)}`)
+          setStatus(`💳 Insufficient credits: ${errorData.error || ''}`)
+          if (errorData?.estimated_credits && errorData?.remaining_credits) {
+            setStatus(`💳 Insufficient credits: Need ${errorData.estimated_credits} > Available ${errorData.remaining_credits}`)
           }
         } else {
-          setStatus(`❌ Failed to start: ${data.error || data.details || 'Unknown error'}`)
+          setStatus(`❌ Failed to start: ${errorData.error || 'Unknown error'}`)
         }
       }
     } catch (error) {
@@ -347,7 +397,7 @@ export function AutoCompleteBookManager({
 
   const estimateAutoCompletion = async () => {
     if (!isSignedIn) {
-      setStatus('❌ Please sign in to get cost estimate')
+      setStatus('❌ Please sign in to get credit estimate')
       return
     }
 
@@ -393,7 +443,7 @@ export function AutoCompleteBookManager({
     }
 
     setIsEstimating(true)
-    setStatus('💰 Calculating cost estimate...')
+    setStatus('🔢 Calculating credit estimate...')
     setEstimation(null)
 
     try {
@@ -425,7 +475,7 @@ export function AutoCompleteBookManager({
 
       if (response.ok) {
         setEstimation(data.estimation)
-        setStatus(`💰 Estimated total cost: $${data.estimation.estimated_total_cost} for ${data.estimation.total_chapters} chapters`)
+        setStatus(`🔢 Estimated usage: ${data.estimation.estimated_total_credits.toLocaleString()} credits for ${data.estimation.total_chapters} chapters`)
       } else {
         setStatus(`❌ Estimation failed: ${data.error}`)
       }
@@ -452,13 +502,18 @@ export function AutoCompleteBookManager({
     }
   }
 
-  const startProgressTracking = (jobId: string, isReconnect = false) => {
+  const startProgressTracking = async (jobId: string, isReconnect = false) => {
     // First, get initial status
     fetchJobStatus(jobId)
     
-    // Set up real-time SSE connection
+    // Set up real-time SSE connection directly to backend
     try {
-      const eventSource = new EventSource(`/api/auto-complete/${jobId}/progress`)
+      const authHeaders = await getAuthHeaders()
+      const token = authHeaders.Authorization?.replace('Bearer ', '') || ''
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+      
+      // Connect directly to backend with token as query param
+      const eventSource = new EventSource(`${backendUrl}/auto-complete/${jobId}/progress?token=${encodeURIComponent(token)}`)
       setProgressStream(eventSource)
       
       // Reset reconnect attempts on successful connection
@@ -477,8 +532,14 @@ export function AutoCompleteBookManager({
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data)
         
-        if (data.job_id) {
-          // Update job status from SSE data
+        // Handle heartbeat messages
+        if (data.type === 'heartbeat') {
+          console.log('SSE heartbeat received')
+          return
+        }
+        
+        if (data.job_id && data.progress) {
+          // Update job status from SSE data - read from nested progress object
           const updatedJob = { ...currentJob } as AutoCompleteJob
           if (updatedJob) {
             updatedJob.status = data.status
@@ -486,61 +547,91 @@ export function AutoCompleteBookManager({
             updatedJob.result = data.result
             updatedJob.progress = {
               ...updatedJob.progress,
-              progress_percentage: data.progress_percentage,
-              current_step: data.current_step,
-              current_chapter: data.current_chapter,
-              chapters_completed: data.chapters_completed,
-              total_chapters: data.total_chapters,
-              estimated_time_remaining: data.estimated_time_remaining,
-              last_update: data.last_update,
-              detailed_status: data.detailed_status || `Processing chapter ${data.current_chapter}...`
+              progress_percentage: data.progress.progress_percentage || 0,
+              current_step: data.progress.current_step || 0,
+              current_chapter: data.progress.current_chapter || 0,
+              chapters_completed: data.progress.chapters_completed || 0,
+              total_chapters: data.progress.total_chapters || 0,
+              estimated_time_remaining: data.progress.estimated_time_remaining,
+              last_update: data.progress.last_update || data.timestamp,
+              detailed_status: data.progress.detailed_status || `Processing chapter ${data.progress.current_chapter || 0}...`
             }
             setCurrentJob(updatedJob)
+            
+            // Handle job completion
+            if (data.status === 'completed') {
+              onJobCompleted?.(jobId, data.result)
+              // Clean up SSE connection and localStorage
+              eventSource.close()
+              setProgressStream(null)
+              reconnectAttemptsRef.current = 0
+              clearStoredJobId()
+            }
           }
         }
       }
       
+      // Named event listeners for better semantics
       eventSource.addEventListener('progress', (event) => {
         const data = JSON.parse(event.data)
         
-        if (data.job_id) {
-          // Create updated job object
-          setCurrentJob(prevJob => {
-            if (!prevJob) return prevJob
-            
-            return {
-              ...prevJob,
-              status: data.status,
-              error: data.error,
-              result: data.result,
-              progress: {
-                ...prevJob.progress,
-                progress_percentage: data.progress_percentage,
-                current_step: data.current_step,
-                current_chapter: data.current_chapter,
-                chapters_completed: data.chapters_completed,
-                total_chapters: data.total_chapters,
-                estimated_time_remaining: data.estimated_time_remaining,
-                last_update: data.last_update,
-                detailed_status: data.detailed_status || `Processing chapter ${data.current_chapter}...`
-              }
+        if (data.job_id && data.progress) {
+          // Update job status from named progress event
+          const updatedJob = { ...currentJob } as AutoCompleteJob
+          if (updatedJob) {
+            updatedJob.status = data.status
+            updatedJob.error = data.error
+            updatedJob.result = data.result
+            updatedJob.progress = {
+              ...updatedJob.progress,
+              progress_percentage: data.progress.progress_percentage || 0,
+              current_step: data.progress.current_step || 0,
+              current_chapter: data.progress.current_chapter || 0,
+              chapters_completed: data.progress.chapters_completed || 0,
+              total_chapters: data.progress.total_chapters || 0,
+              estimated_time_remaining: data.progress.estimated_time_remaining,
+              last_update: data.progress.last_update || data.timestamp,
+              detailed_status: data.progress.detailed_status || `Processing chapter ${data.progress.current_chapter || 0}...`
             }
-          })
+            setCurrentJob(updatedJob)
+          }
         }
       })
       
       eventSource.addEventListener('completion', (event) => {
         const data = JSON.parse(event.data)
         
-        if (data.type === 'final') {
+        if (data.job_id && data.progress) {
+          // Update job with final status
+          const updatedJob = { ...currentJob } as AutoCompleteJob
+          if (updatedJob) {
+            updatedJob.status = data.status
+            updatedJob.error = data.error
+            updatedJob.result = data.result
+            updatedJob.progress = {
+              ...updatedJob.progress,
+              progress_percentage: data.progress.progress_percentage || 0,
+              current_step: data.progress.current_step || 0,
+              current_chapter: data.progress.current_chapter || 0,
+              chapters_completed: data.progress.chapters_completed || 0,
+              total_chapters: data.progress.total_chapters || 0,
+              estimated_time_remaining: data.progress.estimated_time_remaining,
+              last_update: data.progress.last_update || data.timestamp,
+              detailed_status: data.progress.detailed_status || `${data.status === 'completed' ? 'Completed' : 'Failed'}`
+            }
+            setCurrentJob(updatedJob)
+          }
+          
+          // Handle completion
           if (data.status === 'completed') {
             onJobCompleted?.(jobId, data.result)
           }
           
-          // Clean up SSE connection
+          // Clean up SSE connection and localStorage
           eventSource.close()
           setProgressStream(null)
           reconnectAttemptsRef.current = 0
+          clearStoredJobId()
         }
       })
       
@@ -595,9 +686,9 @@ export function AutoCompleteBookManager({
     
     setStatus(`🔄 Connection lost, reconnecting in ${delay/1000}s... (${reconnectAttemptsRef.current}/${maxAttempts})`)
     
-    reconnectTimeoutRef.current = setTimeout(() => {
+    reconnectTimeoutRef.current = setTimeout(async () => {
       console.log(`Attempting reconnection ${reconnectAttemptsRef.current}/${maxAttempts}`)
-      startProgressTracking(jobId, true)
+      await startProgressTracking(jobId, true)
     }, delay)
   }
 
@@ -617,24 +708,28 @@ export function AutoCompleteBookManager({
   const fetchJobStatus = async (jobId: string) => {
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/auto-complete/${jobId}/status`, {
-        headers: authHeaders
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setCurrentJob(data.job)
+      const token = authHeaders.Authorization?.replace('Bearer ', '') || ''
+      
+      // Call backend directly via apiClient instead of broken Next.js route
+      const response = await apiClient.get(`/auto-complete/${jobId}/status`, apiClient.withAuth(token))
+      
+      if (response.ok && response.data) {
+        // Backend returns job data directly, not nested under 'job' property
+        setCurrentJob(response.data)
         
         // Check if job is completed
-        if (['completed', 'failed', 'cancelled'].includes(data.job.status)) {
+        if (['completed', 'failed', 'cancelled'].includes(response.data.status)) {
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
           
-          if (data.job.status === 'completed') {
-            onJobCompleted?.(jobId, data.job.result)
+          if (response.data.status === 'completed') {
+            onJobCompleted?.(jobId, response.data.result)
           }
         }
+      } else {
+        console.error('Failed to fetch job status:', response.error)
       }
     } catch (error) {
       console.error('Failed to fetch job status:', error)
@@ -646,22 +741,14 @@ export function AutoCompleteBookManager({
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/auto-complete/${currentJob.job_id}/control`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders
-        },
-        body: JSON.stringify({ action })
-      })
-
-      const data = await response.json()
+      const token = authHeaders.Authorization?.replace('Bearer ', '') || ''
+      const response = await apiClient.post(`/auto-complete/${currentJob.job_id}/control`, { action }, apiClient.withAuth(token))
 
       if (response.ok) {
         setStatus(`✅ Job ${action}d successfully`)
         fetchJobStatus(currentJob.job_id)
       } else {
-        setStatus(`❌ Failed to ${action}: ${data.error}`)
+        setStatus(`❌ Failed to ${action}: ${response.error}`)
       }
     } catch (error) {
       setStatus(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -855,6 +942,26 @@ export function AutoCompleteBookManager({
         </div>
       )}
 
+      {/* Job Progress Banner */}
+      {currentJob && (currentJob.status === 'running' || currentJob.status === 'pending' || currentJob.status === 'completed' || currentJob.status === 'failed') && (
+        <JobProgressBanner
+          jobId={currentJob.job_id}
+          status={currentJob.status as 'running' | 'completed' | 'failed' | 'pending'}
+          progressPercentage={currentJob.progress?.progress_percentage || 0}
+          currentChapter={currentJob.progress?.current_chapter || 0}
+          totalChapters={currentJob.progress?.total_chapters || 0}
+          estimatedTimeRemaining={
+            currentJob.progress?.estimated_time_remaining 
+              ? typeof currentJob.progress.estimated_time_remaining === 'string' 
+                ? currentJob.progress.estimated_time_remaining 
+                : `${Math.round(currentJob.progress.estimated_time_remaining / 60)} minutes`
+              : undefined
+          }
+          detailedStatus={currentJob.progress?.detailed_status}
+          onDismiss={currentJob.status === 'completed' || currentJob.status === 'failed' ? () => setCurrentJob(null) : undefined}
+        />
+      )}
+
       {/* Current Job Status */}
       {currentJob ? (
         <div className="space-y-4">
@@ -969,46 +1076,25 @@ export function AutoCompleteBookManager({
           {/* Estimation Display */}
           {estimation && (
             <div className="mb-6 p-4 bg-blue-50 rounded-lg text-left">
-                              <h4 className="font-medium text-blue-900 mb-2"><span aria-label="Money icon">💰</span> Cost Estimation</h4>
+              <h4 className="font-medium text-blue-900 mb-2"><span aria-label="Credits icon">🔢</span> Credit Estimation</h4>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-blue-700">Total Chapters:</span>
                   <span className="ml-2 font-medium">{estimation.total_chapters}</span>
                 </div>
                 <div>
-                  <span className="text-blue-700">Words per Chapter:</span>
-                  <span className="ml-2 font-medium">{estimation.words_per_chapter.toLocaleString()}</span>
-                </div>
-                <div>
                   <span className="text-blue-700">Total Words:</span>
                   <span className="ml-2 font-medium">{estimation.total_words.toLocaleString()}</span>
                 </div>
-                <div>
-                  <span className="text-blue-700">Total Tokens:</span>
-                  <span className="ml-2 font-medium">{estimation.estimated_total_tokens.toLocaleString()}</span>
-                </div>
                 <div className="col-span-2">
-                  <span className="text-blue-700">Estimated Total Cost:</span>
-                  <span className="ml-2 font-bold text-lg text-blue-900">${estimation.estimated_total_cost}</span>
-                </div>
-                <div>
-                  <span className="text-blue-700">Cost per Chapter:</span>
-                  <span className="ml-2 font-medium">${estimation.estimated_cost_per_chapter}</span>
+                  <span className="text-blue-700">Estimated Credits:</span>
+                  <span className="ml-2 font-bold text-lg text-blue-900">{estimation.estimated_total_credits.toLocaleString()}</span>
                 </div>
                 <div>
                   <span className="text-blue-700">Quality Threshold:</span>
                   <span className="ml-2 font-medium">{estimation.quality_threshold}%</span>
                 </div>
               </div>
-              {estimation.notes && estimation.notes.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-blue-200">
-                  <div className="text-xs text-blue-600">
-                    {estimation.notes.map((note: string, index: number) => (
-                      <div key={index}>• {note}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
           
@@ -1024,7 +1110,7 @@ export function AutoCompleteBookManager({
               }`}
             >
                                 <span aria-label="Money icon">💰</span>
-              {isEstimating ? 'Estimating...' : 'Estimate Cost'}
+              {isEstimating ? 'Estimating...' : 'Estimate Credits'}
             </button>
             
             <button
@@ -1079,46 +1165,26 @@ export function AutoCompleteBookManager({
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Cost Summary */}
+              {/* Credit Summary */}
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                 <div className="flex items-start space-x-3">
                   <div className="text-yellow-600 text-xl" aria-label="Warning icon">⚠️</div>
                   <div>
-                    <h3 className="font-medium text-yellow-900 mb-2">Important: AI Generation Costs</h3>
+                    <h3 className="font-medium text-yellow-900 mb-2">Important: AI Generation Credits</h3>
                     <div className="space-y-2 text-sm text-yellow-800">
                       <p>This will automatically generate <strong>{estimation.total_chapters} chapters</strong> with approximately <strong>{estimation.total_words.toLocaleString()} words</strong>.</p>
-                      <p><strong>Estimated cost: ${estimation.estimated_total_cost}</strong></p>
-                      <p>Actual costs may vary based on content complexity and revisions needed.</p>
-                      {userUsage && (
-                        <p className="mt-2 pt-2 border-t border-yellow-300">
-                          <strong>Budget remaining: ${userUsage.remaining.monthly_cost_remaining.toFixed(2)}</strong>
-                        </p>
-                      )}
+                      <p><strong>Estimated credits: {estimation.estimated_total_credits.toLocaleString()}</strong></p>
+                      <p>Actual credit usage may vary based on content complexity and revisions needed.</p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Budget Warning */}
-              {userUsage && estimation && parseFloat(estimation.estimated_total_cost) > userUsage.remaining.monthly_cost_remaining && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-red-600 text-xl" aria-label="Error icon">🚫</div>
-                    <div>
-                      <h3 className="font-medium text-red-900 mb-2">Budget Exceeded</h3>
-                      <div className="space-y-1 text-sm text-red-800">
-                        <p>This operation would exceed your monthly budget limit.</p>
-                        <p>Cost: ${estimation.estimated_total_cost} | Available: ${userUsage.remaining.monthly_cost_remaining.toFixed(2)}</p>
-                        <p>Please contact support to increase your limit or wait until next month.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
-              {/* Cost Breakdown */}
+
+              {/* Credit Breakdown */}
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Cost Breakdown</h4>
+                <h4 className="font-medium text-gray-900 mb-3">Credit Breakdown</h4>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-gray-600">Chapters:</span>
@@ -1129,12 +1195,12 @@ export function AutoCompleteBookManager({
                     <span className="ml-2 font-medium">{estimation.words_per_chapter.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-gray-600">Total Tokens:</span>
-                    <span className="ml-2 font-medium">{estimation.estimated_total_tokens.toLocaleString()}</span>
+                    <span className="text-gray-600">Credits per Chapter:</span>
+                    <span className="ml-2 font-medium">{estimation.credits_per_chapter.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-gray-600">Cost per Chapter:</span>
-                    <span className="ml-2 font-medium">${estimation.estimated_cost_per_chapter}</span>
+                    <span className="text-gray-600">Quality Threshold:</span>
+                    <span className="ml-2 font-medium">{estimation.quality_threshold}%</span>
                   </div>
                 </div>
               </div>
@@ -1183,21 +1249,14 @@ export function AutoCompleteBookManager({
                       startAutoCompletion()
                     }
                   }}
-                  disabled={
-                    confirmText !== 'CONFIRM' || 
-                    (userUsage && parseFloat(estimation.estimated_total_cost) > userUsage.remaining.monthly_cost_remaining)
-                  }
+                  disabled={confirmText !== 'CONFIRM'}
                   className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                    confirmText === 'CONFIRM' && 
-                    (!userUsage || parseFloat(estimation.estimated_total_cost) <= userUsage.remaining.monthly_cost_remaining)
+                    confirmText === 'CONFIRM'
                       ? 'bg-green-600 text-white hover:bg-green-700'
                       : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   }`}
                 >
-                  {isStarting ? 'Starting...' : 
-                   userUsage && parseFloat(estimation.estimated_total_cost) > userUsage.remaining.monthly_cost_remaining
-                     ? 'Budget Exceeded'
-                     : `Confirm & Start ($${estimation.estimated_total_cost})`}
+                  {isStarting ? 'Starting...' : `Confirm & Start (${estimation.estimated_total_credits.toLocaleString()} credits)`}
                 </button>
               </div>
             </div>

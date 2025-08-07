@@ -309,7 +309,7 @@ Write Chapter {chapter_number} in full, ensuring it flows naturally from previou
                     from backend.services.billable_client import BillableOpenAIClient
                     billable_client = BillableOpenAIClient(user_id)
                     
-                    response, credits_charged = await billable_client.chat_completions_create(
+                    billable_response = await billable_client.chat_completions_create(
                         model="gpt-4o",
                         messages=[
                             {"role": "system", "content": "You are a professional novelist writing high-quality fiction chapters."},
@@ -318,6 +318,9 @@ Write Chapter {chapter_number} in full, ensuring it flows naturally from previou
                         temperature=0.7,
                         max_tokens=4000
                     )
+                    
+                    response = billable_response.response
+                    credits_charged = billable_response.credits_charged
                     
                     logger.info(f"✅ AI generation completed with billing! Credits charged: {credits_charged}")
                     
@@ -373,10 +376,39 @@ Write Chapter {chapter_number} in full, ensuring it flows naturally from previou
             
         except Exception as e:
             logger.error(f"💥 AI generation failed: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Chapter generation failed: {str(e)}"
-            )
+            
+            # Return proper JSON error response to prevent frontend parse errors
+            from fastapi.responses import JSONResponse
+            error_detail = f"Chapter generation failed: {str(e)}"
+            
+            # Check if this is a timeout or specific OpenAI error
+            if "timeout" in str(e).lower():
+                return JSONResponse(
+                    status_code=504,
+                    content={
+                        "error": "GENERATION_TIMEOUT",
+                        "message": "Chapter generation timed out. Please try again.",
+                        "detail": error_detail
+                    }
+                )
+            elif "rate_limit" in str(e).lower() or "429" in str(e):
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "RATE_LIMIT_EXCEEDED",
+                        "message": "Rate limit exceeded. Please try again in a moment.",
+                        "detail": error_detail
+                    }
+                )
+            else:
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "GENERATION_FAILED",
+                        "message": "Chapter generation failed. Please try again.",
+                        "detail": error_detail
+                    }
+                )
         
         # Create chapter data structure for database
         logger.info("💾 Preparing chapter data for database...")

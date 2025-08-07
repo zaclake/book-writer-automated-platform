@@ -64,7 +64,7 @@ export default function Dashboard() {
             const token = await getToken()
             if (!token) return
             
-            const response = await fetch(`/api/projects/${project.id}/chapters`, {
+            const response = await fetch(`/api/v2/projects/${project.id}/chapters`, {
               headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'

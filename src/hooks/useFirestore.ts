@@ -288,7 +288,7 @@ export function useUserProjects() {
       console.log('🔧 Fetching projects from backend API')
       
       try {
-        const response = await fetch('/api/projects', {
+        const response = await fetch('/api/v2/projects/', {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -324,7 +324,7 @@ export function useUserProjects() {
               // Fetch real chapter count for each project using v2 endpoint
               let chaptersCount = 0
               try {
-                const chaptersResponse = await fetch(`/api/projects/${encodeURIComponent(project.id)}/chapters`, {
+                const chaptersResponse = await fetch(`/api/v2/projects/${encodeURIComponent(project.id)}/chapters`, {
                   headers: { 'Authorization': `Bearer ${token}` }
                 })
 
@@ -526,7 +526,7 @@ export function useProject(projectId: string | null) {
       }
 
       // Fetch project data from backend
-      const projectResponse = await fetch('/api/projects', {
+      const projectResponse = await fetch('/api/v2/projects/', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -553,7 +553,7 @@ export function useProject(projectId: string | null) {
       // Fetch chapters to get real count using v2 endpoint
       let chaptersCount = 0
       try {
-        const chaptersResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}/chapters`, {
+        const chaptersResponse = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/chapters`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
 

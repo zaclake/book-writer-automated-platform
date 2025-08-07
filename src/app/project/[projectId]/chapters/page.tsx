@@ -118,6 +118,9 @@ export default function ChapterWritingPage() {
         setOriginalContent(data.content)
         setIsEditing(true)
         setStatus('✅ Chapter generated successfully!')
+        
+        // Trigger credit balance refresh after successful generation
+        window.dispatchEvent(new CustomEvent('refreshCreditBalance'))
       } else {
         const errorData = await response.json()
         setStatus(`❌ Generation failed: ${errorData.error || 'Unknown error'}`)

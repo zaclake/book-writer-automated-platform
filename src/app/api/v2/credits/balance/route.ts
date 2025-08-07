@@ -4,11 +4,11 @@ import { auth } from '@clerk/nextjs/server'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     if (!backendBaseUrl) {
-      console.error('[auto-complete/start] Backend URL not configured')
+      console.error('[v2/credits/balance] Backend URL not configured')
       return NextResponse.json(
         { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
         { status: 500 }
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     try {
       token = await getToken()
     } catch (err) {
-      console.error('[auto-complete/start] Failed to get Clerk token:', err)
+      console.error('[v2/credits/balance] Failed to get Clerk token:', err)
     }
 
     if (!token) {
@@ -30,15 +30,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.text()
-    const targetUrl = `${backendBaseUrl}/auto-complete/start`
+    const targetUrl = `${backendBaseUrl}/v2/credits/balance`
     const backendResponse = await fetch(targetUrl, {
-      method: 'POST',
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body,
       cache: 'no-store',
     })
 
@@ -55,7 +53,7 @@ export async function POST(request: NextRequest) {
     const data = await backendResponse.json()
     return NextResponse.json(data, { status: 200 })
   } catch (error) {
-    console.error('[auto-complete/start] Error:', error)
+    console.error('[v2/credits/balance] Error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

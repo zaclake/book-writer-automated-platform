@@ -45,7 +45,7 @@ const ProjectPublishPicker: React.FC<ProjectPublishPickerProps> = ({ trigger }) 
       const projectStatsPromises = projects.map(async (project) => {
         try {
           // Fetch chapters for this project
-          const chaptersResponse = await fetch(`/api/projects/${encodeURIComponent(project.id)}/chapters`, {
+          const chaptersResponse = await fetch(`/api/v2/projects/${encodeURIComponent(project.id)}/chapters`, {
             headers: { 'Authorization': `Bearer ${token}` }
           })
 

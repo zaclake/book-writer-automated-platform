@@ -105,6 +105,9 @@ class BackgroundJobProcessor:
             job_info.completed_at = datetime.utcnow()
             job_info.result = result
             
+            # Handle credit finalization for completed job
+            await self._finalize_job_credits(job_id, success=True, result=result)
+            
             self.logger.info(f"Job {job_id} completed successfully")
             
         except asyncio.CancelledError:
@@ -120,6 +123,9 @@ class BackgroundJobProcessor:
             job_info.status = JobStatus.FAILED
             job_info.completed_at = datetime.utcnow()
             job_info.error_message = str(e)
+            
+            # Handle credit voiding for failed job
+            await self._finalize_job_credits(job_id, success=False, error=str(e))
             
             self.logger.error(f"Job {job_id} failed: {e}")
             
@@ -176,7 +182,7 @@ class BackgroundJobProcessor:
         self.logger.info(f"Job {job_id} resumed")
         return True
     
-    def cancel_job(self, job_id: str) -> bool:
+    async def cancel_job(self, job_id: str) -> bool:
         """
         Cancel a job.
         
@@ -198,6 +204,12 @@ class BackgroundJobProcessor:
         job_info.status = JobStatus.CANCELLED
         job_info.completed_at = datetime.utcnow()
         job_info.error_message = "Job was cancelled by user"
+        
+        # Handle credit voiding for cancelled job
+        try:
+            await self._finalize_job_credits(job_id, success=False, error="Job cancelled by user")
+        except Exception as e:
+            self.logger.error(f"Failed to void credits for cancelled job {job_id}: {e}")
         
         self.logger.info(f"Job {job_id} cancelled")
         return True
@@ -337,7 +349,9 @@ class BackgroundJobProcessor:
                         auto_pause_on_failure=True,
                         context_improvement_enabled=True,
                         quality_gates_enabled=True,
-                        user_review_required=False
+                        user_review_required=False,
+                        user_id=user.get('user_id'),
+                        project_id=project_id
                     )
                     
                     # Initialize orchestrator with project path
@@ -412,4 +426,103 @@ class BackgroundJobProcessor:
                 self.logger.error(f"Job {job_id} failed: {e}")
                 raise
         
-        return await self.submit_job(job_id, auto_complete_job_func) 
+        return await self.submit_job(job_id, auto_complete_job_func)
+    
+    async def _finalize_job_credits(self, job_id: str, success: bool, result: Optional[Dict] = None, error: Optional[str] = None):
+        """
+        Finalize or void credits for a completed/failed auto-complete job.
+        
+        Args:
+            job_id: Job identifier
+            success: Whether the job completed successfully
+            result: Job result data (for successful jobs)
+            error: Error message (for failed jobs)
+        """
+        try:
+            # Load job data to get provisional transaction info
+            from .. import firestore_client
+            job_data = await firestore_client.load_job(job_id)
+            
+            if not job_data:
+                self.logger.warning(f"No job data found for credit finalization: {job_id}")
+                return
+                
+            provisional_txn_id = job_data.get('provisional_txn_id')
+            estimated_credits = job_data.get('estimated_credits', 0)
+            user_id = job_data.get('user_id')
+            
+            if not provisional_txn_id or not user_id:
+                self.logger.info(f"No provisional transaction to finalize for job {job_id}")
+                return
+                
+            # Get credits service
+            try:
+                from ..services.credits_service import get_credits_service_instance
+                credits_service = get_credits_service_instance()
+                import os
+                # If per-request billing is enabled, the billable client already finalized actual charges.
+                # In that case, treat the job-level provisional debit as a hold and always VOID it.
+                per_request_billing_enabled = os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true'
+                
+                if not credits_service or not credits_service.is_available():
+                    self.logger.warning(f"Credits service not available for job {job_id} finalization")
+                    return
+                    
+                # If per-request billing is enabled, always void the job-level hold regardless of outcome
+                if per_request_billing_enabled:
+                    await credits_service.void_provisional_debit(
+                        user_id=user_id,
+                        txn_id=provisional_txn_id,
+                        reason=f"auto_complete_job_release_hold: {'success' if success else 'failure'}",
+                        meta={
+                            "job_id": job_id,
+                            "estimated_credits": estimated_credits,
+                            "success": success,
+                            "error": error
+                        }
+                    )
+                    self.logger.info(f"Released provisional hold for job {job_id} (per-request billing active)")
+                else:
+                    # No per-request billing; finalize on success, void on failure
+                    if success:
+                        # Calculate actual credits used from job result if available
+                        actual_credits_used = 0
+                        if result and 'total_credits_used' in result:
+                            actual_credits_used = result['total_credits_used']
+                        else:
+                            actual_credits_used = estimated_credits
+                            self.logger.warning(f"Using estimated credits for finalization of job {job_id}: {actual_credits_used}")
+                        await credits_service.finalize_provisional_debit(
+                            user_id=user_id,
+                            txn_id=provisional_txn_id,
+                            final_amount=actual_credits_used,
+                            meta={
+                                "job_id": job_id,
+                                "finalization_reason": "auto_complete_job_completed",
+                                "estimated_credits": estimated_credits,
+                                "actual_credits": actual_credits_used
+                            }
+                        )
+                        self.logger.info(f"Finalized {actual_credits_used} credits for completed job {job_id} (estimated: {estimated_credits})")
+                    else:
+                        await credits_service.void_provisional_debit(
+                            user_id=user_id,
+                            txn_id=provisional_txn_id,
+                            reason=f"auto_complete_job_failed: {error or 'unknown error'}",
+                            meta={
+                                "job_id": job_id,
+                                "estimated_credits": estimated_credits,
+                                "error": error
+                            }
+                        )
+                        self.logger.info(f"Voided {estimated_credits} credits for failed job {job_id}: {error}")
+                    
+            except ImportError:
+                self.logger.warning(f"Credits service not available for job {job_id} finalization")
+            except Exception as e:
+                self.logger.error(f"Credit finalization failed for job {job_id}: {e}")
+                # Don't raise - credit errors shouldn't fail job completion
+                
+        except Exception as e:
+            self.logger.error(f"Failed to finalize credits for job {job_id}: {e}")
+            # Don't raise - credit errors shouldn't fail job completion 

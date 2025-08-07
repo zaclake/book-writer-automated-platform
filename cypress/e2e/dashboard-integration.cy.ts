@@ -16,7 +16,7 @@ describe('Dashboard Integration', () => {
 
   it('should show empty state when no projects exist', () => {
     // Mock empty projects response
-    cy.intercept('GET', '/api/projects', { body: { projects: [] } }).as('getProjects')
+    cy.intercept('GET', '/api/v2/projects', { body: { projects: [] } }).as('getProjects')
     
     cy.visit('/dashboard')
     cy.wait('@getProjects')
@@ -53,7 +53,7 @@ describe('Dashboard Integration', () => {
       { chapter: 3, word_count: 4000, created_at: '2024-01-03' }
     ]
 
-    cy.intercept('GET', '/api/projects', { body: { projects: mockProjects } }).as('getProjects')
+    cy.intercept('GET', '/api/v2/projects', { body: { projects: mockProjects } }).as('getProjects')
     cy.intercept('GET', '/api/chapters?project_id=project-1', { body: { chapters: mockChapters } }).as('getChapters')
     
     cy.visit('/dashboard')
@@ -72,7 +72,7 @@ describe('Dashboard Integration', () => {
   })
 
   it('should open project creation modal', () => {
-    cy.intercept('GET', '/api/projects', { body: { projects: [] } }).as('getProjects')
+    cy.intercept('GET', '/api/v2/projects', { body: { projects: [] } }).as('getProjects')
     
     cy.visit('/dashboard')
     cy.wait('@getProjects')
@@ -98,8 +98,8 @@ describe('Dashboard Integration', () => {
       }
     ]
 
-    cy.intercept('GET', '/api/projects', { body: { projects: mockProjects } }).as('getProjects')
-    cy.intercept('DELETE', '/api/projects/project-1', { body: { success: true } }).as('deleteProject')
+    cy.intercept('GET', '/api/v2/projects', { body: { projects: mockProjects } }).as('getProjects')
+          cy.intercept('DELETE', '/api/v2/projects/project-1', { body: { success: true } }).as('deleteProject')
     
     cy.visit('/dashboard')
     cy.wait('@getProjects')
@@ -124,7 +124,7 @@ describe('Dashboard Integration', () => {
       }
     ]
 
-    cy.intercept('GET', '/api/projects', { body: { projects: mockProjects } }).as('getProjects')
+    cy.intercept('GET', '/api/v2/projects', { body: { projects: mockProjects } }).as('getProjects')
     
     cy.visit('/dashboard')
     cy.wait('@getProjects')
@@ -137,7 +137,7 @@ describe('Dashboard Integration', () => {
   })
 
   it('should be accessible via keyboard navigation', () => {
-    cy.intercept('GET', '/api/projects', { body: { projects: [] } }).as('getProjects')
+    cy.intercept('GET', '/api/v2/projects', { body: { projects: [] } }).as('getProjects')
     
     cy.visit('/dashboard')
     cy.wait('@getProjects')

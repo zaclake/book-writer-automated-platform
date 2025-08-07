@@ -23,6 +23,7 @@
     "lint:fix": "next lint --fix",
     "type-check": "tsc --noEmit",
     "test": "jest",
+    "test:health": "jest src/__tests__/health-check.test.ts --verbose",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
@@ -46,7 +47,9 @@
     "backup:db": "node scripts/backup-firestore.js",
     "restore:db": "node scripts/restore-firestore.js",
     "seed": "node scripts/seed-data.js",
-    "health-check": "node scripts/health-check.js"
+    "health-check": "node scripts/health-check.js",
+    "railway:logs": "railway logs -f",
+    "railway:deploy": "railway up"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.25.4",

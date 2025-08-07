@@ -55,6 +55,8 @@ class AutoCompletionConfig:
     quality_gates_enabled: bool = True
     user_review_required: bool = False
     words_per_chapter: int = 3800
+    user_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 class AutoCompleteBookOrchestrator:
     """
@@ -469,7 +471,7 @@ The narrative unfolds as the characters face new challenges and developments. Ea
             self.logger.info(f"Generating Chapter {chapter_number} with reference files using LLM orchestrator")
             
             # Generate chapter using the LLM system with enhanced context
-            result = orchestrator.generate_chapter(
+            result = await orchestrator.generate_chapter(
                 chapter_number=chapter_number,
                 target_words=target_words,
                 stage="complete"

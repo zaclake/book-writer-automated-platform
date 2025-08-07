@@ -6,6 +6,7 @@ Handles credit balance, transactions, and purchases for the credit system.
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, Request, status
@@ -25,6 +26,30 @@ except ImportError:
     from database_integration import get_database_adapter
 
 logger = logging.getLogger(__name__)
+
+# Simple in-memory cache for balance requests (15-second TTL)
+_balance_cache: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 15
+
+def get_cached_balance(user_id: str) -> Optional[Dict[str, Any]]:
+    """Get cached balance if it exists and is fresh."""
+    if user_id in _balance_cache:
+        cache_entry = _balance_cache[user_id]
+        if time.time() - cache_entry['timestamp'] < CACHE_TTL_SECONDS:
+            logger.debug(f"Using cached balance for user {user_id}")
+            return cache_entry['data']
+        else:
+            # Cache expired, remove it
+            del _balance_cache[user_id]
+    return None
+
+def cache_balance(user_id: str, balance_data: Dict[str, Any]) -> None:
+    """Cache balance data for the user."""
+    _balance_cache[user_id] = {
+        'data': balance_data,
+        'timestamp': time.time()
+    }
+    logger.debug(f"Cached balance for user {user_id}")
 
 # Initialize router
 router = APIRouter(
@@ -135,6 +160,11 @@ async def get_balance(
     try:
         user_id = user_info['user_id']
         
+        # Check cache first
+        cached_data = get_cached_balance(user_id)
+        if cached_data:
+            return BalanceResponse(**cached_data)
+        
         # Get credits service
         credits_service = get_credits_service_instance()
         if not credits_service or not credits_service.is_available():
@@ -143,7 +173,7 @@ async def get_balance(
                 detail="Credits service temporarily unavailable"
             )
         
-        # Get balance
+        # Get balance from service
         balance_info = await credits_service.get_balance(user_id)
         if not balance_info:
             # Initialize credits for new user
@@ -158,12 +188,17 @@ async def get_balance(
         
         available_balance = balance_info.balance - balance_info.pending_debits
         
-        return BalanceResponse(
-            balance=balance_info.balance,
-            pending_debits=balance_info.pending_debits,
-            available_balance=max(0, available_balance),
-            last_updated=balance_info.last_updated
-        )
+        response_data = {
+            "balance": balance_info.balance,
+            "pending_debits": balance_info.pending_debits,
+            "available_balance": max(0, available_balance),
+            "last_updated": balance_info.last_updated
+        }
+        
+        # Cache the response
+        cache_balance(user_id, response_data)
+        
+        return BalanceResponse(**response_data)
         
     except HTTPException:
         raise
