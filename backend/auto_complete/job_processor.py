@@ -440,8 +440,9 @@ class BackgroundJobProcessor:
         """
         try:
             # Load job data to get provisional transaction info
-            from .. import firestore_client
-            job_data = await firestore_client.load_job(job_id)
+            # Import the global compatibility instance, not the module
+            from ..firestore_client import firestore_client as fs_client
+            job_data = await fs_client.load_job(job_id)
             
             if not job_data:
                 self.logger.warning(f"No job data found for credit finalization: {job_id}")
