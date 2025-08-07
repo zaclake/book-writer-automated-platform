@@ -2,7 +2,6 @@
 
 import { useParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BookBibleUpload } from '@/components/BookBibleUpload'
 import ProjectLayout from '@/components/layout/ProjectLayout'
 import { useProject } from '@/hooks/useFirestore'
 
@@ -31,7 +30,9 @@ export default function ProjectBookBiblePage() {
             <CardTitle>Project Foundation</CardTitle>
           </CardHeader>
           <CardContent>
-            <BookBibleUpload onProjectInitialized={() => {}} />
+            <div className="text-sm text-gray-600">
+              Uploading a book bible has been deprecated. Use the References and Guided tools to evolve your project foundation.
+            </div>
           </CardContent>
         </Card>
       </div>

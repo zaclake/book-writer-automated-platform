@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
-import { BookBibleUpload } from '@/components/BookBibleUpload'
-import { BlankProjectCreator } from '@/components/BlankProjectCreator'
+// Removed legacy upload/blank creators from creation modal
 import { AutoCompleteBookManager } from '@/components/AutoCompleteBookManager'
 import ProjectPublishPicker from '@/components/ProjectPublishPicker'
 import OnboardingFlow from '@/components/OnboardingFlow'
@@ -35,7 +34,8 @@ export default function Dashboard() {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingComplete, setOnboardingComplete] = useState(false)
   const [showProjectCreation, setShowProjectCreation] = useState(false)
-  const [projectCreationType, setProjectCreationType] = useState<'upload' | 'blank' | null>(null)
+  // Legacy project creation mode removed in favor of new wizard options
+  const [projectCreationType, setProjectCreationType] = useState<null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [optimisticallyRemovedProjects, setOptimisticallyRemovedProjects] = useState<Set<string>>(new Set())
@@ -465,10 +465,10 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-semibold text-gray-900">{UI_STRINGS.projects.create}</h2>
                   <button
-                    onClick={() => {
-                      setShowProjectCreation(false)
-                      setProjectCreationType(null)
-                    }}
+                      onClick={() => {
+                        setShowProjectCreation(false)
+                        setProjectCreationType(null)
+                      }}
                     className="text-gray-400 hover:text-gray-600"
                   >
                     <span className="sr-only">Close</span>
@@ -480,31 +480,61 @@ export default function Dashboard() {
               </div>
 
               <div className="p-6">
-                {!projectCreationType ? (
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <button
-                      onClick={() => setProjectCreationType('upload')}
-                      className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
-                    >
-                      <div className="text-3xl mb-4">📚</div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Upload Book Bible</h3>
-                      <p className="text-gray-600">Start with an existing outline, character sheets, or story bible.</p>
-                    </button>
-                    
-                    <button
-                      onClick={() => setProjectCreationType('blank')}
-                      className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
-                    >
-                      <div className="text-3xl mb-4">✨</div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Start Fresh</h3>
-                      <p className="text-gray-600">Begin with a blank canvas and build your story from scratch.</p>
-                    </button>
-                  </div>
-                ) : projectCreationType === 'upload' ? (
-                  <BookBibleUpload onProjectInitialized={handleProjectInitialized} />
-                ) : (
-                  <BlankProjectCreator onProjectInitialized={handleProjectInitialized} />
-                )}
+                <div className="grid md:grid-cols-3 gap-6">
+                  {/* Gift Book Option */}
+                  <button
+                    onClick={() => {
+                      setShowProjectCreation(false)
+                      analytics.modalClosed('project-creation')
+                      router.push('/create/gift')
+                    }}
+                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
+                  >
+                    <div className="text-3xl mb-4">🎁</div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Create a Gift Book</h3>
+                    <p className="text-gray-600">Craft a personalized superhero or adventure story for someone special.</p>
+                  </button>
+
+                  {/* Passive Income Option (Future) */}
+                  <button
+                    className="p-6 border-2 border-dashed border-gray-200 rounded-lg hover:border-brand-soft-purple/60 hover:bg-brand-sand/10 transition-all text-left cursor-not-allowed"
+                    disabled
+                    aria-disabled
+                    title="Coming soon"
+                  >
+                    <div className="text-3xl mb-4">💡</div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">Publish for Passive Income</h3>
+                    <p className="text-gray-500">Coming soon: pick from top 5 trend-driven ideas and auto-build your book bible.</p>
+                  </button>
+
+                  {/* Start from My Idea */}
+                  <button
+                    onClick={() => {
+                      setShowProjectCreation(false)
+                      analytics.modalClosed('project-creation')
+                      router.push('/create')
+                    }}
+                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
+                  >
+                    <div className="text-3xl mb-4">📝</div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Start from My Idea</h3>
+                    <p className="text-gray-600">Bring your idea and choose QuickStart or the full Guided Wizard to shape it.</p>
+                  </button>
+
+                  {/* Copy & Paste Idea */}
+                  <button
+                    onClick={() => {
+                      setShowProjectCreation(false)
+                      analytics.modalClosed('project-creation')
+                      router.push('/create/paste-idea')
+                    }}
+                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
+                  >
+                    <div className="text-3xl mb-4">📋</div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Copy & Paste Idea</h3>
+                    <p className="text-gray-600">Paste your idea text and we’ll create your project and start generating references.</p>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
