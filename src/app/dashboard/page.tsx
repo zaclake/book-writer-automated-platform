@@ -23,7 +23,10 @@ import {
   PlusCircleIcon,
   ArrowRightIcon,
   CheckCircleIcon,
-  TrashIcon
+  TrashIcon,
+  GiftIcon,
+  LightBulbIcon,
+  ClipboardDocumentListIcon
 } from '@heroicons/react/24/outline'
 
 export default function Dashboard() {
@@ -457,20 +460,25 @@ export default function Dashboard() {
 
         {/* Project Creation Modal */}
         {showProjectCreation && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div 
               ref={projectCreationModalRef}
-              className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-white/60"
             >
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-gray-900">{UI_STRINGS.projects.create}</h2>
+              {/* Branded header */}
+              <div className="relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-brand-lavender/30 via-brand-ink-blue/20 to-brand-blush-orange/30" />
+                <div className="relative p-6 border-b border-white/50">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl md:text-3xl font-black text-brand-forest tracking-tight">
+                      Begin a New Journey
+                    </h2>
                   <button
                       onClick={() => {
                         setShowProjectCreation(false)
                         setProjectCreationType(null)
                       }}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-gray-500 hover:text-gray-700"
                   >
                     <span className="sr-only">Close</span>
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -481,12 +489,13 @@ export default function Dashboard() {
                 <div className="mt-2 text-right">
                   <button
                     onClick={() => setShowOptionGuide(true)}
-                    className="text-sm font-medium text-brand-forest hover:underline"
+                    className="text-sm font-semibold text-brand-forest hover:underline"
                     aria-label="Help me choose"
                   >
                     Help me choose
                   </button>
                 </div>
+              </div>
               </div>
 
               <div className="p-6">
@@ -501,19 +510,19 @@ export default function Dashboard() {
                       analytics.modalClosed('project-creation')
                       router.push('/create/gift')
                     }}
-                    className="group p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
+                    className="group p-6 border-2 border-gray-200 rounded-xl hover:border-brand-lavender/60 hover:bg-brand-lavender/5 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-3xl">🎁</div>
-                      <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 font-semibold opacity-90">Popular</span>
+                    <div className="flex items-center justify-between mb-2">
+                      <GiftIcon className="w-6 h-6 text-brand-lavender" />
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 font-semibold">Popular</span>
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-brand-forest transition-colors">Create a Gift Book</h3>
-                    <p className="text-gray-600 mb-3">A personalized story for someone special — heartwarming, heroic, and fun.</p>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1 group-hover:text-brand-forest transition-colors">Gift a Story</h3>
+                    <p className="text-gray-600 mb-2">A personalized story for someone special. Heartwarming, heroic, and fun.</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Gifts</span>
-                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 2–4 min</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 2-4 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside pl-1">
                       <li>Tell us about the recipient</li>
                       <li>Pick tone and theme</li>
                       <li>We set up your story space</li>
@@ -530,16 +539,16 @@ export default function Dashboard() {
                       analytics.modalClosed('project-creation')
                       router.push('/create')
                     }}
-                    className="group p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
+                    className="group p-6 border-2 border-gray-200 rounded-xl hover:border-brand-lavender/60 hover:bg-brand-lavender/5 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
-                    <div className="text-3xl mb-4">📝</div>
+                    <ClipboardDocumentListIcon className="w-6 h-6 text-brand-lavender mb-2" />
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Start from My Idea</h3>
-                    <p className="text-gray-600 mb-3">Bring your idea — go QuickStart or take the Guided path to shape it step by step.</p>
+                    <p className="text-gray-600 mb-2">Bring your idea. Go QuickStart or take the Guided path to shape it step by step.</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Any idea</span>
-                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 5–15 min</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 5-15 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside pl-1">
                       <li>QuickStart or Guided</li>
                       <li>Define story essentials</li>
                       <li>Jump into writing</li>
@@ -556,19 +565,19 @@ export default function Dashboard() {
                       analytics.modalClosed('project-creation')
                       router.push('/create/paste-idea')
                     }}
-                    className="group p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
+                    className="group p-6 border-2 border-gray-200 rounded-xl hover:border-brand-lavender/60 hover:bg-brand-lavender/5 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-3xl">📋</div>
+                    <div className="flex items-center justify-between mb-2">
+                      <ClipboardDocumentListIcon className="w-6 h-6 text-brand-lavender" />
                       <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-800 font-semibold">New</span>
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Copy & Paste Idea</h3>
-                    <p className="text-gray-600 mb-3">Paste your idea — we’ll create your project and get everything set for writing.</p>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">Paste & Go</h3>
+                    <p className="text-gray-600 mb-2">Paste your idea. We’ll create your project and get everything set for writing.</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Speed</span>
-                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1–2 min</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1-2 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside pl-1">
                       <li>Paste your notes</li>
                       <li>Confirm details</li>
                       <li>Start creating</li>
@@ -582,8 +591,8 @@ export default function Dashboard() {
                     aria-disabled
                     title="Coming soon"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-3xl">💡</div>
+                    <div className="flex items-center justify-between mb-2">
+                      <LightBulbIcon className="w-6 h-6 text-brand-lavender" />
                       <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 font-semibold">Coming soon</span>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-1">Publish for Passive Income</h3>
