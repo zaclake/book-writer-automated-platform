@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [showProjectCreation, setShowProjectCreation] = useState(false)
   // Legacy project creation mode removed in favor of new wizard options
   const [projectCreationType, setProjectCreationType] = useState<null>(null)
+  const [showOptionGuide, setShowOptionGuide] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [optimisticallyRemovedProjects, setOptimisticallyRemovedProjects] = useState<Set<string>>(new Set())
@@ -477,22 +478,46 @@ export default function Dashboard() {
                     </svg>
                   </button>
                 </div>
+                <div className="mt-2 text-right">
+                  <button
+                    onClick={() => setShowOptionGuide(true)}
+                    className="text-sm font-medium text-brand-forest hover:underline"
+                    aria-label="Help me choose"
+                  >
+                    Help me choose
+                  </button>
+                </div>
               </div>
 
               <div className="p-6">
-                <div className="grid md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   {/* Gift Book Option */}
                   <button
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowProjectCreation(false); analytics.modalClosed('project-creation'); router.push('/create/gift') } }}
                     onClick={() => {
                       setShowProjectCreation(false)
                       analytics.modalClosed('project-creation')
                       router.push('/create/gift')
                     }}
-                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
+                    className="group p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
-                    <div className="text-3xl mb-4">🎁</div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Create a Gift Book</h3>
-                    <p className="text-gray-600">Craft a personalized superhero or adventure story for someone special.</p>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-3xl">🎁</div>
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 font-semibold opacity-90">Popular</span>
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-brand-forest transition-colors">Create a Gift Book</h3>
+                    <p className="text-gray-600 mb-3">A personalized story for someone special — heartwarming, heroic, and fun.</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Gifts</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 2–4 min</span>
+                    </div>
+                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                      <li>Tell us about the recipient</li>
+                      <li>Pick tone and theme</li>
+                      <li>We set up your story space</li>
+                    </ul>
                   </button>
 
                   {/* Passive Income Option (Future) */}
@@ -502,39 +527,114 @@ export default function Dashboard() {
                     aria-disabled
                     title="Coming soon"
                   >
-                    <div className="text-3xl mb-4">💡</div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-3xl">💡</div>
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 font-semibold">Coming soon</span>
+                    </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-1">Publish for Passive Income</h3>
-                    <p className="text-gray-500">Coming soon: pick from top 5 trend-driven ideas and auto-build your book bible.</p>
+                    <p className="text-gray-500 mb-3">Choose from 5 trend‑smart concepts designed to attract readers and royalties.</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Publishing</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1–2 min</span>
+                    </div>
+                    <ul className="text-sm text-gray-500 space-y-1 list-disc list-inside">
+                      <li>Preview curated ideas</li>
+                      <li>Pick your favorite</li>
+                      <li>We set everything up</li>
+                    </ul>
                   </button>
 
                   {/* Start from My Idea */}
                   <button
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowProjectCreation(false); analytics.modalClosed('project-creation'); router.push('/create') } }}
                     onClick={() => {
                       setShowProjectCreation(false)
                       analytics.modalClosed('project-creation')
                       router.push('/create')
                     }}
-                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
+                    className="group p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
                     <div className="text-3xl mb-4">📝</div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Start from My Idea</h3>
-                    <p className="text-gray-600">Bring your idea and choose QuickStart or the full Guided Wizard to shape it.</p>
+                    <p className="text-gray-600 mb-3">Bring your idea — go QuickStart or take the Guided path to shape it step by step.</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Any idea</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 5–15 min</span>
+                    </div>
+                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                      <li>QuickStart or Guided</li>
+                      <li>Define story essentials</li>
+                      <li>Jump into writing</li>
+                    </ul>
                   </button>
 
                   {/* Copy & Paste Idea */}
                   <button
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowProjectCreation(false); analytics.modalClosed('project-creation'); router.push('/create/paste-idea') } }}
                     onClick={() => {
                       setShowProjectCreation(false)
                       analytics.modalClosed('project-creation')
                       router.push('/create/paste-idea')
                     }}
-                    className="p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left"
+                    className="group p-6 border-2 border-gray-200 rounded-lg hover:border-brand-soft-purple hover:bg-brand-sand/20 transition-all text-left focus:outline-none focus:ring-2 focus:ring-brand-lavender/50"
                   >
-                    <div className="text-3xl mb-4">📋</div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-3xl">📋</div>
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-800 font-semibold">New</span>
+                    </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Copy & Paste Idea</h3>
-                    <p className="text-gray-600">Paste your idea text and we’ll create your project and start generating references.</p>
+                    <p className="text-gray-600 mb-3">Paste your idea — we’ll create your project and get everything set for writing.</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Speed</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1–2 min</span>
+                    </div>
+                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                      <li>Paste your notes</li>
+                      <li>Confirm details</li>
+                      <li>Start creating</li>
+                    </ul>
                   </button>
                 </div>
+
+                {/* Compare Options Modal */}
+                {showOptionGuide && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-label="Compare options">
+                    <div className="bg-white rounded-xl max-w-3xl w-full overflow-hidden shadow-2xl">
+                      <div className="p-4 border-b flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-gray-900">Choose your path</h3>
+                        <button onClick={() => setShowOptionGuide(false)} className="text-gray-400 hover:text-gray-600" aria-label="Close comparison">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                          <div className="bg-brand-off-white rounded-lg p-4 border">
+                            <div className="font-bold mb-2">Gift Book</div>
+                            <div className="text-gray-700">Best for heartfelt presents. Quick, guided.</div>
+                          </div>
+                          <div className="bg-brand-off-white rounded-lg p-4 border">
+                            <div className="font-bold mb-2">Passive Income</div>
+                            <div className="text-gray-700">Curated trends, one‑click start. (Soon)</div>
+                          </div>
+                          <div className="bg-brand-off-white rounded-lg p-4 border">
+                            <div className="font-bold mb-2">My Idea</div>
+                            <div className="text-gray-700">QuickStart or deep Guided flow.</div>
+                          </div>
+                          <div className="bg-brand-off-white rounded-lg p-4 border">
+                            <div className="font-bold mb-2">Paste Idea</div>
+                            <div className="text-gray-700">Fastest path. Paste and go.</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
