@@ -132,3 +132,16 @@ export {
   DialogTitle,
   DialogDescription,
 } 
+
+// Optional footer container for actions
+export const DialogFooter = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex items-center justify-end gap-2 mt-4", className)}
+    {...props}
+  />
+))
+DialogFooter.displayName = "DialogFooter"

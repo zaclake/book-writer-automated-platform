@@ -12,7 +12,6 @@ import { useCreditsApi, type CreditTransaction } from '@/lib/api-client'
 import { 
   UserIcon, 
   PencilIcon, 
-  CreditCardIcon,
   ChartBarIcon,
   BookOpenIcon,
   StarIcon,
@@ -20,11 +19,11 @@ import {
   AcademicCapIcon,
   BriefcaseIcon,
   HeartIcon,
-  Zap,
   ArrowUpIcon,
   ArrowDownIcon,
   ClockIcon
 } from '@heroicons/react/24/outline'
+import { Zap } from 'lucide-react'
 
 interface UserProfileData {
   purpose: 'personal' | 'commercial' | 'educational'
