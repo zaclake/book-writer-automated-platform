@@ -513,34 +513,10 @@ export default function Dashboard() {
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Gifts</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 2–4 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside">
                       <li>Tell us about the recipient</li>
                       <li>Pick tone and theme</li>
                       <li>We set up your story space</li>
-                    </ul>
-                  </button>
-
-                  {/* Passive Income Option (Future) */}
-                  <button
-                    className="p-6 border-2 border-dashed border-gray-200 rounded-lg hover:border-brand-soft-purple/60 hover:bg-brand-sand/10 transition-all text-left cursor-not-allowed"
-                    disabled
-                    aria-disabled
-                    title="Coming soon"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-3xl">💡</div>
-                      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 font-semibold">Coming soon</span>
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">Publish for Passive Income</h3>
-                    <p className="text-gray-500 mb-3">Choose from 5 trend‑smart concepts designed to attract readers and royalties.</p>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Publishing</span>
-                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1–2 min</span>
-                    </div>
-                    <ul className="text-sm text-gray-500 space-y-1 list-disc list-inside">
-                      <li>Preview curated ideas</li>
-                      <li>Pick your favorite</li>
-                      <li>We set everything up</li>
                     </ul>
                   </button>
 
@@ -563,7 +539,7 @@ export default function Dashboard() {
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Any idea</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 5–15 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside">
                       <li>QuickStart or Guided</li>
                       <li>Define story essentials</li>
                       <li>Jump into writing</li>
@@ -592,10 +568,34 @@ export default function Dashboard() {
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Speed</span>
                       <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1–2 min</span>
                     </div>
-                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                    <ul className="text-sm text-gray-600 space-y-0.5 list-disc list-inside">
                       <li>Paste your notes</li>
                       <li>Confirm details</li>
                       <li>Start creating</li>
+                    </ul>
+                  </button>
+
+                  {/* Passive Income Option (Future) - move to last */}
+                  <button
+                    className="group p-6 border-2 border-dashed border-gray-200 rounded-lg hover:border-brand-soft-purple/60 hover:bg-brand-sand/10 transition-all text-left cursor-not-allowed focus:outline-none"
+                    disabled
+                    aria-disabled
+                    title="Coming soon"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-3xl">💡</div>
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700 font-semibold">Coming soon</span>
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">Publish for Passive Income</h3>
+                    <p className="text-gray-500 mb-2">Choose from 5 trend smart concepts designed to attract readers and royalties.</p>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Best for: Publishing</span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/70 border border-brand-lavender/30">Time: 1-2 min</span>
+                    </div>
+                    <ul className="text-sm text-gray-500 space-y-0.5 list-disc list-inside">
+                      <li>Preview curated ideas</li>
+                      <li>Pick your favorite</li>
+                      <li>We set everything up</li>
                     </ul>
                   </button>
                 </div>

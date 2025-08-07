@@ -9,12 +9,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import Celebration from '@/components/ui/Celebration'
 
 export default function CreateGiftBookPage() {
   const router = useRouter()
   const { getToken, isSignedIn } = useAuth()
 
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showCelebration, setShowCelebration] = useState(false)
 
   const [form, setForm] = useState({
     recipient_name: '',
@@ -128,7 +130,8 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
 
       localStorage.setItem('lastProjectId', projectId)
       localStorage.setItem(`projectTitle-${projectId}`, payload.title)
-      router.push(`/project/${projectId}/references`)
+      setShowCelebration(true)
+      setTimeout(() => router.push(`/project/${projectId}/references`), 800)
     } catch (e) {
       console.error('Gift book creation failed', e)
       setIsSubmitting(false)
@@ -258,6 +261,7 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
           </CardContent>
         </Card>
       </div>
+      <Celebration isVisible={showCelebration} message="Project created" />
     </div>
   )
 }

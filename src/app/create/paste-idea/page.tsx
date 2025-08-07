@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import Celebration from '@/components/ui/Celebration'
 
 export default function PasteIdeaPage() {
   const router = useRouter()
@@ -19,6 +20,7 @@ export default function PasteIdeaPage() {
   const [content, setContent] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showCelebration, setShowCelebration] = useState(false)
 
   const deriveTitleFromContent = (text: string): string => {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
@@ -72,7 +74,8 @@ export default function PasteIdeaPage() {
 
       localStorage.setItem('lastProjectId', projectId)
       localStorage.setItem(`projectTitle-${projectId}`, finalTitle)
-      router.push(`/project/${projectId}/references`)
+      setShowCelebration(true)
+      setTimeout(() => router.push(`/project/${projectId}/references`), 800)
     } catch (e) {
       console.error('Paste idea creation failed', e)
       setError(e instanceof Error ? e.message : 'Unknown error')
@@ -140,6 +143,7 @@ export default function PasteIdeaPage() {
             </div>
           </CardContent>
         </Card>
+        <Celebration isVisible={showCelebration} message="Project created" />
       </div>
     </div>
   )
