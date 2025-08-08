@@ -6,7 +6,7 @@ Provides credit-based cost estimation for auto-complete book generation.
 
 import logging
 import math
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 

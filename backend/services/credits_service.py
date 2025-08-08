@@ -9,6 +9,7 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Optional, Any, List
+from google.cloud import firestore
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -171,7 +172,7 @@ class CreditsService:
                     return existing
             
             # Use Firestore transaction for atomicity
-            @self.firestore_service.db.transactional
+            @firestore.transactional
             def add_credits_transaction(transaction):
                 # Get current user document
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
@@ -273,7 +274,7 @@ class CreditsService:
                     return existing
             
             # Use Firestore transaction for atomicity
-            @self.firestore_service.db.transactional
+            @firestore.transactional
             def deduct_credits_transaction(transaction):
                 # Get current user document
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
@@ -381,7 +382,7 @@ class CreditsService:
                     return existing
             
             # Use Firestore transaction for atomicity
-            @self.firestore_service.db.transactional
+            @firestore.transactional
             def provisional_debit_transaction(transaction):
                 # Get current user document
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
@@ -463,7 +464,7 @@ class CreditsService:
         
         try:
             # Use Firestore transaction for atomicity
-            @self.firestore_service.db.transactional
+            @firestore.transactional
             def finalize_transaction(transaction):
                 # Get provisional debit transaction
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
@@ -547,7 +548,7 @@ class CreditsService:
         
         try:
             # Use Firestore transaction for atomicity
-            @self.firestore_service.db.transactional
+            @firestore.transactional
             def void_transaction(transaction):
                 # Get provisional debit transaction
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
