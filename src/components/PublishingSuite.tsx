@@ -219,12 +219,46 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                     <p className="text-sm text-muted-foreground">Kindle and e-reader compatible</p>
                   </div>
                 </div>
-                <Button asChild variant="outline">
-                  <a href={downloadUrls.epub} download data-cy="download-epub">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download
-                  </a>
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="outline">
+                    <a href={downloadUrls.epub} download data-cy="download-epub">
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </a>
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={async () => {
+                      try {
+                        if (!navigator.share || !('canShare' in navigator)) {
+                          // Fallback: just open the file in a new tab
+                          window.open(downloadUrls.epub as string, '_blank')
+                          return
+                        }
+                        const res = await fetch(downloadUrls.epub as string)
+                        const blob = await res.blob()
+                        const file = new File([blob], `${(project.metadata?.title || 'book').replace(/\s+/g,'-')}.epub`, { type: 'application/epub+zip' })
+                        // Check share capability with file
+                        // @ts-ignore
+                        if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+                          window.open(downloadUrls.epub as string, '_blank')
+                          return
+                        }
+                        await navigator.share({
+                          files: [file],
+                          title: project.metadata?.title || 'EPUB',
+                          text: 'Share to Kindle via the system share sheet'
+                        })
+                      } catch (err) {
+                        console.error('Web Share failed', err)
+                        window.open(downloadUrls.epub as string, '_blank')
+                      }
+                    }}
+                    data-cy="share-epub"
+                  >
+                    Share to Kindle
+                  </Button>
+                </div>
               </div>
             )}
             

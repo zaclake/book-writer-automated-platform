@@ -74,22 +74,46 @@ class PublishingService:
                 self.logger.warning(f"Firebase Storage not available: {e}")
     
     async def _download_cover_art(self, cover_art_url: str, temp_path: Path) -> Optional[Path]:
-        """Download cover art image to temp directory."""
+        """Download and normalize cover art image for embedding.
+
+        Returns a path to a JPEG file suitable for EPUB/PDF embedding.
+        """
         try:
             import aiohttp
-            cover_file = temp_path / "cover.jpg"
-            
+            from PIL import Image
+            from io import BytesIO
+
+            target_file = temp_path / "cover.jpg"
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(cover_art_url) as response:
-                    if response.status == 200:
-                        with open(cover_file, 'wb') as f:
-                            f.write(await response.read())
-                        self.logger.info(f"Downloaded cover art to {cover_file}")
-                        return cover_file
-                    else:
+                    if response.status != 200:
                         self.logger.warning(f"Failed to download cover art: HTTP {response.status}")
                         return None
-                        
+
+                    data = await response.read()
+                    content_type = (response.headers.get('Content-Type') or '').lower()
+
+                    try:
+                        image = Image.open(BytesIO(data))
+                        if image.mode in ("RGBA", "LA"):
+                            background = Image.new("RGB", image.size, (255, 255, 255))
+                            background.paste(image, mask=image.split()[-1])
+                            image = background
+                        elif image.mode != "RGB":
+                            image = image.convert("RGB")
+                        image.save(target_file, format="JPEG", quality=92, optimize=True)
+                        self.logger.info(f"Normalized cover art to JPEG at {target_file} (source {content_type})")
+                        return target_file
+                    except Exception as pil_err:
+                        if 'jpeg' in content_type or 'jpg' in content_type:
+                            with open(target_file, 'wb') as f:
+                                f.write(data)
+                            self.logger.info(f"Saved cover art JPEG bytes directly at {target_file}")
+                            return target_file
+                        self.logger.error(f"Failed to normalize cover art to JPEG: {pil_err}")
+                        return None
+
         except Exception as e:
             self.logger.error(f"Error downloading cover art: {e}")
             return None
@@ -509,12 +533,12 @@ class PublishingService:
                 with open(combined_file, 'r', encoding='utf-8') as f:
                     original_content = f.read()
                 
-                # Add cover page at the beginning
+                # Add cover page at the beginning (full width)
                 cover_content = f"""\\newpage
 \\thispagestyle{{empty}}
 \\begin{{center}}
 \\vspace*{{\\fill}}
-\\includegraphics[width=0.6\\textwidth]{{{cover_file}}}
+\\includegraphics[width=\\textwidth]{{{cover_file}}}
 \\vspace*{{\\fill}}
 \\end{{center}}
 \\newpage
