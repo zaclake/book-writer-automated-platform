@@ -248,8 +248,31 @@ class PublishingService:
             
             # Get cover art if exists
             cover_art_url = None
-            if 'cover_art' in project_data:
+            if 'cover_art' in project_data and isinstance(project_data['cover_art'], dict):
                 cover_art_url = project_data['cover_art'].get('image_url')
+            # Fallback: query latest cover_art_jobs for this project if not set on project doc
+            if not cover_art_url:
+                try:
+                    from backend.services.firestore_service import get_firestore_client  # type: ignore
+                except Exception:
+                    from services.firestore_service import get_firestore_client  # type: ignore
+                try:
+                    client = get_firestore_client()
+                    from google.cloud import firestore  # type: ignore
+                    query = (
+                        client.collection('cover_art_jobs')
+                        .where('project_id', '==', project_id)
+                        .order_by('created_at', direction=firestore.Query.DESCENDING)
+                        .limit(1)
+                    )
+                    docs = list(query.stream())
+                    if docs:
+                        data = docs[0].to_dict() or {}
+                        cover_art_url = data.get('image_url')
+                        if cover_art_url:
+                            self.logger.info(f"Using fallback cover art from latest job for project {project_id}")
+                except Exception as e:
+                    self.logger.warning(f"Cover art fallback lookup failed for {project_id}: {e}")
             
             return {
                 'project': project_data,
@@ -434,7 +457,6 @@ class PublishingService:
             "--output", str(output_file),
             "--metadata-file", str(metadata_file),
             "--css", str(css_file),
-            "--epub-subdirectory", "EPUB",
             "--standalone",
             "--variable", "lang=en-US",
             "--variable", "dir=ltr",
