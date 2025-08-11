@@ -23,16 +23,40 @@ from backend.models.firestore_models import (
 )
 
 # Import database functions
+import sys
+import os
+
+# Add current directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 try:
     from backend.database_integration import (
         get_project, get_project_chapters
     )
-    from backend.services.firestore_service import upload_file_to_storage
+    from backend.services.firestore_service import get_firestore_client
 except ImportError:
-    from database_integration import (
-        get_project, get_project_chapters
-    )
-    from services.firestore_service import upload_file_to_storage
+    try:
+        # Try without backend prefix
+        from database_integration import (
+            get_project, get_project_chapters
+        )
+        from services.firestore_service import get_firestore_client
+    except ImportError:
+        # Final fallback - import with full path
+        sys.path.insert(0, '/app/backend')
+        from database_integration import (
+            get_project, get_project_chapters
+        )
+        from services.firestore_service import get_firestore_client
+
+# Import Firebase Storage for file uploads
+try:
+    from firebase_admin import storage
+except ImportError:
+    storage = None
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +65,62 @@ class PublishingService:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        self.firebase_bucket = None
+        if storage:
+            try:
+                self.firebase_bucket = storage.bucket()
+                self.logger.info("Firebase Storage initialized for publishing")
+            except Exception as e:
+                self.logger.warning(f"Firebase Storage not available: {e}")
+    
+    async def _download_cover_art(self, cover_art_url: str, temp_path: Path) -> Optional[Path]:
+        """Download cover art image to temp directory."""
+        try:
+            import aiohttp
+            cover_file = temp_path / "cover.jpg"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(cover_art_url) as response:
+                    if response.status == 200:
+                        with open(cover_file, 'wb') as f:
+                            f.write(await response.read())
+                        self.logger.info(f"Downloaded cover art to {cover_file}")
+                        return cover_file
+                    else:
+                        self.logger.warning(f"Failed to download cover art: HTTP {response.status}")
+                        return None
+                        
+        except Exception as e:
+            self.logger.error(f"Error downloading cover art: {e}")
+            return None
+
+    async def upload_file_to_storage(self, file_path: Path, project_id: str, filename: str) -> str:
+        """Upload a file to Firebase Storage and return the public URL."""
+        if not self.firebase_bucket:
+            # Return local file URL as fallback
+            self.logger.warning("Firebase Storage not available, using local file")
+            return f"/local_storage/{project_id}/{filename}"
+        
+        try:
+            # Create blob path
+            blob_path = f"published_books/{project_id}/{filename}"
+            blob = self.firebase_bucket.blob(blob_path)
+            
+            # Upload file
+            with open(file_path, 'rb') as file_data:
+                blob.upload_from_file(file_data, content_type=self._get_content_type(filename))
+            
+            # Make blob publicly accessible
+            blob.make_public()
+            
+            public_url = blob.public_url
+            self.logger.info(f"File uploaded to Firebase Storage: {public_url}")
+            return public_url
+            
+        except Exception as e:
+            self.logger.error(f"Failed to upload {filename} to Firebase Storage: {e}")
+            # Return local file URL as fallback
+            return f"/local_storage/{project_id}/{filename}"
         
     async def publish_book(
         self,
@@ -95,8 +175,16 @@ class PublishingService:
                     start_progress, end_progress = format_progress_map[fmt]
                     update_progress(f"Generating {fmt.upper()}", start_progress)
                     
+                    # Get cover art URL from project data
+                    cover_art_url = None
+                    if 'cover_art' in project_data and isinstance(project_data['cover_art'], dict):
+                        cover_art_url = project_data['cover_art'].get('image_url')
+                    elif 'cover_art_url' in project_data:
+                        # Fallback for legacy structure
+                        cover_art_url = project_data.get('cover_art_url')
+                    
                     output_file = await self._generate_format(
-                        fmt, combined_md, metadata_yaml, temp_path, config
+                        fmt, combined_md, metadata_yaml, temp_path, config, cover_art_url
                     )
                     if output_file:
                         output_files[fmt.value] = output_file
@@ -294,7 +382,8 @@ class PublishingService:
         combined_md: str,
         metadata_yaml: str,
         temp_path: Path,
-        config: PublishConfig
+        config: PublishConfig,
+        cover_art_url: Optional[str] = None
     ) -> Optional[Path]:
         """Generate a specific format using Pandoc."""
         
@@ -303,9 +392,9 @@ class PublishingService:
         
         try:
             if fmt == PublishFormat.EPUB:
-                return await self._generate_epub(combined_file, metadata_file, temp_path, config)
+                return await self._generate_epub(combined_file, metadata_file, temp_path, config, cover_art_url)
             elif fmt == PublishFormat.PDF:
-                return await self._generate_pdf(combined_file, metadata_file, temp_path, config)
+                return await self._generate_pdf(combined_file, metadata_file, temp_path, config, cover_art_url)
             elif fmt == PublishFormat.HTML:
                 return await self._generate_html(combined_file, metadata_file, temp_path, config)
             else:
@@ -321,11 +410,17 @@ class PublishingService:
         combined_file: Path, 
         metadata_file: Path, 
         temp_path: Path,
-        config: PublishConfig
+        config: PublishConfig,
+        cover_art_url: Optional[str] = None
     ) -> Path:
         """Generate EPUB using Pandoc."""
         
         output_file = temp_path / f"{self._get_book_slug(config.title)}.epub"
+        
+        # Download cover art if available
+        cover_file = None
+        if cover_art_url:
+            cover_file = await self._download_cover_art(cover_art_url, temp_path)
         
         # Create CSS file for EPUB
         css_file = temp_path / "epub.css"
@@ -339,14 +434,17 @@ class PublishingService:
             "--output", str(output_file),
             "--metadata-file", str(metadata_file),
             "--css", str(css_file),
-            "--split-level", "1",
             "--epub-subdirectory", "EPUB",
             "--standalone",
-            "--embed-resources",
             "--variable", "lang=en-US",
             "--variable", "dir=ltr",
             "--variable", "epub-version=3"
         ]
+        
+        # Add cover art if available
+        if cover_file and cover_file.exists():
+            cmd.extend(["--epub-cover-image", str(cover_file)])
+            self.logger.info(f"Adding cover art to EPUB: {cover_file}")
         
         if config.include_toc:
             cmd.extend(["--toc", "--toc-depth", "3"])
@@ -370,11 +468,40 @@ class PublishingService:
         combined_file: Path, 
         metadata_file: Path, 
         temp_path: Path,
-        config: PublishConfig
+        config: PublishConfig,
+        cover_art_url: Optional[str] = None
     ) -> Path:
         """Generate PDF using Pandoc with XeLaTeX."""
         
         output_file = temp_path / f"{self._get_book_slug(config.title)}-print.pdf"
+        
+        # Download cover art if available and create cover page
+        cover_file = None
+        if cover_art_url:
+            cover_file = await self._download_cover_art(cover_art_url, temp_path)
+            if cover_file and cover_file.exists():
+                # Create a markdown file with cover page
+                combined_with_cover = temp_path / "book_with_cover.md"
+                with open(combined_file, 'r', encoding='utf-8') as f:
+                    original_content = f.read()
+                
+                # Add cover page at the beginning
+                cover_content = f"""\\newpage
+\\thispagestyle{{empty}}
+\\begin{{center}}
+\\vspace*{{\\fill}}
+\\includegraphics[width=0.6\\textwidth]{{{cover_file}}}
+\\vspace*{{\\fill}}
+\\end{{center}}
+\\newpage
+
+{original_content}"""
+                
+                with open(combined_with_cover, 'w', encoding='utf-8') as f:
+                    f.write(cover_content)
+                
+                combined_file = combined_with_cover
+                self.logger.info(f"Added cover art to PDF content: {cover_file}")
         
         # Build Pandoc command for PDF
         cmd = [
@@ -489,7 +616,6 @@ class PublishingService:
             "--css", str(css_file),
             "--section-divs",
             "--standalone",
-            "--embed-resources",
             "--highlight-style", "breezedark",
             "--variable", "toc-title=Table of Contents",
             "--variable", "lang=en-US",
@@ -533,10 +659,11 @@ class PublishingService:
                 storage_path = f"projects/{project_id}/publishing/{job_id}/book.{fmt}"
                 
                 # Upload file
-                download_url = await upload_file_to_storage(
-                    file_path=str(file_path),
-                    storage_path=storage_path,
-                    content_type=self._get_content_type(fmt)
+                filename = f"book.{fmt}"
+                download_url = await self.upload_file_to_storage(
+                    file_path=file_path,
+                    project_id=project_id,
+                    filename=filename
                 )
                 
                 download_urls[fmt] = download_url
