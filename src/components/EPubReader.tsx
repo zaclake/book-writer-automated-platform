@@ -34,10 +34,25 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         book = ePub()
         await book.open(buf, 'binary')
 
+        let preferredHref: string | null = null
         try {
           const spine = await book.loaded.spine
-          const contents = spine?.items?.map((it: any) => ({ href: it.href, id: it.idref })) || []
-          setDebug(`Spine items: ${contents.length} | First: ${contents[0]?.href || 'n/a'}`)
+          const items: any[] = spine?.items || []
+          const hrefs: string[] = items.map((it: any) => it?.href).filter(Boolean)
+          const lower = (s: string) => (s || '').toLowerCase()
+          const isFront = (s: string) => {
+            const x = lower(s)
+            return [
+              'cover', 'title', 'copyright', 'toc', 'nav',
+              'acknowled', 'dedicat', 'imprint', 'front', 'back', 'colophon'
+            ].some(k => x.includes(k))
+          }
+          const looksLikeChapter = (s: string) => /chapter|\bch\d+\b|prologue|epilogue|section|part/i.test(s)
+          preferredHref = hrefs.find(h => looksLikeChapter(h) && !isFront(h)) ||
+                          hrefs.find(h => !isFront(h)) ||
+                          (hrefs.length > 0 ? hrefs[0] : null)
+
+          setDebug(`Spine items: ${hrefs.length} | First: ${hrefs[0] || 'n/a'} | Picked: ${preferredHref || 'n/a'}`)
         } catch (e) {
           console.warn('Failed to inspect spine', e)
         }
@@ -45,19 +60,28 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
           width: '100%',
           height: '100%'
         })
-        // Ensure we open the first spine item explicitly
-        await rendition.display()
-        // Extra guard: if current displayed cfi fails, try first spine item href
-        try {
-          const spine = await book.loaded.spine
-          if (spine?.items?.length > 0) {
-            await rendition.display(spine.items[0].href)
-          }
-        } catch {}
+        // Ensure we open a meaningful location (prefer computed chapter-ish href)
+        if (preferredHref) {
+          await rendition.display(preferredHref)
+        } else {
+          await rendition.display()
+          try {
+            const spine = await book.loaded.spine
+            if (spine?.items?.length > 0) {
+              await rendition.display(spine.items[0].href)
+            }
+          } catch {}
+        }
         try {
           const nav = await book.loaded.navigation
-          if (nav && nav.toc && nav.toc.length > 0) {
-            // No-op: default opening should work; leaving hook for debugging
+          if (nav && nav.toc && nav.toc.length > 0 && !preferredHref) {
+            // As a last resort, try first TOC entry that isn't obvious front matter
+            const lower = (s: string) => (s || '').toLowerCase()
+            const isFront = (s: string) => [
+              'cover','title','copyright','toc','nav','acknowled','dedicat','imprint','front','back','colophon'
+            ].some(k => lower(s).includes(k))
+            const tocHref = nav.toc.map((t: any) => t.href).find((h: string) => h && !isFront(h))
+            if (tocHref) await rendition.display(tocHref)
           }
         } catch {}
         setReady(true)
