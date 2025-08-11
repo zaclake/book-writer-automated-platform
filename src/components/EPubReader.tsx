@@ -13,6 +13,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
   const [error, setError] = useState<string | null>(null)
   const [debug, setDebug] = useState<string | null>(null)
   const lastTextLenRef = useRef<number>(0)
+  const iframeObserverRef = useRef<MutationObserver | null>(null)
 
   useEffect(() => {
     let book: any
@@ -61,6 +62,26 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
           width: '100%',
           height: '100%'
         })
+        // Ensure iframe in which epub renders is allowed to execute scripts
+        const applyIframePermissions = () => {
+          try {
+            const ifr = containerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
+            if (ifr) {
+              // Allow scripts and same-origin so content can execute and be measured
+              ifr.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-pointer-lock allow-presentation allow-popups allow-forms')
+              // Hint to browser features
+              ifr.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
+            }
+          } catch {}
+        }
+        // Apply immediately and watch for future iframe replacements
+        applyIframePermissions()
+        try {
+          if (iframeObserverRef.current) iframeObserverRef.current.disconnect()
+          iframeObserverRef.current = new MutationObserver(() => applyIframePermissions())
+          iframeObserverRef.current.observe(containerRef.current!, { childList: true, subtree: true })
+          setDebug(d => (d ? `${d} | iframe sandbox fixed` : 'iframe sandbox fixed'))
+        } catch {}
         // Ensure readable theme and track text length to avoid blank pages
         try {
           rendition.flow('scrolled-doc')
@@ -143,6 +164,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         const src = ifr?.src
         if (src && src.startsWith('blob:')) URL.revokeObjectURL(src)
       } catch {}
+      try { iframeObserverRef.current?.disconnect() } catch {}
     }
   }, [epubUrl])
 
