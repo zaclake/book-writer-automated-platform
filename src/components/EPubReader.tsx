@@ -14,6 +14,8 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
   const [debug, setDebug] = useState<string | null>(null)
   const lastTextLenRef = useRef<number>(0)
   const iframeObserverRef = useRef<MutationObserver | null>(null)
+  const reloadTimerRef = useRef<any>(null)
+  const guardIntervalRef = useRef<any>(null)
 
   useEffect(() => {
     let book: any
@@ -23,7 +25,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
     async function load() {
       try {
         const ePubMod = await import('epubjs')
-        const ePub = ePubMod.default
+        const ePub: any = ePubMod.default
         if (destroyed) return
 
         // Fetch EPUB as ArrayBuffer to avoid path resolution to container.xml under the API directory
@@ -75,12 +77,18 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
           })
         } catch {}
         // Periodic guard while navigating between chapters
-        const guard = window.setInterval(() => {
+        guardIntervalRef.current = window.setInterval(() => {
           try {
             const ifrs = Array.from(containerRef.current?.querySelectorAll('iframe') || [])
+            let changed = false
             for (const ifr of ifrs as HTMLIFrameElement[]) {
-              if (ifr.hasAttribute('sandbox')) ifr.removeAttribute('sandbox')
+              if (ifr.hasAttribute('sandbox')) { ifr.removeAttribute('sandbox'); changed = true }
               ifr.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
+            }
+            if (changed) {
+              // Re-display current CFI so the unsandboxed frame renders content
+              const currentCfi = rendition?.currentLocation()?.start?.cfi
+              if (currentCfi) { void rendition.display(currentCfi) }
             }
           } catch {}
         }, 500)
@@ -99,11 +107,24 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
             setDebug(d => (d && !d.includes('sandbox')) ? `${d} | iframe sandbox removed` : (d || 'iframe sandbox removed'))
           } catch {}
         }
+        const relaunchAfterFix = () => {
+          try {
+            if (reloadTimerRef.current) window.clearTimeout(reloadTimerRef.current)
+            reloadTimerRef.current = window.setTimeout(() => {
+              try {
+                const current = rendition?.currentLocation()
+                const cfi = current?.start?.cfi
+                void rendition.display(cfi || undefined)
+              } catch {}
+            }, 50)
+          } catch {}
+        }
         // Apply immediately and watch for future iframe replacements
         applyIframePermissions()
+        relaunchAfterFix()
         try {
           if (iframeObserverRef.current) iframeObserverRef.current.disconnect()
-          iframeObserverRef.current = new MutationObserver(() => applyIframePermissions())
+          iframeObserverRef.current = new MutationObserver(() => { applyIframePermissions(); relaunchAfterFix() })
           iframeObserverRef.current.observe(containerRef.current!, { childList: true, subtree: true, attributes: true, attributeFilter: ['sandbox'] })
         } catch {}
         // Ensure readable theme and track text length to avoid blank pages
