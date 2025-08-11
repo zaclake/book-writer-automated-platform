@@ -30,6 +30,30 @@ router = APIRouter(prefix="/v2/library", tags=["library-v2"])
 security = HTTPBearer()
 
 
+async def _get_latest_cover_art_url(project_id: str) -> Optional[str]:
+    """Fetch latest cover art image_url from cover_art_jobs for a project."""
+    try:
+        try:
+            from backend.services.firestore_service import get_firestore_client
+        except Exception:
+            from services.firestore_service import get_firestore_client  # type: ignore
+
+        client = get_firestore_client()
+        from google.cloud import firestore  # type: ignore
+        query = (
+            client.collection('cover_art_jobs')
+            .where('project_id', '==', project_id)
+            .order_by('created_at', direction=firestore.Query.DESCENDING)
+            .limit(1)
+        )
+        docs = list(query.stream())
+        if docs:
+            data = docs[0].to_dict() or {}
+            return data.get('image_url')
+    except Exception as e:
+        logger.warning(f"Failed to fetch latest cover art for {project_id}: {e}")
+    return None
+
 def _project_card_from_project(
     project: Dict[str, Any],
     publishing: Optional[Dict[str, Any]] = None,
@@ -110,6 +134,12 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                 # Avoid mutating original
                 p = dict(p)
                 p["cover_art"] = root_doc.get("cover_art")
+            # Fallback: if still no cover_art, pull from latest cover_art_jobs
+            if not (p.get('cover_art') and p['cover_art'].get('image_url')) and project_id:
+                url = await _get_latest_cover_art_url(project_id)
+                if url:
+                    p = dict(p)
+                    p['cover_art'] = {'image_url': url}
             my_cards.append(_project_card_from_project(p, publishing))
 
         # Public projects (from root collection with visibility == public)
@@ -149,6 +179,12 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                 owner_id = data.get("metadata", {}).get("owner_id")
                 if owner_id == user_id:
                     continue
+                # Ensure cover_art present, else fallback to latest cover_art_jobs
+                if not (data.get('cover_art') and isinstance(data['cover_art'], dict) and data['cover_art'].get('image_url')):
+                    url = await _get_latest_cover_art_url(data.get('id') or data.get('metadata', {}).get('project_id'))
+                    if url:
+                        data = dict(data)
+                        data['cover_art'] = {'image_url': url}
                 public_cards.append(_project_card_from_project(data, data.get("publishing")))
 
             if not docs:
