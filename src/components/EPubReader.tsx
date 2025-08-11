@@ -65,13 +65,16 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         // Ensure iframe in which epub renders is allowed to execute scripts
         const applyIframePermissions = () => {
           try {
-            const ifr = containerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
-            if (ifr) {
-              // Allow scripts and same-origin so content can execute and be measured
-              ifr.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-pointer-lock allow-presentation allow-popups allow-forms')
-              // Hint to browser features
+            const iframes = Array.from(containerRef.current?.querySelectorAll('iframe') || []) as HTMLIFrameElement[]
+            for (const ifr of iframes) {
+              // Prefer removing sandbox entirely to avoid UA defaults overriding tokens
+              if (ifr.hasAttribute('sandbox')) {
+                ifr.removeAttribute('sandbox')
+              }
+              // Also set permissive allow features
               ifr.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
             }
+            setDebug(d => (d && !d.includes('sandbox')) ? `${d} | iframe sandbox removed` : (d || 'iframe sandbox removed'))
           } catch {}
         }
         // Apply immediately and watch for future iframe replacements
@@ -79,8 +82,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         try {
           if (iframeObserverRef.current) iframeObserverRef.current.disconnect()
           iframeObserverRef.current = new MutationObserver(() => applyIframePermissions())
-          iframeObserverRef.current.observe(containerRef.current!, { childList: true, subtree: true })
-          setDebug(d => (d ? `${d} | iframe sandbox fixed` : 'iframe sandbox fixed'))
+          iframeObserverRef.current.observe(containerRef.current!, { childList: true, subtree: true, attributes: true, attributeFilter: ['sandbox'] })
         } catch {}
         // Ensure readable theme and track text length to avoid blank pages
         try {
