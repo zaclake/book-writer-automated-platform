@@ -62,6 +62,28 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
           width: '100%',
           height: '100%'
         })
+        // Ensure iframe permissions as early as possible via render hook (runs per view before display)
+        try {
+          rendition.hooks.render.register((view: any) => {
+            try {
+              const iframe: HTMLIFrameElement | null = (view && (view.iframe || view.document?.defaultView?.frameElement)) || null
+              if (iframe) {
+                if (iframe.hasAttribute('sandbox')) iframe.removeAttribute('sandbox')
+                iframe.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
+              }
+            } catch {}
+          })
+        } catch {}
+        // Periodic guard while navigating between chapters
+        const guard = window.setInterval(() => {
+          try {
+            const ifrs = Array.from(containerRef.current?.querySelectorAll('iframe') || [])
+            for (const ifr of ifrs as HTMLIFrameElement[]) {
+              if (ifr.hasAttribute('sandbox')) ifr.removeAttribute('sandbox')
+              ifr.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
+            }
+          } catch {}
+        }, 500)
         // Ensure iframe in which epub renders is allowed to execute scripts
         const applyIframePermissions = () => {
           try {
@@ -167,6 +189,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         if (src && src.startsWith('blob:')) URL.revokeObjectURL(src)
       } catch {}
       try { iframeObserverRef.current?.disconnect() } catch {}
+      try { window.clearInterval(guard as any) } catch {}
     }
   }, [epubUrl])
 
