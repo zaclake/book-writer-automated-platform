@@ -119,13 +119,13 @@ export default function LibraryPage() {
         className="group bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition cursor-pointer"
         onClick={() => window.location.href = `/reader/${encodeURIComponent(book.project_id)}`}
       >
-        <div className="aspect-[3/4] bg-gray-50 flex items-center justify-center">
+        <div className="aspect-[5/8] bg-white flex items-center justify-center">
           {book.cover_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={`${book.cover_url}${book.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}`}
               alt={book.title}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               onError={(e) => {
                 console.error('Failed to load cover image', book.cover_url)
                 // @ts-ignore
