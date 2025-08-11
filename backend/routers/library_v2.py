@@ -39,17 +39,19 @@ async def _get_latest_cover_art_url(project_id: str) -> Optional[str]:
             from services.firestore_service import get_firestore_client  # type: ignore
 
         client = get_firestore_client()
-        from google.cloud import firestore  # type: ignore
-        query = (
-            client.collection('cover_art_jobs')
-            .where('project_id', '==', project_id)
-            .order_by('created_at', direction=firestore.Query.DESCENDING)
-            .limit(1)
-        )
+        # Avoid composite index by not ordering in Firestore; pick latest client-side
+        query = client.collection('cover_art_jobs').where('project_id', '==', project_id)
         docs = list(query.stream())
-        if docs:
-            data = docs[0].to_dict() or {}
-            return data.get('image_url')
+        latest = None
+        latest_ts = None
+        for doc in docs:
+            data = doc.to_dict() or {}
+            ts = data.get('created_at') or data.get('updated_at')
+            if ts and (latest_ts is None or ts > latest_ts):
+                latest = data
+                latest_ts = ts
+        if latest:
+            return latest.get('image_url')
     except Exception as e:
         logger.warning(f"Failed to fetch latest cover art for {project_id}: {e}")
     return None

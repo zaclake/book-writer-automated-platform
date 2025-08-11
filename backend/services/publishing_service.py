@@ -258,17 +258,19 @@ class PublishingService:
                     from services.firestore_service import get_firestore_client  # type: ignore
                 try:
                     client = get_firestore_client()
-                    from google.cloud import firestore  # type: ignore
-                    query = (
-                        client.collection('cover_art_jobs')
-                        .where('project_id', '==', project_id)
-                        .order_by('created_at', direction=firestore.Query.DESCENDING)
-                        .limit(1)
-                    )
+                    # Avoid composite index by querying and picking latest client-side
+                    query = client.collection('cover_art_jobs').where('project_id', '==', project_id)
                     docs = list(query.stream())
-                    if docs:
-                        data = docs[0].to_dict() or {}
-                        cover_art_url = data.get('image_url')
+                    latest = None
+                    latest_ts = None
+                    for doc in docs:
+                        data = doc.to_dict() or {}
+                        ts = data.get('created_at') or data.get('updated_at')
+                        if ts and (latest_ts is None or ts > latest_ts):
+                            latest = data
+                            latest_ts = ts
+                    if latest:
+                        cover_art_url = latest.get('image_url')
                         if cover_art_url:
                             self.logger.info(f"Using fallback cover art from latest job for project {project_id}")
                 except Exception as e:
