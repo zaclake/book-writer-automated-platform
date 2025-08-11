@@ -12,6 +12,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [debug, setDebug] = useState<string | null>(null)
+  const lastTextLenRef = useRef<number>(0)
 
   useEffect(() => {
     let book: any
@@ -60,18 +61,44 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
           width: '100%',
           height: '100%'
         })
-        // Ensure we open a meaningful location (prefer computed chapter-ish href)
-        if (preferredHref) {
-          await rendition.display(preferredHref)
-        } else {
-          await rendition.display()
+        // Ensure readable theme and track text length to avoid blank pages
+        try {
+          rendition.flow('scrolled-doc')
+          rendition.themes.default({
+            body: { color: '#111', background: '#ffffff' },
+            img: { maxWidth: '100%' }
+          })
+          rendition.hooks.content.register((contents: any) => {
+            try {
+              const text = (contents?.document?.body?.innerText || '').replace(/\s+/g, '')
+              lastTextLenRef.current = text.length
+            } catch {
+              lastTextLenRef.current = 0
+            }
+          })
+        } catch {}
+        // Ensure we open a meaningful location; if empty, iterate to next spine entries
+        const tryDisplay = async () => {
+          let opened = false
           try {
             const spine = await book.loaded.spine
-            if (spine?.items?.length > 0) {
-              await rendition.display(spine.items[0].href)
+            const hrefs: string[] = (spine?.items || []).map((it: any) => it?.href).filter(Boolean)
+            const candidates = [preferredHref, ...hrefs].filter((v, i, a) => v && a.indexOf(v) === i) as string[]
+            for (const href of candidates) {
+              await rendition.display(href)
+              await new Promise(r => setTimeout(r, 250))
+              if (lastTextLenRef.current > 200) {
+                setDebug(d => (d ? `${d} | Opened: ${href} (len ${lastTextLenRef.current})` : `Opened: ${href}`))
+                opened = true
+                break
+              }
             }
           } catch {}
+          if (!opened) {
+            await rendition.display()
+          }
         }
+        await tryDisplay()
         try {
           const nav = await book.loaded.navigation
           if (nav && nav.toc && nav.toc.length > 0 && !preferredHref) {
