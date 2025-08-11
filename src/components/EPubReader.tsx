@@ -19,7 +19,8 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
 
     async function load() {
       try {
-        const ePub = (await import('epubjs')).default
+        const ePubMod = await import('epubjs')
+        const ePub = ePubMod.default
         if (destroyed) return
 
         // Fetch EPUB as ArrayBuffer to avoid path resolution to container.xml under the API directory
@@ -28,9 +29,9 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         const buf = await resp.arrayBuffer()
 
         // Use a Blob URL for maximum compatibility with epub.js
-        const blob = new Blob([buf], { type: 'application/epub+zip' })
-        const objectUrl = URL.createObjectURL(blob)
-        book = ePub(objectUrl)
+        // Open explicitly as binary to prevent any network lookups for META-INF/container.xml
+        book = ePub()
+        await book.open(buf, 'binary')
         rendition = book.renderTo(containerRef.current!, {
           width: '100%',
           height: '100%'
