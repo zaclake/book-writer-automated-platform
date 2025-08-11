@@ -27,12 +27,22 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         if (!resp.ok) throw new Error(`Failed to fetch EPUB: ${resp.status}`)
         const buf = await resp.arrayBuffer()
 
-        book = ePub(buf)
+        // Use a Blob URL for maximum compatibility with epub.js
+        const blob = new Blob([buf], { type: 'application/epub+zip' })
+        const objectUrl = URL.createObjectURL(blob)
+        book = ePub(objectUrl)
         rendition = book.renderTo(containerRef.current!, {
           width: '100%',
           height: '100%'
         })
+        // Ensure we open the first spine item explicitly
         await rendition.display()
+        try {
+          const nav = await book.loaded.navigation
+          if (nav && nav.toc && nav.toc.length > 0) {
+            // No-op: default opening should work; leaving hook for debugging
+          }
+        } catch {}
         setReady(true)
       } catch (e: any) {
         console.error('EPUB load error', e)
@@ -45,6 +55,12 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
       destroyed = true
       try { rendition?.destroy() } catch {}
       try { book?.destroy() } catch {}
+      // Revoke any blob URLs created by epub.js if accessible
+      try {
+        const ifr = containerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
+        const src = ifr?.src
+        if (src && src.startsWith('blob:')) URL.revokeObjectURL(src)
+      } catch {}
     }
   }, [epubUrl])
 
@@ -54,7 +70,7 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         <div className="font-medium text-gray-900 truncate">{title || 'Reader'}</div>
         <div className="text-sm text-gray-500">{error ? `Error: ${error}` : (ready ? 'Ready' : 'Loading...')}</div>
       </div>
-      <div ref={containerRef} className="flex-1 bg-white" />
+      <div ref={containerRef} className="flex-1 bg-white" style={{ height: 'calc(100vh - 44px)' }} />
     </div>
   )
 }
