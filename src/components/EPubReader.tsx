@@ -62,7 +62,9 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
         }
         rendition = book.renderTo(containerRef.current!, {
           width: '100%',
-          height: '100%'
+          height: '100%',
+          // Ensure iframe includes allow-scripts at creation time
+          scripted: true
         })
         // Ensure iframe permissions as early as possible via render hook (runs per view before display)
         try {
