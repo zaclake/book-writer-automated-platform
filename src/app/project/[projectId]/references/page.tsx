@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAuthToken } from '@/lib/auth'
 import { CheckCircleIcon, PencilIcon, EyeIcon } from '@heroicons/react/24/outline'
 import ProjectLayout from '@/components/layout/ProjectLayout'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 interface ReferenceFile {
   name: string
@@ -288,6 +289,28 @@ export default function ReferenceReviewPage() {
     
     try {
       const authHeaders = await getAuthHeaders()
+      // Show global loader and start polling
+      GlobalLoader.show({
+        title: 'Generating References',
+        stage: 'Starting...'
+      ,
+        showProgress: true,
+        size: 'md',
+        customMessages: [
+          '🖋️ Sharpening pencils for epic writing...',
+          '📚 Consulting the storytelling gods...',
+          "🎭 Giving your characters personality...",
+          "🗺️ Drawing your story's treasure map...",
+          '🔮 Gazing into plot crystal balls...',
+          '📖 Whispering secrets to the muses...',
+          '✨ Sprinkling AI magic on your ideas...',
+          '🎪 Teaching your words to dance...',
+          '🌟 Aligning story constellations...',
+          '🎨 Mixing the perfect emotional palette...'
+        ],
+        timeoutMs: 1800000,
+      })
+      startReferenceProgressPolling(projectId, authHeaders)
       const response = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: authHeaders
@@ -296,15 +319,59 @@ export default function ReferenceReviewPage() {
       if (response.ok) {
         const result = await response.json()
         setStatus(`✅ Generated ${result.files?.length || 0} reference files`)
-        await loadReferenceFiles() // Reload the files
+        // Files will be reloaded after polling completes
       } else {
         const errorData = await response.json()
         setStatus(`❌ Generation failed: ${errorData.detail || 'Unknown error'}`)
+        GlobalLoader.hide()
       }
     } catch (error) {
       console.error('Error generating references:', error)
       setStatus('❌ Error generating references')
+      GlobalLoader.hide()
     }
+  }
+
+  // Polling for reference progress
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const startReferenceProgressPolling = async (
+    projectId: string,
+    authHeaders: Record<string, string>
+  ) => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+      progressIntervalRef.current = null
+    }
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/v2/projects/${projectId}/references/progress`, {
+          headers: authHeaders,
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (typeof data.progress === 'number') {
+          GlobalLoader.update({ progress: data.progress, stage: data.stage })
+        } else if (data.progress?.percentage != null) {
+          GlobalLoader.update({ progress: data.progress.percentage, stage: data.stage })
+        }
+        if (data.status === 'completed' || data.progress === 100) {
+          clearInterval(progressIntervalRef.current as NodeJS.Timeout)
+          progressIntervalRef.current = null
+          GlobalLoader.hide()
+          await loadReferenceFiles()
+        }
+        if (data.status === 'failed' || data.status === 'failed-rate-limit') {
+          clearInterval(progressIntervalRef.current as NodeJS.Timeout)
+          progressIntervalRef.current = null
+          GlobalLoader.hide()
+          setStatus(`❌ Reference generation failed${data.message ? `: ${data.message}` : ''}`)
+        }
+      } catch (e) {
+        // Keep trying quietly; network hiccups are expected
+      }
+    }
+    await poll()
+    progressIntervalRef.current = setInterval(poll, 3000)
   }
 
   const activeTabData = REFERENCE_TABS.find(t => t.id === activeTab)

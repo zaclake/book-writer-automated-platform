@@ -571,27 +571,34 @@ class CoverArtService:
                 
                 if self.billable_client:
                     # Use billable client
-                    billable_response = await self.openai_client.images_generate(
-                        model="gpt-image-1",
-                        prompt=prompt,
-                        size="1024x1536",  # Portrait (closest allowed)
-                        quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
-                        n=1
-                        # Note: GPT-image-1 doesn't support response_format parameter
-                    )
+                    from backend.system.concurrency import get_image_semaphore, semaphore
+                    async with semaphore(get_image_semaphore()):
+                        billable_response = await self.openai_client.images_generate(
+                            model="gpt-image-1",
+                            prompt=prompt,
+                            size="1024x1536",  # Portrait (closest allowed)
+                            quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
+                            n=1
+                            # Note: GPT-image-1 doesn't support response_format parameter
+                        )
                     response = billable_response.response
                     credits_charged = billable_response.credits_charged
                     logger.info(f"GPT-image-1 generation successful! Credits charged: {credits_charged}")
                 else:
-                    # Use regular client
-                    response = self.openai_client.images.generate(
-                        model="gpt-image-1",
-                        prompt=prompt,
-                        size="1024x1536",  # Portrait (closest allowed)
-                        quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
-                        n=1
-                        # Note: GPT-image-1 doesn't support response_format parameter
-                    )
+                    # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
+                    from backend.system.concurrency import get_image_thread_semaphore, thread_semaphore
+                    import functools
+                    with thread_semaphore(get_image_thread_semaphore()):
+                        response = await asyncio.to_thread(
+                            functools.partial(
+                                self.openai_client.images.generate,
+                                model="gpt-image-1",
+                                prompt=prompt,
+                                size="1024x1536",  # Portrait (closest allowed)
+                                quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
+                                n=1
+                            )
+                        )
                     logger.info("GPT-image-1 generation successful!")
                 
             except Exception as gpt_image_error:
@@ -599,27 +606,35 @@ class CoverArtService:
                 # Fallback to DALL-E 3
                 if self.billable_client:
                     # Use billable client
-                    billable_response = await self.openai_client.images_generate(
-                        model="dall-e-3",
-                        prompt=prompt,
-                        size="1024x1792",  # Closest to 1.6:1 aspect ratio available
-                        quality="hd",
-                        n=1,
-                        response_format="url"
-                    )
+                    from backend.system.concurrency import get_image_semaphore, semaphore
+                    async with semaphore(get_image_semaphore()):
+                        billable_response = await self.openai_client.images_generate(
+                            model="dall-e-3",
+                            prompt=prompt,
+                            size="1024x1792",  # Closest to 1.6:1 aspect ratio available
+                            quality="hd",
+                            n=1,
+                            response_format="url"
+                        )
                     response = billable_response.response
                     credits_charged = billable_response.credits_charged
                     logger.info(f"DALL-E 3 generation successful! Credits charged: {credits_charged}")
                 else:
-                    # Use regular client
-                    response = self.openai_client.images.generate(
-                        model="dall-e-3",
-                        prompt=prompt,
-                        size="1024x1792",  # Closest to 1.6:1 aspect ratio available
-                        quality="hd",
-                        n=1,
-                        response_format="url"
-                    )
+                    # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
+                    from backend.system.concurrency import get_image_thread_semaphore, thread_semaphore
+                    import functools
+                    with thread_semaphore(get_image_thread_semaphore()):
+                        response = await asyncio.to_thread(
+                            functools.partial(
+                                self.openai_client.images.generate,
+                                model="dall-e-3",
+                                prompt=prompt,
+                                size="1024x1792",  # Closest to 1.6:1 aspect ratio available
+                                quality="hd",
+                                n=1,
+                                response_format="url"
+                            )
+                        )
                     logger.info("DALL-E 3 generation successful!")
             
             data_item = response.data[0]

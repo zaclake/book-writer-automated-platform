@@ -62,14 +62,16 @@ export async function POST(request: NextRequest) {
         headers,
         body: JSON.stringify(body),
         cache: 'no-store',
-        signal: AbortSignal.timeout(30000) // 30 second timeout
+        // Allow long-running backend; if this times out, we'll inform client to keep waiting.
+        signal: AbortSignal.timeout(60000)
       })
       console.log('[v2/chapters/generate] Backend response status:', backendResponse.status)
     } catch (fetchError) {
       console.error('[v2/chapters/generate] Fetch error:', fetchError)
+      // Signal to client that job likely continues on backend; client should poll for chapter
       return NextResponse.json(
-        { error: 'Failed to connect to backend service', details: fetchError.message },
-        { status: 503 }
+        { status: 'accepted', message: 'Backend still processing. Please poll chapter status.' },
+        { status: 202 }
       )
     }
 

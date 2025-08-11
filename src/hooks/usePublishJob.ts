@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import useSWR from 'swr'
+import { useAuthToken } from '@/lib/auth'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 interface PublishConfig {
   title: string
@@ -59,11 +61,10 @@ interface PublishJobHook {
   } | null
 }
 
-const fetcher = async (url: string) => {
+const createFetcher = (getAuthHeaders: () => Promise<Record<string, string>>) => async (url: string) => {
+  const authHeaders = await getAuthHeaders()
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-    }
+    headers: authHeaders
   })
   
   if (!response.ok) {
@@ -74,9 +75,13 @@ const fetcher = async (url: string) => {
 }
 
 export function usePublishJob(): PublishJobHook {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+
+  // Create fetcher with auth headers
+  const fetcher = createFetcher(getAuthHeaders)
 
   // Poll job status if we have a job ID
   const { data: jobStatus, error: statusError } = useSWR(
@@ -100,6 +105,7 @@ export function usePublishJob(): PublishJobHook {
   // Clear job when it's completed or failed after a delay
   useEffect(() => {
     if (jobStatus?.status === 'completed' || jobStatus?.status === 'failed') {
+      GlobalLoader.hide()
       const timer = setTimeout(() => {
         // Keep the job ID to show results, but stop polling
       }, 1000)
@@ -112,31 +118,53 @@ export function usePublishJob(): PublishJobHook {
       setIsLoading(true)
       setError(null)
 
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
+      if (!isLoaded || !isSignedIn) {
+        throw new Error('User not authenticated')
+      }
+
+      const authHeaders = await getAuthHeaders()
+      if (!authHeaders.Authorization) {
         throw new Error('No authentication token found')
       }
+
+      GlobalLoader.show({
+        title: 'Publishing Your Book',
+        stage: 'Starting...',
+        showProgress: true,
+        size: 'md',
+        customMessages: [
+          '📦 Packaging content...',
+          '🧩 Building chapters into formats...',
+          '🧭 Creating navigation and TOC...',
+          '✨ Polishing layout and typography...',
+          '☁️ Uploading final files...',
+        ],
+        timeoutMs: 3600000,
+      })
 
       const response = await fetch(`/api/v2/publish/project/${projectId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...authHeaders
         },
         body: JSON.stringify(config)
       })
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to start publish job')
+        GlobalLoader.hide()
+        throw new Error(errorData.detail || errorData.error || 'Failed to start publish job')
       }
 
       const result = await response.json()
       setCurrentJobId(result.job_id)
+      // Keep loader visible; progress will be updated by effect below
       
     } catch (err) {
       console.error('Failed to start publish job:', err)
       setError(err instanceof Error ? err : new Error('Unknown error'))
+      GlobalLoader.hide()
     } finally {
       setIsLoading(false)
     }

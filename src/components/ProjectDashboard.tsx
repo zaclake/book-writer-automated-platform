@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
 import { CoverArtGenerator } from '@/components/CoverArtGenerator'
+import { useRouter } from 'next/navigation'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 interface Project {
   id: string
@@ -86,6 +88,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   onEditChapter,
   onCreateChapter
 }) => {
+  const router = useRouter()
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
@@ -415,6 +418,48 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             
             {/* Compact Progress Ring */}
             <div className="flex items-center space-x-6">
+              {/* Delete Project CTA */}
+              <Button
+                variant="outline"
+                className="border-red-200 text-red-700 hover:bg-red-50"
+                onClick={async () => {
+                  const confirmed = window.confirm('Are you sure you want to delete this project? This action cannot be undone.')
+                  if (!confirmed) return
+                  try {
+                    const token = await getToken()
+                    GlobalLoader.show({
+                      title: 'Deleting Project',
+                      stage: 'Cleaning up data...',
+                      showProgress: false,
+                      size: 'md',
+                      customMessages: [
+                        '🧹 Removing project data...',
+                        '🗂️ Cleaning indexes...',
+                        '☁️ Syncing changes...',
+                      ],
+                      timeoutMs: 600000,
+                    })
+                    const resp = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
+                      method: 'DELETE',
+                      headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    if (resp.ok) {
+                      toast({ title: 'Project deleted', description: 'The project was removed successfully.' })
+                      GlobalLoader.hide()
+                      router.push('/dashboard')
+                    } else {
+                      toast({ title: 'Delete failed', description: await resp.text(), variant: 'destructive' })
+                      GlobalLoader.hide()
+                    }
+                  } catch (err) {
+                    console.error('Delete project error:', err)
+                    toast({ title: 'Delete failed', description: 'Please try again later.', variant: 'destructive' })
+                    GlobalLoader.hide()
+                  }
+                }}
+              >
+                Delete Project
+              </Button>
               <div className="relative">
                 <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 100 100">
                   <circle

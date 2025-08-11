@@ -7,6 +7,7 @@ import { useProjectChapters, useProject } from '@/hooks/useFirestore'
 import { Button } from '@/components/ui/button'
 import { CollapsibleSidebar } from '@/components/layout/CollapsibleSidebar'
 import ProjectLayout from '@/components/layout/ProjectLayout'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 import { 
   PencilIcon, 
   DocumentPlusIcon, 
@@ -94,6 +95,19 @@ export default function ChapterWritingPage() {
     if (!isSignedIn || !projectId) return
 
     setIsGenerating(true)
+    GlobalLoader.show({
+      title: `Generating Chapter ${currentChapter}`,
+      stage: 'Crafting chapter...',
+      showProgress: false,
+      size: 'md',
+      customMessages: [
+        '🖋️ Weaving narrative threads...',
+        '🎭 Developing character voices...',
+        '📖 Building dramatic tension...',
+        '✨ Polishing prose perfection...',
+      ],
+      timeoutMs: 900000,
+    })
     setStatus('🔄 Generating chapter...')
 
     try {
@@ -130,6 +144,7 @@ export default function ChapterWritingPage() {
       setStatus('❌ Error generating chapter')
     } finally {
       setIsGenerating(false)
+      GlobalLoader.hide()
     }
   }
 
@@ -170,6 +185,18 @@ export default function ChapterWritingPage() {
     if (!isSignedIn || !projectId) return
 
     setIsGenerating(true)
+    GlobalLoader.show({
+      title: `Rewriting Chapter ${currentChapter}`,
+      stage: 'Reimagining...',
+      showProgress: false,
+      size: 'md',
+      customMessages: [
+        '🧠 Exploring alternatives...',
+        '🧵 Improving continuity...',
+        '✨ Sharpening prose...',
+      ],
+      timeoutMs: 900000,
+    })
     setStatus('🔄 Rewriting chapter...')
 
     try {
@@ -211,6 +238,7 @@ export default function ChapterWritingPage() {
       setStatus('❌ Error rewriting chapter')
     } finally {
       setIsGenerating(false)
+      GlobalLoader.hide()
     }
   }
 
@@ -219,7 +247,7 @@ export default function ChapterWritingPage() {
     // Could implement actual approval logic here
   }
 
-  const wordCount = chapterContent.split(/\s+/).filter(word => word.length > 0).length
+  const wordCount = (chapterContent || '').split(/\s+/).filter(word => word.length > 0).length
 
   return (
     <ProjectLayout 

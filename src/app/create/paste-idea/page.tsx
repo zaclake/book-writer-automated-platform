@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import Celebration from '@/components/ui/Celebration'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
+import { useRef } from 'react'
 
 export default function PasteIdeaPage() {
   const router = useRouter()
@@ -21,6 +23,22 @@ export default function PasteIdeaPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCelebration, setShowCelebration] = useState(false)
+  
+  // Character limit constants
+  const MAX_CHARACTERS = 50000
+  const WARNING_THRESHOLD = 45000
+
+  // Character count helpers
+  const currentCharCount = content.length
+  const isNearLimit = currentCharCount >= WARNING_THRESHOLD
+  const isOverLimit = currentCharCount > MAX_CHARACTERS
+  const remainingChars = MAX_CHARACTERS - currentCharCount
+
+  const getCharCountColor = () => {
+    if (isOverLimit) return 'text-red-600'
+    if (isNearLimit) return 'text-orange-600'
+    return 'text-gray-500'
+  }
 
   const deriveTitleFromContent = (text: string): string => {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
@@ -30,14 +48,64 @@ export default function PasteIdeaPage() {
     return candidate
   }
 
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const startReferenceProgressPolling = async (projectId: string, token: string) => {
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/v2/projects/${projectId}/references/progress`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (typeof data.progress === 'number') {
+          GlobalLoader.update({ progress: data.progress, stage: data.stage })
+        } else if (data.progress?.percentage != null) {
+          GlobalLoader.update({ progress: data.progress.percentage, stage: data.stage })
+        }
+        if (data.status === 'completed' || data.progress === 100) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current)
+            progressIntervalRef.current = null
+          }
+          GlobalLoader.hide()
+          router.push(`/project/${projectId}/references`)
+        }
+        if (data.status === 'failed' || data.status === 'failed-rate-limit') {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current)
+            progressIntervalRef.current = null
+          }
+          GlobalLoader.hide()
+          setError(data.message || 'Reference generation failed')
+        }
+      } catch {}
+    }
+    await poll()
+    progressIntervalRef.current = setInterval(poll, 3000)
+  }
+
   const handleSubmit = async () => {
     setError(null)
     if (!isSignedIn) { setError('Please sign in'); return }
     if (!content.trim() || content.trim().length < 50) { setError('Please paste at least 50 characters.'); return }
+    if (isOverLimit) { setError(`Content is too long. Please reduce it by ${Math.abs(remainingChars).toLocaleString()} characters.`); return }
     const finalTitle = (title.trim() || deriveTitleFromContent(content)).trim()
     if (!finalTitle) { setError('Unable to derive a title from your idea. Please enter a title.'); return }
     if (finalTitle.length > 100) { setError('Title is too long. Please shorten it.'); return }
     setIsSubmitting(true)
+    GlobalLoader.show({
+      title: 'Creating Your Project',
+      stage: 'Submitting idea...',
+      showProgress: false,
+      size: 'md',
+      customMessages: [
+        '🧭 Shaping your story concept...',
+        '📚 Preparing your book bible...',
+        '✨ Setting up your creative space...',
+      ],
+      timeoutMs: 900000,
+    })
     try {
       const token = await getToken()
       if (!token) throw new Error('No auth token')
@@ -66,20 +134,28 @@ export default function PasteIdeaPage() {
       if (!projectId) throw new Error('No project id returned')
 
       // Start generating references immediately
-      await fetch(`/api/v2/projects/${projectId}/references/generate`, {
+      GlobalLoader.update({ stage: 'Generating references...', showProgress: true, progress: 0 })
+      const genRes = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       })
+      if (!genRes.ok) {
+        const err = await genRes.json().catch(() => ({}))
+        throw new Error(err.error || err.detail || 'Failed to start reference generation')
+      }
+
+      // Begin polling until completed
+      await startReferenceProgressPolling(projectId, token)
 
       localStorage.setItem('lastProjectId', projectId)
       localStorage.setItem(`projectTitle-${projectId}`, finalTitle)
       setShowCelebration(true)
-      setTimeout(() => router.push(`/project/${projectId}/references`), 800)
     } catch (e) {
       console.error('Paste idea creation failed', e)
       setError(e instanceof Error ? e.message : 'Unknown error')
       setIsSubmitting(false)
+      GlobalLoader.hide()
     }
   }
 
@@ -128,9 +204,39 @@ export default function PasteIdeaPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Your Idea *</Label>
-              <Textarea className="font-mono" rows={12} value={content} onChange={e => setContent(e.target.value)} placeholder="Paste any outline, premise, character notes, or freeform idea..." />
-              <p className="text-xs text-gray-500">We’ll structure this into a proper book bible and kick off reference generation.</p>
+              <div className="flex justify-between items-center">
+                <Label>Your Idea *</Label>
+                <div className={`text-sm ${getCharCountColor()}`}>
+                  {currentCharCount.toLocaleString()} / {MAX_CHARACTERS.toLocaleString()} characters
+                  {isNearLimit && !isOverLimit && (
+                    <span className="ml-2 text-orange-600">({remainingChars.toLocaleString()} remaining)</span>
+                  )}
+                  {isOverLimit && (
+                    <span className="ml-2 text-red-600 font-medium">Limit exceeded!</span>
+                  )}
+                </div>
+              </div>
+              <Textarea 
+                className={`font-mono ${isOverLimit ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
+                rows={12} 
+                value={content} 
+                onChange={e => setContent(e.target.value)} 
+                placeholder="Paste any outline, premise, character notes, or freeform idea..." 
+              />
+              {isNearLimit && (
+                <div className={`text-sm ${isOverLimit ? 'text-red-600' : 'text-orange-600'} bg-orange-50 border border-orange-200 rounded-md p-3`}>
+                  {isOverLimit ? (
+                    <>
+                      <strong>⚠️ Content too long!</strong> Please reduce your content by {Math.abs(remainingChars).toLocaleString()} characters to continue.
+                    </>
+                  ) : (
+                    <>
+                      <strong>⚠️ Approaching limit!</strong> You have {remainingChars.toLocaleString()} characters remaining.
+                    </>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-gray-500">We'll structure this into a proper book bible and kick off reference generation.</p>
             </div>
 
             {error && (
@@ -139,7 +245,13 @@ export default function PasteIdeaPage() {
 
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
-              <Button onClick={handleSubmit} disabled={isSubmitting || !content.trim()}>{isSubmitting ? 'Creating…' : 'Create and Generate References'}</Button>
+              <Button 
+                onClick={handleSubmit} 
+                disabled={isSubmitting || !content.trim() || isOverLimit}
+                className={isOverLimit ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                {isSubmitting ? 'Creating…' : 'Create and Generate References'}
+              </Button>
             </div>
           </CardContent>
         </Card>

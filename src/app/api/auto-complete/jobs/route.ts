@@ -44,7 +44,9 @@ export async function GET(request: NextRequest) {
     const backendResponse = await fetch(fullTargetUrl, {
       method: 'GET',
       headers,
-      cache: 'no-store'
+      cache: 'no-store',
+      // Keep this proxy fast and bounded
+      signal: AbortSignal.timeout(15000),
     })
 
     const data = await backendResponse.json()

@@ -6,6 +6,7 @@ import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Textarea } from './ui/textarea'
 import { CreativeLoader } from './ui/CreativeLoader'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 import { Alert, AlertDescription } from './ui/alert'
 import { Badge } from './ui/badge'
 import { Download, Image as ImageIcon, RefreshCw, Sparkles, AlertCircle, Trash2 } from 'lucide-react'
@@ -100,6 +101,28 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
       }
     }
   }, [isPolling, coverArtStatus?.status])
+
+  // Global loader synchronization for cover art
+  useEffect(() => {
+    const visible = isGenerating || (isPolling && (coverArtStatus?.status === 'pending'))
+    if (visible) {
+      GlobalLoader.show({
+        title: 'Generating Cover Art',
+        stage: coverArtStatus?.message || 'Creating concepts',
+        showProgress: false,
+        size: 'md',
+        customMessages: [
+          '🎨 Exploring design directions...',
+          '🖌️ Painting visual themes...',
+          '🧩 Composing layout elements...',
+          '✨ Adding finishing touches...',
+        ],
+        timeoutMs: 900000,
+      })
+    } else {
+      GlobalLoader.hide()
+    }
+  }, [isGenerating, isPolling, coverArtStatus?.status, coverArtStatus?.message])
 
   const checkReferenceProgress = async () => {
     try {
@@ -293,10 +316,23 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
             <div className="space-y-4">
               {coverArtStatus.status === 'pending' && (
                 <div className="text-center py-8">
-                  <CreativeLoader 
-                    message="Generating your cover art..."
-                    subMessage="This may take 30-60 seconds"
-                  />
+              {(() => {
+                setTimeout(() => {
+                  GlobalLoader.show({
+                    title: 'Generating Cover Art',
+                    stage: 'Creating concepts',
+                    showProgress: false,
+                    size: 'md',
+                    customMessages: [
+                      '🎨 Exploring design directions...',
+                      '🖌️ Painting visual themes...',
+                      '🧩 Composing layout elements...',
+                      '✨ Adding finishing touches...',
+                    ],
+                    timeoutMs: 600000,
+                  })
+                }, 0)
+              return null})()}
                 </div>
               )}
 
@@ -312,7 +348,7 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
                         console.error('Image load error:', e)
                       }}
                       onLoad={() => {
-                        console.log('Cover art loaded successfully:', coverArtStatus.image_url)
+                        GlobalLoader.hide()
                       }}
                     />
                   </div>

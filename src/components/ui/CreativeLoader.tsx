@@ -150,12 +150,22 @@ export function CreativeLoader({
   const progressPercentage = progress ?? 0
   const timeMinutes = Math.floor(timeElapsed / 60000)
   const timeSeconds = Math.floor((timeElapsed % 60000) / 1000)
+  const estimatedRemainingMs = progressPercentage > 1
+    ? Math.max(0, Math.round((timeElapsed * (100 - progressPercentage)) / progressPercentage))
+    : undefined
+  const etaMinutes = estimatedRemainingMs ? Math.floor(estimatedRemainingMs / 60000) : undefined
+  const etaSeconds = estimatedRemainingMs ? Math.floor((estimatedRemainingMs % 60000) / 1000) : undefined
 
   const LoaderCard = (
-    <div className={`bg-white rounded-xl border-2 border-blue-200 ${classes.container} text-center shadow-xl`}>
+    <div className={`relative bg-white/95 rounded-2xl border border-white/60 ${classes.container} text-center shadow-2xl backdrop-blur-md`}>
+      {/* Decorative brand orbs */}
+      <div className="pointer-events-none absolute -top-10 -right-10 w-28 h-28 bg-gradient-to-br from-brand-lavender to-brand-leaf opacity-20 rounded-full blur-2xl" />
+      <div className="pointer-events-none absolute -bottom-12 -left-12 w-32 h-32 bg-gradient-to-tr from-brand-blush-orange to-brand-ink-blue opacity-10 rounded-full blur-2xl" />
+
       {/* Spinner */}
-      <div className="flex justify-center mb-6">
+      <div className="flex justify-center mb-6 relative">
         <ArrowPathIcon className={`${classes.spinner} text-blue-600 animate-spin`} />
+        <div className="absolute inset-0 rounded-full animate-ping opacity-10 bg-gradient-to-br from-brand-lavender to-brand-leaf" />
       </div>
 
       {/* Current Message */}
@@ -173,14 +183,17 @@ export function CreativeLoader({
       {/* Progress Bar */}
       {showProgress && progressPercentage > 0 && (
         <div className="mb-4">
-          <div className={`w-full bg-gray-200 rounded-full ${classes.progress} overflow-hidden`}>
+          <div className={`w-full bg-white rounded-full border border-gray-200 ${classes.progress} overflow-hidden`}>
             <div 
-              className="bg-gradient-to-r from-blue-500 to-green-500 h-full transition-all duration-1000 ease-out"
+              className="bg-gradient-to-r from-brand-lavender via-brand-leaf to-brand-blush-orange h-full transition-all duration-700 ease-out shadow-sm"
               style={{ width: `${Math.min(100, Math.max(0, progressPercentage))}%` }}
             />
           </div>
-          <div className="text-sm text-gray-600 mt-2">
-            {progressPercentage.toFixed(0)}% complete
+          <div className="text-sm text-gray-600 mt-2 flex items-center justify-center gap-3">
+            {estimatedRemainingMs !== undefined && (
+              <span className="text-gray-500">ETA {etaMinutes}m {String(etaSeconds).padStart(2,'0')}s</span>
+            )}
+            <span className="font-semibold">{progressPercentage.toFixed(0)}% complete</span>
           </div>
         </div>
       )}

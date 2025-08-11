@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuthToken } from '@/lib/auth'
 import { DocumentTextIcon, PencilIcon, EyeIcon, CheckCircleIcon, SparklesIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 interface ReferenceFile {
   name: string
@@ -211,10 +212,49 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
     }
 
     setGenerationStatus({ isGenerating: true, message: 'Generating AI-powered reference content...' })
+    GlobalLoader.show({
+      title: 'Generating References',
+      stage: 'Starting...',
+      showProgress: true,
+      size: 'md',
+      customMessages: [
+        '🖋️ Sharpening pencils for epic writing...',
+        '📚 Consulting the storytelling gods...',
+        "🎭 Giving your characters personality...",
+        "🗺️ Drawing your story's treasure map...",
+        '🔮 Gazing into plot crystal balls...',
+      ],
+      timeoutMs: 1800000,
+    })
     setStatus('')
 
     try {
       const authHeaders = await getAuthHeaders()
+      // Start polling for progress updates
+      const poll = async () => {
+        try {
+          const res = await fetch(`/api/v2/projects/${projectId}/references/progress`, { headers: authHeaders })
+          if (!res.ok) return
+          const data = await res.json()
+          if (typeof data.progress === 'number') {
+            GlobalLoader.update({ progress: data.progress, stage: data.stage })
+          } else if (data.progress?.percentage != null) {
+            GlobalLoader.update({ progress: data.progress.percentage, stage: data.stage })
+          }
+          if (data.status === 'completed' || data.progress === 100) {
+            clearInterval(progressInterval)
+            GlobalLoader.hide()
+            await fetchReferenceFiles()
+          }
+          if (data.status === 'failed' || data.status === 'failed-rate-limit') {
+            clearInterval(progressInterval)
+            GlobalLoader.hide()
+            setStatus(`❌ Reference generation failed${data.message ? `: ${data.message}` : ''}`)
+          }
+        } catch {}
+      }
+      const progressInterval = setInterval(poll, 3000)
+      await poll()
       const response = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: {
@@ -230,10 +270,12 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
           setStatus(`✅ Generated ${result.generated_files} reference files successfully`)
           // Refresh the file list
           await fetchReferenceFiles()
+          // Hide handled by polling completion
         } else {
           setStatus(`⚠️ Generation completed with ${result.failed_files} errors: ${result.message}`)
           // Still refresh to show any successful files
           await fetchReferenceFiles()
+          GlobalLoader.hide()
         }
       } else {
         const errorData = await response.json()
@@ -242,10 +284,12 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
         } else {
           setStatus(`❌ Generation failed: ${errorData.detail || 'Unknown error'}`)
         }
+        GlobalLoader.hide()
       }
     } catch (error) {
       console.error('Error generating reference content:', error)
       setStatus('❌ Error generating reference content')
+      GlobalLoader.hide()
     } finally {
       setGenerationStatus({ isGenerating: false })
     }
@@ -264,6 +308,18 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
       isGenerating: true, 
       currentFile: fileName,
       message: `Regenerating ${fileName}...` 
+    })
+    GlobalLoader.show({
+      title: `Regenerating ${fileName}`,
+      stage: 'Creating new content...',
+      showProgress: false,
+      size: 'md',
+      customMessages: [
+        '🧠 Re-composing details...',
+        '🧵 Maintaining continuity...',
+        '✨ Polishing style...',
+      ],
+      timeoutMs: 900000,
     })
     setStatus('')
 
@@ -287,8 +343,10 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
           if (selectedFile?.name === fileName) {
             await handleFileSelect(fileName)
           }
+          GlobalLoader.hide()
         } else {
           setStatus(`❌ Failed to regenerate ${fileName}: ${result.message || result.error}`)
+          GlobalLoader.hide()
         }
       } else {
         const errorData = await response.json()
@@ -297,10 +355,12 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
         } else {
           setStatus(`❌ Regeneration failed: ${errorData.detail || 'Unknown error'}`)
         }
+        GlobalLoader.hide()
       }
     } catch (error) {
       console.error('Error regenerating reference file:', error)
       setStatus(`❌ Error regenerating ${fileName}`)
+      GlobalLoader.hide()
     } finally {
       setGenerationStatus({ isGenerating: false })
     }

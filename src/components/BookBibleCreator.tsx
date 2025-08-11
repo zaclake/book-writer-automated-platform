@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/use-toast'
 import { useAutoSave, useSessionRecovery, SessionRecoveryPrompt } from '@/hooks/useAutoSave'
 import { CreativeLoader } from '@/components/ui/CreativeLoader'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { 
   BookLengthTier, 
@@ -165,6 +166,22 @@ const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<
   })
 
   const [mustInclude, setMustInclude] = useState<string>('')
+  
+  // Character limit constants (same as backend validation)
+  const MAX_CHARACTERS = 50000
+  const WARNING_THRESHOLD = 45000
+  
+  // Character count helpers for paste content
+  const currentCharCount = pasteData.content.length
+  const isNearLimit = currentCharCount >= WARNING_THRESHOLD
+  const isOverLimit = currentCharCount > MAX_CHARACTERS
+  const remainingChars = MAX_CHARACTERS - currentCharCount
+
+  const getCharCountColor = () => {
+    if (isOverLimit) return 'text-red-600'
+    if (isNearLimit) return 'text-orange-600'
+    return 'text-gray-500'
+  }
   
   // Guided wizard step
   const [guidedStep, setGuidedStep] = useState(1)
@@ -339,6 +356,17 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
     console.log('🏗️ BookBibleCreator: setIsLoading(true) called')
     
     try {
+      // Validate character count for paste mode
+      if (mode === 'paste' && pasteData.content.length > MAX_CHARACTERS) {
+        toast({
+          title: "Content Too Long",
+          description: `Content exceeds maximum of ${MAX_CHARACTERS.toLocaleString()} characters. Please reduce by ${(pasteData.content.length - MAX_CHARACTERS).toLocaleString()} characters.`,
+          variant: "destructive"
+        })
+        setIsLoading(false)
+        return
+      }
+      
       // Validate chapter count
       const lengthSpecs = getBookLengthSpecs(bookLengthTier)
       if (customChapters) {
@@ -805,28 +833,37 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
           </CardContent>
         </Card>
 
-        {/* Creative Loader for Book Bible Creation */}
-        <CreativeLoader
-          isVisible={isLoading}
-          progress={loaderProgressValue}
-          stage={loaderStage}
-          customMessages={[
-            "🖋️ Crafting your story foundation...",
-            "📚 Organizing narrative elements...",
-            "🎭 Developing character frameworks...",
-            "🗺️ Mapping plot structures...",
-            "✨ Weaving creative magic...",
-            "🔮 Consulting the storytelling muses...",
-            "📖 Building your writer's bible...",
-            "🎨 Painting your story landscape...",
-            "🌟 Aligning creative constellations...",
-            "🎪 Teaching your story to dance..."
-          ]}
-          showProgress={true}
-          size="md"
-          timeoutMs={45000} // 45 seconds
-          fullScreen
-        />
+        {(() => {
+          // Side-effectful: wrap in setTimeout to avoid render strict-mode double-call
+          if (isLoading) {
+            setTimeout(() => {
+              GlobalLoader.show({
+                title: 'Creating Book Bible',
+                stage: loaderStage,
+                progress: loaderProgressValue,
+                showProgress: true,
+                size: 'md',
+                fullScreen: true,
+                customMessages: [
+                  '🖋️ Crafting your story foundation...',
+                  '📚 Organizing narrative elements...',
+                  '🎭 Developing character frameworks...',
+                  '🗺️ Mapping plot structures...',
+                  '✨ Weaving creative magic...',
+                  '🔮 Consulting the storytelling muses...',
+                  "📖 Building your writer's bible...",
+                  '🎨 Painting your story landscape...',
+                  '🌟 Aligning creative constellations...',
+                  '🎪 Teaching your story to dance...'
+                ],
+                timeoutMs: 600000,
+              })
+            }, 0)
+          } else {
+            setTimeout(() => GlobalLoader.hide(), 0)
+          }
+          return null
+        })()}
       </div>
     )
   }
@@ -1259,15 +1296,39 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="paste-content">Book Bible Content *</Label>
+                <div className="flex justify-between items-center">
+                  <Label htmlFor="paste-content">Book Bible Content *</Label>
+                  <div className={`text-sm ${getCharCountColor()}`}>
+                    {currentCharCount.toLocaleString()} / {MAX_CHARACTERS.toLocaleString()} characters
+                    {isNearLimit && !isOverLimit && (
+                      <span className="ml-2 text-orange-600">({remainingChars.toLocaleString()} remaining)</span>
+                    )}
+                    {isOverLimit && (
+                      <span className="ml-2 text-red-600 font-medium">Limit exceeded!</span>
+                    )}
+                  </div>
+                </div>
                 <Textarea
                   id="paste-content"
                   placeholder="Paste your existing outline, character descriptions, plot summary, or any other book-related content here..."
                   value={pasteData.content}
                   onChange={(e) => setPasteData(prev => ({ ...prev, content: e.target.value }))}
                   rows={15}
-                  className="font-mono text-sm"
+                  className={`font-mono text-sm ${isOverLimit ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
                 />
+                {isNearLimit && (
+                  <div className={`text-sm ${isOverLimit ? 'text-red-600' : 'text-orange-600'} bg-orange-50 border border-orange-200 rounded-md p-3`}>
+                    {isOverLimit ? (
+                      <>
+                        <strong>⚠️ Content too long!</strong> Please reduce your content by {Math.abs(remainingChars).toLocaleString()} characters to continue.
+                      </>
+                    ) : (
+                      <>
+                        <strong>⚠️ Approaching limit!</strong> You have {remainingChars.toLocaleString()} characters remaining.
+                      </>
+                    )}
+                  </div>
+                )}
                 <p className="text-sm text-gray-500">
                   You can paste outlines, character descriptions, plot summaries, or any markdown/text content
                 </p>
@@ -1289,7 +1350,11 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
               <Button variant="outline" onClick={() => setMode('select')} className="min-h-[44px] w-full sm:w-auto">
                 Cancel
               </Button>
-              <Button onClick={handleComplete} disabled={isLoading} className="min-h-[44px] w-full sm:w-auto">
+              <Button 
+                onClick={handleComplete} 
+                disabled={isLoading || isOverLimit} 
+                className={`min-h-[44px] w-full sm:w-auto ${isOverLimit ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
                 {isLoading ? 'Processing...' : 'Create Book Bible'}
               </Button>
             </div>

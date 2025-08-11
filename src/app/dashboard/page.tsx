@@ -170,6 +170,57 @@ export default function Dashboard() {
     }
   }
 
+  const handleDeleteProject = async (projectId: string | null) => {
+    if (!projectId) return
+    try {
+      setIsDeleting(true)
+      // Optimistically hide the card
+      setOptimisticallyRemovedProjects(prev => new Set(prev).add(projectId))
+
+      const token = await getToken()
+      const response = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        // Revert optimistic removal
+        setOptimisticallyRemovedProjects(prev => {
+          const next = new Set(prev)
+          next.delete(projectId)
+          return next
+        })
+        console.error('Failed to delete project:', response.status, await response.text())
+      }
+
+      // If this was the last selected project, clear it
+      try {
+        const last = localStorage.getItem('lastProjectId')
+        if (last === projectId) {
+          localStorage.removeItem('lastProjectId')
+        }
+      } catch {}
+
+      setShowDeleteConfirm(null)
+      setIsDeleting(false)
+      // Refresh projects list
+      await refetchProjects()
+    } catch (error) {
+      console.error('Error deleting project:', error)
+      // Revert optimistic removal on error
+      setOptimisticallyRemovedProjects(prev => {
+        const next = new Set(prev)
+        if (projectId) next.delete(projectId)
+        return next
+      })
+      setIsDeleting(false)
+      setShowDeleteConfirm(null)
+    }
+  }
+
   // Show loading state while auth is initializing
   if (!authReady) {
     return (
@@ -404,6 +455,10 @@ export default function Dashboard() {
                     chapters={allProjectChapters[project.id] || []}
                     onEdit={(projectId) => {
                       console.log('Edit project:', projectId)
+                    }}
+                    onDelete={(projectId) => {
+                      setShowDeleteConfirm(projectId)
+                      analytics.modalOpened('delete-confirmation')
                     }}
                   />
                 </div>

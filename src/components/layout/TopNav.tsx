@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { UserButton, useUser } from '@clerk/nextjs'
 import Image from 'next/image'
 import { UI_STRINGS } from '@/lib/strings'
 import { CreditBalance } from '@/components/CreditBalance'
+import { useUserProjects } from '@/hooks/useFirestore'
 
 interface TopNavProps {
   currentProject?: {
@@ -20,6 +21,90 @@ const TopNav: React.FC<TopNavProps> = ({ currentProject }) => {
   const router = useRouter()
   const pathname = usePathname()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const { projects, loading: projectsLoading } = useUserProjects()
+
+  // Determine selected project from prop, localStorage, or first available
+  const [selectedProjectId, setSelectedProjectId] = useState<string | ''>('')
+
+  useEffect(() => {
+    // Prefer currentProject from props
+    if (currentProject?.id) {
+      setSelectedProjectId(currentProject.id)
+      return
+    }
+    // Fallback to last selection
+    const lastId = typeof window !== 'undefined' ? localStorage.getItem('lastProjectId') : null
+    if (lastId) {
+      setSelectedProjectId(lastId)
+      return
+    }
+    // Default to first project when available
+    if (projects && projects.length > 0) {
+      setSelectedProjectId(projects[0].id)
+    }
+  }, [currentProject?.id, projects?.length])
+
+  const selectedProject = useMemo(() => {
+    if (!selectedProjectId) return undefined
+    const found = projects.find((p) => p.id === selectedProjectId)
+    if (found) return found
+    // Construct minimal object from prop if provided
+    if (currentProject && currentProject.id === selectedProjectId) {
+      return {
+        id: currentProject.id,
+        metadata: {
+          project_id: currentProject.id,
+          title: currentProject.title,
+          owner_id: '',
+          collaborators: [],
+          status: (currentProject.status as any) || 'active',
+          visibility: 'private',
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        settings: {
+          genre: 'Fiction',
+          target_chapters: 25,
+          word_count_per_chapter: 3800,
+          target_audience: 'Adult',
+          writing_style: 'Narrative',
+          quality_gates_enabled: true,
+          auto_completion_enabled: true,
+        },
+        progress: {
+          chapters_completed: 0,
+          current_word_count: 0,
+          target_word_count: 0,
+          completion_percentage: 0,
+          last_chapter_generated: 0,
+          quality_baseline: { prose: 0, character: 0, story: 0, emotion: 0, freshness: 0, engagement: 0 },
+        },
+      } as any
+    }
+    return undefined
+  }, [selectedProjectId, projects, currentProject])
+
+  const navigateToProject = (projectId: string) => {
+    if (!projectId) return
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('lastProjectId', projectId)
+      }
+    } catch {}
+
+    // If we're currently on a project route, preserve subpath
+    if (pathname.startsWith('/project/')) {
+      const parts = pathname.split('/') // ['', 'project', '{id}', ...]
+      if (parts.length >= 3) {
+        parts[2] = projectId
+        const newPath = parts.join('/')
+        router.push(newPath)
+        return
+      }
+    }
+    // Otherwise go to project overview by default
+    router.push(`/project/${projectId}/overview`)
+  }
 
   const navigationItems = [
     {
@@ -36,8 +121,7 @@ const TopNav: React.FC<TopNavProps> = ({ currentProject }) => {
       label: UI_STRINGS.navigation.library,
       href: '/library',
       active: pathname.startsWith('/library'),
-      disabled: true, // Coming soon
-      tooltip: 'Coming soon'
+      disabled: false
     },
     {
       label: UI_STRINGS.navigation.community,
@@ -88,21 +172,53 @@ const TopNav: React.FC<TopNavProps> = ({ currentProject }) => {
                 <span className="font-semibold text-gray-900 text-lg">WriterBloom</span>
               </div>
 
-              {/* Project Context (if in project) */}
-              {currentProject && (
+              {/* Project Context / Selector */}
+              {user && (
                 <>
                   <div className="h-6 w-px bg-gray-300 hidden sm:block" />
                   <div className="hidden sm:flex items-center space-x-2">
                     <span className="text-sm text-gray-600">Journey:</span>
-                    <span className="font-medium text-gray-900">{currentProject.title}</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      currentProject.status === 'active' ? 'bg-brand-leaf bg-opacity-20 text-green-800' :
-                      currentProject.status === 'completed' ? 'bg-brand-soft-purple bg-opacity-20 text-purple-800' :
-                      currentProject.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {currentProject.status}
-                    </span>
+                    {/* Desktop selector */}
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={selectedProjectId}
+                        onChange={(e) => {
+                          const newId = e.target.value
+                          setSelectedProjectId(newId)
+                          navigateToProject(newId)
+                        }}
+                        className="min-w-[12rem] bg-white border border-gray-300 rounded-md px-2 py-1 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-soft-purple"
+                        aria-label="Select current journey"
+                      >
+                        {/* Show a placeholder when loading */}
+                        {projectsLoading && !projects.length && (
+                          <option value="" disabled>Loading projects...</option>
+                        )}
+                        {/* Prefer listing all projects */}
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.metadata?.title || `Project ${p.id}`}
+                          </option>
+                        ))}
+                        {/* Ensure currentProject appears even if not in list */}
+                        {!projects.find((p) => p.id === selectedProjectId) && selectedProject && (
+                          <option value={selectedProject.id}>
+                            {selectedProject.metadata?.title || currentProject?.title || `Project ${selectedProject.id}`}
+                          </option>
+                        )}
+                      </select>
+                      {/* Status badge (if available) */}
+                      {selectedProject && (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          (selectedProject as any).metadata?.status === 'active' ? 'bg-brand-leaf bg-opacity-20 text-green-800' :
+                          (selectedProject as any).metadata?.status === 'completed' ? 'bg-brand-soft-purple bg-opacity-20 text-purple-800' :
+                          (selectedProject as any).metadata?.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {(selectedProject as any).metadata?.status || currentProject?.status || 'active'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
@@ -219,23 +335,35 @@ const TopNav: React.FC<TopNavProps> = ({ currentProject }) => {
                 <CreditBalance variant="full" />
               </div>
 
-              {/* Project info on mobile */}
-              {currentProject && (
-                <div className="pb-4 border-b border-gray-200">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-600">Current Journey:</span>
-                    <span className="font-medium text-gray-900">{currentProject.title}</span>
-                  </div>
-                  <span className={`inline-block mt-2 px-2 py-1 rounded-full text-xs font-medium ${
-                    currentProject.status === 'active' ? 'bg-brand-leaf bg-opacity-20 text-green-800' :
-                    currentProject.status === 'completed' ? 'bg-brand-soft-purple bg-opacity-20 text-purple-800' :
-                    currentProject.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {currentProject.status}
-                  </span>
-                </div>
-              )}
+              {/* Project selector on mobile */}
+              <div className="pb-4 border-b border-gray-200">
+                <label htmlFor="mobile-project-select" className="block text-sm text-gray-600 mb-2">Current Journey</label>
+                <select
+                  id="mobile-project-select"
+                  value={selectedProjectId}
+                  onChange={(e) => {
+                    const newId = e.target.value
+                    setSelectedProjectId(newId)
+                    setIsMobileMenuOpen(false)
+                    navigateToProject(newId)
+                  }}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-soft-purple"
+                >
+                  {projectsLoading && !projects.length && (
+                    <option value="" disabled>Loading projects...</option>
+                  )}
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.metadata?.title || `Project ${p.id}`}
+                    </option>
+                  ))}
+                  {!projects.find((p) => p.id === selectedProjectId) && selectedProject && (
+                    <option value={selectedProject.id}>
+                      {selectedProject.metadata?.title || currentProject?.title || `Project ${selectedProject.id}`}
+                    </option>
+                  )}
+                </select>
+              </div>
               
               {/* Navigation items */}
               {navigationItems.map((item) => (

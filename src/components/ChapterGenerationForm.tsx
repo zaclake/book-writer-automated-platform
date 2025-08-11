@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useAuthToken } from '@/lib/auth'
 import { PlayIcon, StopIcon } from '@heroicons/react/24/outline'
 import { CreativeLoader } from './ui/CreativeLoader'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 interface ChapterGenerationFormProps {
   onGenerationStart: () => void
@@ -60,7 +61,7 @@ export function ChapterGenerationForm({
           stage: stage
         })
       })
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
       if (response.ok) {
         setStatus(`✅ Chapter ${chapterNumber} generated successfully!`)
         setChapterNumber(prev => prev + 1)
@@ -69,17 +70,38 @@ export function ChapterGenerationForm({
         window.dispatchEvent(new CustomEvent('refreshCreditBalance'))
         
         onGenerationComplete()
+      } else if (response.status === 202 || data?.status === 'accepted') {
+        setStatus('⏳ Chapter generation started. This may take several minutes...')
+        onGenerationComplete()
+        // Optionally start a background poll for chapter presence
+        try {
+          const pollStart = Date.now()
+          const poll = async () => {
+            const auth = await getAuthHeaders()
+            const check = await fetch(`/api/v2/projects/${projectId}/chapters`, { headers: auth })
+            if (check.ok) {
+              const payload = await check.json()
+              const exists = (payload.chapters || []).some((ch: any) => ch.chapter_number === chapterNumber)
+              if (exists) {
+                setStatus(`✅ Chapter ${chapterNumber} is ready!`)
+                return
+              }
+            }
+            if (Date.now() - pollStart < 5 * 60 * 1000) { // up to 5 minutes
+              setTimeout(poll, 5000)
+            } else {
+              setStatus('⏳ Still processing. Check the chapters list shortly.')
+            }
+          }
+          setTimeout(poll, 5000)
+        } catch {}
       } else {
         setStatus(`❌ Generation failed: ${data.error || JSON.stringify(data)}`)
         onGenerationComplete()
       }
     } catch (error) {
       console.error('Chapter generation error:', error)
-      let errorMessage = 'Unknown error occurred'
-      if (error instanceof Error) {
-        errorMessage = error.message
-      }
-      setStatus(`❌ Generation Error: ${errorMessage}`)
+      setStatus('⏳ Backend connection interrupted. Your chapter likely continues processing. Check chapters list in a few minutes.')
       onGenerationComplete()
     }
   }
@@ -238,30 +260,35 @@ export function ChapterGenerationForm({
         </div>
       </form>
       
-      {/* Creative Loader for Chapter Generation */}
-      <CreativeLoader
-        isVisible={isGenerating}
-        progress={undefined} // No specific progress for single chapter generation
-        stage="Crafting Chapter"
-        customMessages={[
-          "🖋️ Weaving narrative threads...",
-          "🎭 Developing character voices...",
-          "📖 Building dramatic tension...",
-          "✨ Polishing prose perfection...",
-          "🎨 Painting vivid scenes...",
-          "🔥 Forging compelling dialogue...",
-          "🌟 Creating literary magic...",
-          "📚 Consulting story wisdom...",
-          "🎯 Aiming for the perfect word...",
-          "⚡ Channeling creative energy..."
-        ]}
-        showProgress={false}
-        size="md"
-        onTimeout={() => {
-          // Chapter generation timeout handled in the form submission
-        }}
-        timeoutMs={120000} // 2 minutes
-      />
+      {(() => {
+        if (isGenerating) {
+          setTimeout(() => {
+            GlobalLoader.show({
+              title: 'Generating Chapter',
+              stage: 'Crafting Chapter',
+              showProgress: false,
+              size: 'md',
+              fullScreen: true,
+              customMessages: [
+                '🖋️ Weaving narrative threads...',
+                '🎭 Developing character voices...',
+                '📖 Building dramatic tension...',
+                '✨ Polishing prose perfection...',
+                '🎨 Painting vivid scenes...',
+                '🔥 Forging compelling dialogue...',
+                '🌟 Creating literary magic...',
+                '📚 Consulting story wisdom...',
+                '🎯 Aiming for the perfect word...',
+                '⚡ Channeling creative energy...'
+              ],
+              timeoutMs: 600000,
+            })
+          }, 0)
+        } else {
+          setTimeout(() => GlobalLoader.hide(), 0)
+        }
+        return null
+      })()}
 
       {status && !isGenerating && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">

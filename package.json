@@ -52,6 +52,7 @@
     "railway:deploy": "railway up"
   },
   "dependencies": {
+    "epubjs": "^0.3.93",
     "@clerk/nextjs": "^6.25.4",
     "@clerk/themes": "^1.7.9",
     "@heroicons/react": "^2.2.0",

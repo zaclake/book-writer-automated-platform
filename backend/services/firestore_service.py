@@ -1168,6 +1168,61 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Failed to get jobs for user {user_id}: {e}")
             return []
+
+    # =====================================================================
+    # REFERENCE JOB OPERATIONS (progress persisted in Firestore)
+    # =====================================================================
+    async def upsert_reference_job(self, job_id: str, project_id: str, user_id: str, data: Dict[str, Any]) -> bool:
+        """Create or update a reference generation job progress document."""
+        try:
+            now = datetime.now(timezone.utc)
+            payload = {
+                'job_id': job_id,
+                'project_id': project_id,
+                'user_id': user_id,
+                'status': data.get('status', 'running'),
+                'progress': data.get('progress', 0),
+                'stage': data.get('stage', ''),
+                'message': data.get('message', ''),
+                'updated_at': now,
+            }
+            # Preserve created_at if exists
+            doc_ref = self.db.collection('reference_jobs').document(job_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                doc_ref.update(payload)
+            else:
+                payload['created_at'] = now
+                doc_ref.set(payload)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to upsert reference job {job_id}: {e}")
+            return False
+
+    async def get_reference_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get reference generation job by job_id."""
+        try:
+            doc_ref = self.db.collection('reference_jobs').document(job_id)
+            doc = doc_ref.get()
+            return doc.to_dict() if doc.exists else None
+        except Exception as e:
+            logger.error(f"Failed to get reference job {job_id}: {e}")
+            return None
+
+    async def get_reference_job_by_project(self, project_id: str) -> Optional[Dict[str, Any]]:
+        """Get latest reference generation job by project_id."""
+        try:
+            query = self.db.collection('reference_jobs')\
+                .where(filter=FieldFilter('project_id', '==', project_id))\
+                .order_by('updated_at', direction=firestore.Query.DESCENDING)\
+                .limit(1)
+            docs = list(query.stream())
+            if docs:
+                return docs[0].to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get reference job for project {project_id}: {e}")
+            return None
     
     # =====================================================================
     # USAGE TRACKING OPERATIONS
@@ -1424,3 +1479,18 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Firestore health check failed: {e}")
             return False 
+
+# --------------------------------------------------------------------
+# Convenience helper to access underlying Firestore client for modules
+# that require raw client operations (e.g., publish_v2 router)
+# --------------------------------------------------------------------
+def get_firestore_client():
+    """Return the underlying google.cloud.firestore.Client if available, else raise."""
+    try:
+        project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+        service = FirestoreService(project_id=project_id)
+        if getattr(service, 'available', False) and getattr(service, 'db', None) is not None:
+            return service.db
+    except Exception as e:
+        logger.error(f"get_firestore_client failed: {e}")
+    raise RuntimeError("Firestore client is not available")

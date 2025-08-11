@@ -495,6 +495,7 @@ class UpdateProjectRequest(BaseModel):
     status: Optional[ProjectStatus] = None
     settings: Optional[ProjectSettings] = None
     book_bible_content: Optional[str] = None
+    visibility: Optional[ProjectVisibility] = None
 
 class CreateChapterRequest(BaseModel):
     project_id: str

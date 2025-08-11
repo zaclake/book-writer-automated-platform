@@ -9,10 +9,17 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 
-from backend.models.firestore_models import (
-    Chapter, CreateChapterRequest, ChapterListResponse,
-    ChapterVersion, QualityScores, ChapterStage
-)
+# Models import with robust fallback to support /app runtime without backend package
+try:
+    from backend.models.firestore_models import (
+        Chapter, CreateChapterRequest, ChapterListResponse,
+        ChapterVersion, QualityScores, ChapterStage
+    )
+except ImportError:
+    from models.firestore_models import (
+        Chapter, CreateChapterRequest, ChapterListResponse,
+        ChapterVersion, QualityScores, ChapterStage
+    )
 # Robust imports that work from both repo root and backend directory
 try:
     from backend.database_integration import (

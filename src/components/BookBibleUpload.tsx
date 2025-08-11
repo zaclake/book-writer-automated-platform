@@ -4,6 +4,8 @@ import { useState, useRef } from 'react'
 import { DocumentTextIcon, CloudArrowUpIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
 import { CreativeLoader } from './ui/CreativeLoader'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
+import { useEffect } from 'react'
 import { useJobProgress } from '@/hooks/useJobProgress'
 
 interface BookBibleUploadProps {
@@ -66,9 +68,19 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
     const reader = new FileReader()
     reader.onload = (e) => {
       const content = e.target?.result as string
+      
+      // Check character limit (same as backend validation)
+      const MAX_CHARACTERS = 50000
+      if (content.length > MAX_CHARACTERS) {
+        setStatus(`❌ File too large: ${content.length.toLocaleString()} characters. Maximum allowed: ${MAX_CHARACTERS.toLocaleString()} characters. Please reduce the file size by ${(content.length - MAX_CHARACTERS).toLocaleString()} characters.`)
+        setFile(null)
+        setContent('')
+        return
+      }
+      
       setContent(content)
       extractProjectInfo(content)
-      setStatus('✅ Book Bible loaded successfully')
+      setStatus(`✅ Book Bible loaded successfully (${content.length.toLocaleString()} characters)`)
     }
     reader.onerror = () => {
       setStatus('❌ Error reading file')
@@ -384,31 +396,43 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         className="hidden"
       />
 
-      {/* Creative Loader for Reference Generation */}
-      <CreativeLoader
-        isVisible={isInitializing || isPolling}
-        progress={progress?.progress}
-        stage={progress?.stage}
-        customMessages={[
-          "🖋️ Sharpening pencils for epic writing...",
-          "📚 Consulting the storytelling gods...",
-          "🎭 Giving your characters personality...",
-          "🗺️ Drawing your story's treasure map...",
-          "🔮 Gazing into plot crystal balls...",
-          "📖 Whispering secrets to the muses...",
-          "✨ Sprinkling AI magic on your ideas...",
-          "🎪 Teaching your words to dance...",
-          "🌟 Aligning story constellations...",
-          "🎨 Mixing the perfect emotional palette..."
-        ]}
-        showProgress={true}
-        size="md"
-        onTimeout={() => {
-          setStatus('⏰ Taking longer than expected. Your references will be ready soon!')
-        }}
-        timeoutMs={180000} // 3 minutes
-        fullScreen
-      />
+      {/* Sync to global loader */}
+      {useEffect(() => {
+        const visible = isInitializing || isPolling
+        if (visible) {
+          GlobalLoader.show({
+            title: 'Generating References',
+            stage: progress?.stage,
+            progress: progress?.progress,
+            showProgress: true,
+            size: 'md',
+            fullScreen: true,
+            customMessages: [
+              '🖋️ Sharpening pencils for epic writing...',
+              '📚 Consulting the storytelling gods...',
+              "🎭 Giving your characters personality...",
+              "🗺️ Drawing your story's treasure map...",
+              '🔮 Gazing into plot crystal balls...',
+              '📖 Whispering secrets to the muses...',
+              '✨ Sprinkling AI magic on your ideas...',
+              '🎪 Teaching your words to dance...',
+              '🌟 Aligning story constellations...',
+              '🎨 Mixing the perfect emotional palette...'
+            ],
+            timeoutMs: 180000,
+            onTimeout: () => setStatus('⏰ Taking longer than expected. Your references will be ready soon!'),
+          })
+        } else {
+          GlobalLoader.hide()
+        }
+        // Update progress/stage as it changes
+        if (visible && (progress?.progress != null || progress?.stage)) {
+          GlobalLoader.update({
+            progress: progress?.progress,
+            stage: progress?.stage,
+          })
+        }
+      }, [isInitializing, isPolling, progress?.progress, progress?.stage])}
 
       {status && !isPolling && !isInitializing && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">

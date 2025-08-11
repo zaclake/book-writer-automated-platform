@@ -75,6 +75,9 @@ export async function GET(request: NextRequest) {
     const response = await fetch(fullTargetUrl, {
       method: 'GET',
       headers,
+      // Prevent long-hanging proxies causing 504s
+      signal: AbortSignal.timeout(15000),
+      cache: 'no-store',
     })
 
     console.log('[project/status] Backend response status:', response.status)

@@ -256,6 +256,8 @@ export function useUserProjects() {
   const [error, setError] = useState<string | null>(null)
   const firebaseReady = useFirebaseReady()
   const intervalRef = useRef<NodeJS.Timeout | undefined>()
+  // Track initial successful load to avoid UI flashing/loading-on-focus
+  const hasLoadedOnce = useRef(false)
 
   const fetchProjects = useCallback(async () => {
     if (!isSignedIn || !userId || !firebaseReady) {
@@ -264,7 +266,10 @@ export function useUserProjects() {
     }
 
     try {
-      setLoading(true)
+      // Only show global loading spinner on the very first load
+      if (!hasLoadedOnce.current) {
+        setLoading(true)
+      }
       setError(null)
       
       // Ensure Firebase is ready before attempting Firestore operations
@@ -419,6 +424,7 @@ export function useUserProjects() {
       }
       
       setLoading(false)
+      hasLoadedOnce.current = true
       
       // Return empty unsubscribe function
       return () => {}
@@ -427,6 +433,7 @@ export function useUserProjects() {
       console.error('Error setting up projects subscription:', err)
       setError('Failed to load projects')
       setLoading(false)
+      hasLoadedOnce.current = true
     }
   }, [isSignedIn, userId, getToken, firebaseReady])
 
@@ -839,15 +846,17 @@ export function useUserJobs(limit: number = 10) {
     if (!isSignedIn || !userId) return []
 
     const token = await getToken()
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
-
-    const response = await fetch(`/api/auto-complete/jobs?limit=${limit}`, { headers })
+    if (!token) return []
+    // Call backend directly to avoid Vercel timeouts during long jobs
+    const response = await fetch(`/api/auto-complete/jobs?limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
     if (!response.ok) {
-      throw new Error(`Failed to fetch jobs: ${response.statusText}`)
+      const txt = await response.text().catch(() => '')
+      throw new Error(`Failed to fetch jobs: ${response.status} ${txt}`)
     }
-
     const data = await response.json()
-    return data.jobs || []
+    return (data?.jobs as any[]) || []
   }, [isSignedIn, userId, limit, getToken])
 
   const { data: jobs, loading, error } = usePolling(
@@ -873,16 +882,14 @@ export function useGenerationJob(jobId: string | null) {
     if (!isSignedIn || !userId || !jobId) return null
 
     const token = await getToken()
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
-
-    const response = await fetch(`/api/auto-complete/${jobId}/status`, { headers })
+    if (!token) return null
+    const response = await fetch(`/api/auto-complete/${jobId}/status`, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) {
       if (response.status === 404) return null
-      throw new Error(`Failed to fetch job: ${response.statusText}`)
+      const txt = await response.text().catch(() => '')
+      throw new Error(`Failed to fetch job: ${response.status} ${txt}`)
     }
-
-    const data = await response.json()
-    return data.job
+    return (await response.json()) as any
   }, [isSignedIn, userId, jobId, getToken])
 
   const { data: job, loading, error } = usePolling(

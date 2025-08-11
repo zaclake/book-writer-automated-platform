@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
 import AppLayout from '@/components/layout/AppLayout'
 import './globals.css'
+import GlobalLoadingOverlay from '@/components/ui/GlobalLoadingOverlay'
+import ActiveJobsBanner from '@/components/ActiveJobsBanner'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -23,6 +25,8 @@ export default function RootLayout({
           <AppLayout>
             {children}
           </AppLayout>
+          <GlobalLoadingOverlay />
+          <ActiveJobsBanner />
         </body>
       </html>
     </ClerkProvider>

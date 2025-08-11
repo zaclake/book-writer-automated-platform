@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import Celebration from '@/components/ui/Celebration'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 export default function CreateGiftBookPage() {
   const router = useRouter()
@@ -87,6 +88,18 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
     if (!isSignedIn) return
     if (!form.recipient_name.trim() || !form.favorite_themes.trim()) return
     setIsSubmitting(true)
+    GlobalLoader.show({
+      title: 'Creating Gift Project',
+      stage: 'Preparing content...',
+      showProgress: false,
+      size: 'md',
+      customMessages: [
+        '🎁 Personalizing your story...',
+        '📚 Building your book bible...',
+        '✨ Setting up your creative space...',
+      ],
+      timeoutMs: 900000,
+    })
     try {
       const token = await getToken()
       if (!token) throw new Error('No auth token')
@@ -131,10 +144,14 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
       localStorage.setItem('lastProjectId', projectId)
       localStorage.setItem(`projectTitle-${projectId}`, payload.title)
       setShowCelebration(true)
-      setTimeout(() => router.push(`/project/${projectId}/references`), 800)
+      setTimeout(() => {
+        GlobalLoader.hide()
+        router.push(`/project/${projectId}/references`)
+      }, 800)
     } catch (e) {
       console.error('Gift book creation failed', e)
       setIsSubmitting(false)
+      GlobalLoader.hide()
     }
   }
 

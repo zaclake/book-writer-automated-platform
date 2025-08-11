@@ -12,7 +12,7 @@ from pathlib import Path
 
 from backend.models.firestore_models import (
     PublishRequest, PublishResult, PublishConfig, PublishFormat,
-    PublishJobStatus, ProjectPublishingHistory
+    PublishJobStatus, ProjectPublishingHistory, JobProgress
 )
 from backend.auto_complete import (
     BackgroundJobProcessor, JobStatus, JobInfo
@@ -38,8 +38,33 @@ def get_job_processor() -> BackgroundJobProcessor:
     """Get or create job processor instance."""
     global job_processor
     if job_processor is None:
-        job_processor = BackgroundJobProcessor(max_concurrent_jobs=2)
+        job_processor = BackgroundJobProcessor()
     return job_processor
+
+
+def _persist_publish_result(project_id: str, result: PublishResult):
+    """Persist publish result to Firestore under projects/{project_id}.publishing.{history,latest}."""
+    try:
+        db = get_firestore_client()
+        project_doc = db.collection('projects').document(project_id)
+        snapshot = project_doc.get()
+        current_publishing = {}
+        if snapshot.exists:
+            data = snapshot.to_dict() or {}
+            current_publishing = data.get('publishing', {})
+        # Append to history
+        history = current_publishing.get('history', [])
+        history.append(result.dict())
+        # Latest only if completed
+        from backend.models.firestore_models import PublishJobStatus
+        publishing_data = {
+            'history': history,
+            'latest': result.dict() if result.status == PublishJobStatus.COMPLETED else current_publishing.get('latest')
+        }
+        project_doc.set({'publishing': publishing_data, 'updated_at': datetime.now(timezone.utc)}, merge=True)
+        logger.info(f"📦 Persisted publish result to projects/{project_id}")
+    except Exception as e:
+        logger.error(f"Failed to persist publish result for {project_id}: {e}")
 
 @router.post("/project/{project_id}", response_model=Dict[str, str])
 async def start_publish_job(
@@ -90,26 +115,111 @@ async def start_publish_job(
         
         # Create initial progress
         progress = JobProgress(
-            job_id="temp",  # Will be set by processor
             current_step="Initializing",
             total_steps=len(config.formats) + 3,  # fetch, build, formats, upload
             completed_steps=0,
-            progress_percentage=0.0,
-            estimated_time_remaining=None,
-            current_chapter=None,
-            chapters_completed=0,
-            total_chapters=0,
-            last_update=datetime.now().isoformat(),
-            detailed_status={}
+            percentage=0.0,
+            estimated_time_remaining=None
         )
         
+        # Create a unique job_id and initialize Firestore record for cross-instance status
+        publish_job_id = f"publish_{project_id}_{int(datetime.now(timezone.utc).timestamp())}"
+        try:
+            db = get_firestore_client()
+            db.collection('publish_jobs').document(publish_job_id).set({
+                'job_id': publish_job_id,
+                'project_id': project_id,
+                'user_id': user_id,
+                'status': 'pending',
+                'progress': {
+                    'current_step': 'Initializing',
+                    'progress_percentage': 0.0,
+                    'last_update': datetime.now(timezone.utc).isoformat()
+                },
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'started_at': None,
+                'completed_at': None
+            })
+        except Exception as _init_err:
+            logger.warning(f"Failed to create publish job doc: {_init_err}")
+
         # Submit job (simplified interface - no priority support)
         async def publish_job_func():
-            # Placeholder for actual publishing logic
-            return {"success": True, "message": "Publishing completed"}
+            # Import and use the real publishing service
+            from backend.services.publishing_service import PublishingService
+            
+            # Create service and run publishing
+            service = PublishingService()
+            def _progress(step: str, p: float):
+                try:
+                    db = get_firestore_client()
+                    db.collection('publish_jobs').document(publish_job_id).set({
+                        'status': 'running',
+                        'progress': {
+                            'current_step': step,
+                            'progress_percentage': round(float(p) * 100.0, 1),
+                            'last_update': datetime.now(timezone.utc).isoformat()
+                        },
+                        'started_at': datetime.now(timezone.utc).isoformat()
+                    }, merge=True)
+                except Exception as pe:
+                    logger.warning(f"Failed to persist publish progress: {pe}")
+
+            result = await service.publish_book(project_id, config, progress_callback=_progress)
+            # Persist publish result for Library access
+            try:
+                _persist_publish_result(project_id, result)
+            except Exception as persist_err:
+                logger.error(f"Publish result persistence failed: {persist_err}")
+            
+            # Return result as dict
+            from backend.models.firestore_models import PublishJobStatus
+            
+            # Build download URLs dict
+            download_urls = {}
+            if result.epub_url:
+                download_urls["epub"] = result.epub_url
+            if result.pdf_url:
+                download_urls["pdf"] = result.pdf_url
+            if result.html_url:
+                download_urls["html"] = result.html_url
+            
+            # Persist final job status
+            try:
+                db = get_firestore_client()
+                download_urls_safe = {
+                    'epub': download_urls.get('epub'),
+                    'pdf': download_urls.get('pdf'),
+                    'html': download_urls.get('html')
+                }
+                db.collection('publish_jobs').document(publish_job_id).set({
+                    'status': result.status.value,
+                    'progress': {
+                        'current_step': 'Completed' if result.status == PublishJobStatus.COMPLETED else 'Failed',
+                        'progress_percentage': 100.0 if result.status == PublishJobStatus.COMPLETED else 0.0,
+                        'last_update': datetime.now(timezone.utc).isoformat()
+                    },
+                    'completed_at': datetime.now(timezone.utc).isoformat(),
+                    'result': {
+                        'download_urls': download_urls_safe,
+                        'error_message': result.error_message
+                    }
+                }, merge=True)
+            except Exception as _final_err:
+                logger.warning(f"Failed to persist final publish job result: {_final_err}")
+
+            return {
+                "success": result.status == PublishJobStatus.COMPLETED,
+                "message": "Publishing completed successfully" if result.status == PublishJobStatus.COMPLETED else result.error_message or "Publishing failed",
+                "status": result.status.value,
+                "download_urls": download_urls,
+                "project_id": result.project_id,
+                "job_id": publish_job_id,
+                "error_message": result.error_message
+            }
         
-        job_info = await processor.submit_job(f"publish_{project_id}", publish_job_func)
-        job_id = job_info.job_id
+        job_info = await processor.submit_job(publish_job_id, publish_job_func)
+        job_id = publish_job_id
         
         logger.info(f"✅ Publish job {job_id} submitted for project {project_id}")
         
@@ -142,44 +252,51 @@ async def get_publish_job_status(
                 detail="Invalid user authentication"
             )
         
+        # Prefer Firestore-backed job; fallback to in-memory processor
+        try:
+            db = get_firestore_client()
+            doc = db.collection('publish_jobs').document(job_id).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                progress = data.get('progress', {}) or {}
+                result = data.get('result', {}) or {}
+                return {
+                    "job_id": job_id,
+                    "status": data.get('status', 'pending'),
+                    "progress": {
+                        "current_step": progress.get('current_step', ''),
+                        "progress_percentage": progress.get('progress_percentage', 0)
+                    },
+                    "result": result,
+                    "created_at": data.get('created_at'),
+                    "started_at": data.get('started_at'),
+                    "completed_at": data.get('completed_at')
+                }
+        except Exception as _fs_err:
+            logger.warning(f"Publish job Firestore read failed: {_fs_err}")
+
         processor = get_job_processor()
-        job = processor.get_job(job_id)
-        
+        job = processor.get_job_status(job_id)
         if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Job not found"
-            )
-        
-        # Check if user owns this job
-        if job.user_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this job"
-            )
-        
-        # Build response
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
         response = {
             "job_id": job.job_id,
             "status": job.status.value,
-            "progress": {
-                "current_step": job.progress.current_step,
-                "progress_percentage": job.progress.progress_percentage,
-                "last_update": job.progress.last_update
-            },
+            "progress": job.progress or {},
             "created_at": job.created_at.isoformat(),
             "started_at": job.started_at.isoformat() if job.started_at else None,
             "completed_at": job.completed_at.isoformat() if job.completed_at else None
         }
-        
-        # Add result if completed
         if job.status == JobStatus.COMPLETED and job.result:
             response["result"] = job.result
-        
-        # Add error if failed
-        if job.status == JobStatus.FAILED and job.error:
-            response["error"] = job.error
-        
+            if "download_urls" in job.result:
+                response["download_urls"] = job.result["download_urls"]
+                if isinstance(job.result["download_urls"], dict):
+                    response["result"]["epub_url"] = job.result["download_urls"].get("epub")
+                    response["result"]["pdf_url"] = job.result["download_urls"].get("pdf")
+                    response["result"]["html_url"] = job.result["download_urls"].get("html")
+        if job.status == JobStatus.FAILED and job.error_message:
+            response["error"] = job.error_message
         return response
         
     except HTTPException:

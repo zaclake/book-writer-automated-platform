@@ -85,6 +85,14 @@ class AutoCompleteBookOrchestrator:
         
         # Setup logging
         self.logger = logger
+
+        # Initialize chapter context manager for continuity and state
+        try:
+            from .helpers.chapter_context_manager import ChapterContextManager
+            self.context_manager = ChapterContextManager(self.project_path)
+        except Exception as e:
+            self.logger.warning(f"Context manager unavailable, proceeding without continuity manager: {e}")
+            self.context_manager = None
         
     def start_auto_completion(self, request_data: Dict[str, Any]) -> str:
         """
@@ -202,8 +210,8 @@ class AutoCompleteBookOrchestrator:
                 if progress_callback:
                     await progress_callback(self.get_progress_status())
                 
-                # Brief pause between chapters
-                await asyncio.sleep(1)
+            # Brief pause between chapters (yield control so other requests aren't starved)
+            await asyncio.sleep(0)
             
             # Determine completion status
             if self.current_status == AutoCompletionStatus.PAUSED:
@@ -251,11 +259,25 @@ class AutoCompleteBookOrchestrator:
             with open(chapter_file, 'w', encoding='utf-8') as f:
                 f.write(chapter_content)
             
+            # Update continuity state based on the generated chapter
+            if self.context_manager:
+                try:
+                    self.context_manager.analyze_chapter_content(job.chapter_number, chapter_content)
+                except Exception as e:
+                    self.logger.warning(f"Failed to analyze continuity for Chapter {job.chapter_number}: {e}")
+
             # Also save to database/Firestore
             await self._save_chapter_to_database(job.chapter_number, chapter_content, context)
             
-            # Assess chapter quality
+            # Assess chapter quality and optionally revise
             quality_result = await self._assess_chapter_quality(chapter_content, job.chapter_number)
+
+            # If quality gates enabled and failed, attempt targeted revision once
+            if self.config.quality_gates_enabled and not self._passes_quality_gates(quality_result):
+                self.logger.info(f"Chapter {job.chapter_number} failed quality gates; attempting targeted revision")
+                chapter_content = await self._revise_chapter(chapter_content, job.chapter_number, quality_result, context)
+                # Re-assess after revision
+                quality_result = await self._assess_chapter_quality(chapter_content, job.chapter_number)
             
             # Check quality gates
             if self._passes_quality_gates(quality_result):
@@ -328,8 +350,70 @@ class AutoCompleteBookOrchestrator:
                     with open(ref_file, 'r', encoding='utf-8') as f:
                         context[f'{ref_type}_reference'] = f.read()
                     self.logger.info(f"Loaded reference file: {filename}")
+
+        # If a continuity manager is available, enrich context for next chapter
+        if self.context_manager:
+            try:
+                next_ctx = self.context_manager.build_next_chapter_context(chapter_number)
+                context['continuity'] = next_ctx
+                # Provide a concise previous_chapters_summary string from contexts
+                context['previous_chapters'] = next_ctx.get('story_so_far', context.get('previous_chapters', ''))
+            except Exception as e:
+                self.logger.warning(f"Failed to enrich continuity context for chapter {chapter_number}: {e}")
         
         return context
+
+    async def _revise_chapter(self, original_content: str, chapter_number: int, quality_result: Dict[str, Any], context: Dict[str, Any]) -> str:
+        """Perform a single targeted revision pass based on quality feedback."""
+        try:
+            from .llm_orchestrator import LLMOrchestrator, RetryConfig
+            retry_config = RetryConfig(max_retries=2)
+            orchestrator = LLMOrchestrator(retry_config=retry_config)
+
+            # Build a concise critique to feed into revision prompt
+            issues = []
+            try:
+                category_results = quality_result.get('category_results', {})
+                for cat, res in category_results.items():
+                    if not res.get('passed', True):
+                        issues.append(f"- Improve {cat} (score {res.get('score', 0):.1f} < min {res.get('minimum_required', 0):.1f})")
+            except Exception:
+                pass
+            if 'brutal_assessment' in quality_result and not quality_result['brutal_assessment'].get('passed', True):
+                issues.append("- Raise overall brutal assessment to pass threshold")
+            criticals = quality_result.get('critical_failures', []) if isinstance(quality_result.get('critical_failures'), list) else []
+            for c in criticals:
+                issues.append(f"- Fix critical: {c}")
+
+            critique = "\n".join(issues[:8]) if issues else "- Strengthen clarity, plot advancement, and prose polish"
+
+            revision_system = (
+                "You are a professional fiction editor revising a chapter to meet strict quality gates.\n"
+                "Preserve story facts and voice. Apply targeted changes only."
+            )
+            revision_user = (
+                f"Revise Chapter {chapter_number} to address the issues.\n\n"
+                f"CRITIQUE:\n{critique}\n\n"
+                "REFERENCE CONTEXT (read-only, do not copy verbatim):\n"
+                f"BOOK BIBLE (excerpt):\n{(context.get('book_bible') or '')[:1500]}\n\n"
+                f"PREVIOUS CHAPTERS (summary):\n{(context.get('previous_chapters') or '')[:800]}\n\n"
+                "Draft to revise begins below the delimiter.\n"
+                "--- DRAFT START ---\n"
+                f"{original_content}\n"
+                "--- DRAFT END ---\n\n"
+                "Output the fully revised chapter."
+            )
+
+            messages = [
+                {"role": "system", "content": revision_system},
+                {"role": "user", "content": revision_user}
+            ]
+
+            response = await orchestrator._make_api_call(messages=messages, temperature=0.5, max_tokens=6000)
+            return response.choices[0].message.content
+        except Exception as e:
+            self.logger.warning(f"Revision failed for Chapter {chapter_number}: {e}; keeping original")
+            return original_content
     
     def _get_previous_chapters_summary(self, up_to_chapter: int) -> str:
         """Get summary of previous chapters."""
@@ -474,7 +558,18 @@ The narrative unfolds as the characters face new challenges and developments. Ea
             result = await orchestrator.generate_chapter(
                 chapter_number=chapter_number,
                 target_words=target_words,
-                stage="complete"
+                stage="complete",
+                context={
+                    "book_bible": context.get("book_bible", ""),
+                    "previous_chapters_summary": context.get("previous_chapters", ""),
+                    "references": {
+                        "characters": context.get("characters_reference", ""),
+                        "outline": context.get("outline_reference", ""),
+                        "plot_timeline": context.get("plot_timeline_reference", ""),
+                        "world_building": context.get("world_building_reference", ""),
+                        "style_guide": context.get("style_guide_reference", "")
+                    }
+                }
             )
             
             if result.success:
@@ -491,26 +586,66 @@ The narrative unfolds as the characters face new challenges and developments. Ea
             return self._generate_fallback_content(chapter_number, context)
     
     async def _assess_chapter_quality(self, chapter_content: str, chapter_number: int) -> Dict[str, Any]:
-        """Assess chapter quality (simplified version)."""
-        # This is a placeholder - in production, this would call actual quality assessment modules
-        await asyncio.sleep(1)  # Simulate assessment time
-        
-        word_count = len(chapter_content.split())
-        
-        # Simulate quality scoring
-        base_score = 7.5
-        if word_count >= self.config.words_per_chapter * 0.8:
-            base_score += 1.0
-        if word_count <= self.config.words_per_chapter * 1.2:
-            base_score += 0.5
-        
-        return {
-            'overall_score': min(base_score, 10.0),
-            'word_count': word_count,
-            'brutal_assessment': {'score': base_score},
-            'engagement_score': {'score': base_score + 0.5},
-            'quality_gates': {'passed': 8, 'total': 10}
-        }
+        """Assess chapter quality using quality gates and brutal assessment helpers."""
+        try:
+            # Run quick validation and scoring
+            from .helpers.quality_gate_validator import QualityGateValidator
+            from .helpers.brutal_assessment_scorer import BrutalAssessmentScorer
+
+            validator = QualityGateValidator()
+            scorer = BrutalAssessmentScorer()
+
+            word_count = len(chapter_content.split())
+            word_count_score = validator.validate_word_count(word_count)
+
+            # Build naive category scores seed and let brutal scorer compute weighted results
+            category_scores_seed = {
+                'enhanced_system_compliance': max(word_count_score.score / 1.0, 0.0),
+                'story_function': 8.0,
+                'character_authenticity': 8.0,
+                'prose_quality': 8.0,
+                'reader_engagement': 8.0,
+                'emotional_impact': 8.0,
+                'pattern_freshness': 8.0
+            }
+
+            assessment = scorer.assess_chapter(chapter_content, chapter_number, metadata={'genre': 'fiction'})
+
+            # Build result structure aligned with orchestrator expectations
+            result = {
+                'overall_score': min(assessment.overall_score / 10.0, 10.0),  # convert 100 scale to ~10
+                'word_count': word_count,
+                'brutal_assessment': {
+                    'score': assessment.overall_score,
+                    'level': assessment.assessment_level,
+                    'passed': assessment.passed
+                },
+                'critical_failures': assessment.critical_failures,
+                'category_results': {
+                    'enhanced_system_compliance': {
+                        'score': word_count_score.score,
+                        'minimum_required': word_count_score.minimum_required,
+                        'passed': word_count_score.passed
+                    }
+                }
+            }
+
+            return result
+        except Exception as e:
+            self.logger.warning(f"Quality assessment helpers failed, using basic scoring: {e}")
+            # Basic fallback
+            word_count = len(chapter_content.split())
+            base_score = 7.5
+            if word_count >= self.config.words_per_chapter * 0.8:
+                base_score += 1.0
+            if word_count <= self.config.words_per_chapter * 1.2:
+                base_score += 0.5
+            return {
+                'overall_score': min(base_score, 10.0),
+                'word_count': word_count,
+                'brutal_assessment': {'score': base_score * 10, 'passed': base_score >= self.config.minimum_quality_score},
+                'quality_gates': {'passed': 8, 'total': 10}
+            }
     
     def _passes_quality_gates(self, quality_result: Dict[str, Any]) -> bool:
         """Check if chapter passes quality gates."""

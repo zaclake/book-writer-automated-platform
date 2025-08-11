@@ -19,12 +19,20 @@ from pydantic import BaseModel
 import asyncio
 import time
 
-from backend.models.firestore_models import (
-    Project, CreateProjectRequest, UpdateProjectRequest,
-    ProjectListResponse, ProjectMetadata, ProjectSettings,
-    BookBible, ReferenceFile, BookLengthTier
-)
-# Robust imports that work from both repo root and backend directory
+# Models import with robust fallback to support /app runtime without backend package
+try:
+    from backend.models.firestore_models import (
+        Project, CreateProjectRequest, UpdateProjectRequest,
+        ProjectListResponse, ProjectMetadata, ProjectSettings,
+        BookBible, ReferenceFile, BookLengthTier
+    )
+except ImportError:
+    from models.firestore_models import (
+        Project, CreateProjectRequest, UpdateProjectRequest,
+        ProjectListResponse, ProjectMetadata, ProjectSettings,
+        BookBible, ReferenceFile, BookLengthTier
+    )
+"""Robust imports that work from both repo root and backend directory"""
 try:
     from backend.database_integration import (
         get_user_projects, create_project, get_project,
@@ -32,25 +40,43 @@ try:
         get_database_adapter, create_reference_file
     )
     from backend.auth_middleware import get_current_user
-    from backend.services.cover_art_service import CoverArtService, CoverArtJob
 except ImportError:
-    # Fallback when running from backend directory
-    from backend.database_integration import (
+    # Fallback when running from backend/ directory
+    from database_integration import (
         get_user_projects, create_project, get_project,
         migrate_project_from_filesystem, track_usage,
         get_database_adapter, create_reference_file
     )
-    from backend.auth_middleware import get_current_user
-    from backend.services.cover_art_service import CoverArtService, CoverArtJob
+    from auth_middleware import get_current_user
+
+# Cover art service is optional; guard import/initialization to avoid breaking v2 router
+CoverArtService = None
+CoverArtJob = None
+try:
+    try:
+        from backend.services.cover_art_service import CoverArtService as _CoverArtService, CoverArtJob as _CoverArtJob
+    except ImportError:
+        from services.cover_art_service import CoverArtService as _CoverArtService, CoverArtJob as _CoverArtJob
+    CoverArtService = _CoverArtService
+    CoverArtJob = _CoverArtJob
+except Exception as _cover_art_import_err:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"CoverArtService unavailable; cover-art endpoints will be disabled: {_cover_art_import_err}")
 
 # Simple in-memory progress store for reference generation jobs
 _reference_jobs: Dict[str, Dict[str, Any]] = {}
 
 # Simple in-memory store for cover art jobs
-_cover_art_jobs: Dict[str, CoverArtJob] = {}
+# Use Any to avoid type errors when CoverArtJob is not available
+_cover_art_jobs: Dict[str, Any] = {}
 
-# Initialize cover art service
-cover_art_service = CoverArtService()
+# Initialize cover art service if available; otherwise leave as None
+try:
+    cover_art_service = CoverArtService() if CoverArtService else None
+except Exception as _svc_err:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to initialize CoverArtService; disabling cover-art endpoints: {_svc_err}")
+    cover_art_service = None
 
 class CoverArtRequest(BaseModel):
     """Request model for cover art generation."""
@@ -58,19 +84,17 @@ class CoverArtRequest(BaseModel):
     regenerate: bool = False
     options: Optional[Dict[str, Any]] = None
 
-def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = ""):
-    """Update progress for a reference generation job."""
-    # Determine status based on stage and progress
+def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = "", project_id: Optional[str] = None, user_id: Optional[str] = None):
+    """Update progress for a reference generation job and mirror to Firestore if possible."""
     if stage.lower() == "failed":
         status = 'failed-rate-limit'
     elif progress >= 100:
         status = 'completed'
     else:
         status = 'running'
-    
-    # Extract project_id from job_id (format: ref_gen_{project_id}_{timestamp})
-    project_id = job_id.split('_', 2)[2].rsplit('_', 1)[0] if '_' in job_id else job_id
-    
+
+    resolved_project_id = project_id or (job_id.split('_', 2)[2].rsplit('_', 1)[0] if '_' in job_id else job_id)
+
     progress_data = {
         'id': job_id,
         'status': status,
@@ -79,10 +103,28 @@ def _update_reference_job_progress(job_id: str, progress: int, stage: str, messa
         'message': message,
         'updated_at': time.time()
     }
-    
-    # Store progress under both job_id and project_id for lookup flexibility
+
     _reference_jobs[job_id] = progress_data
-    _reference_jobs[project_id] = progress_data
+    _reference_jobs[resolved_project_id] = progress_data
+
+    # Best-effort persistence to Firestore
+    try:
+        from google.cloud import firestore as _gcf
+        from backend.services.firestore_service import get_firestore_client
+        client = get_firestore_client()
+        payload = {
+            'job_id': job_id,
+            'project_id': resolved_project_id,
+            'user_id': user_id,
+            'status': status,
+            'progress': progress,
+            'stage': stage,
+            'message': message,
+            'updated_at': _gcf.SERVER_TIMESTAMP,
+        }
+        client.collection('reference_jobs').document(job_id).set(payload, merge=True)
+    except Exception:
+        pass
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/projects", tags=["projects-v2"])
@@ -99,7 +141,7 @@ async def generate_references_background(
     
     try:
         logger.info(f"Starting background reference generation for project {project_id}")
-        _update_reference_job_progress(job_id, 0, "Initializing", "Starting reference generation...")
+        _update_reference_job_progress(job_id, 0, "Initializing", "Starting reference generation...", project_id, user_id)
         
         from utils.reference_content_generator import ReferenceContentGenerator
         from utils.paths import get_project_workspace
@@ -110,13 +152,13 @@ async def generate_references_background(
             _update_reference_job_progress(job_id, 0, "Failed", "AI service not available")
             return
         
-        _update_reference_job_progress(job_id, 10, "Preparing", "Setting up workspace...")
+        _update_reference_job_progress(job_id, 10, "Preparing", "Setting up workspace...", project_id, user_id)
         
         project_workspace = get_project_workspace(project_id)
         references_dir = project_workspace / "references"
         
         # Generate default reference files with explicit arguments
-        _update_reference_job_progress(job_id, 20, "Generating", "Creating reference files...")
+        _update_reference_job_progress(job_id, 20, "Generating", "Creating reference files...", project_id, user_id)
         
         results = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -126,7 +168,7 @@ async def generate_references_background(
             None                     # reference_types (use defaults)
         )
         
-        _update_reference_job_progress(job_id, 60, "Processing", f"Generated {len(results)} reference files")
+        _update_reference_job_progress(job_id, 60, "Processing", f"Generated {len(results)} reference files", project_id, user_id)
         logger.info(f"Generated {len(results)} reference files for project {project_id}")
         
         # Store reference file content in Firestore by reading from generated files
@@ -143,7 +185,7 @@ async def generate_references_background(
                         await create_reference_file(
                             project_id=project_id,
                             filename=metadata["filename"],
-                            content=markdown_content,  # Pass actual markdown content, not metadata dict
+                            content=markdown_content,
                             user_id=user_id
                         )
                         stored_count += 1
@@ -157,18 +199,18 @@ async def generate_references_background(
         
         # Check if we had any successful generations
         if stored_count > 0:
-            _update_reference_job_progress(job_id, 100, "Complete", f"Successfully generated {stored_count} reference files")
+            _update_reference_job_progress(job_id, 100, "Complete", f"Successfully generated {stored_count} reference files", project_id, user_id)
             logger.info(f"Successfully generated and stored {stored_count} reference files for project {project_id}")
         else:
             # All reference generations failed - mark as failed instead of complete
-            _update_reference_job_progress(job_id, 0, "Failed", "All reference file generations failed due to rate limits")
-            logger.error(f"Failed to generate any reference files for project {project_id} - likely rate limit issues")
+            _update_reference_job_progress(job_id, 0, "Failed", "Reference generation failed due to upstream AI service error or rate limits.", project_id, user_id)
+            logger.error(f"Failed to generate any reference files for project {project_id} - AI service error or rate limit")
         
 
         
     except Exception as e:
         logger.error(f"Background reference generation failed for project {project_id}: {e}")
-        _update_reference_job_progress(job_id, 0, "Failed", f"Error: {str(e)}")
+        _update_reference_job_progress(job_id, 0, "Failed", f"Error: {str(e)}", project_id, user_id)
 
 def _sanitize_text_for_markdown(text: str) -> str:
     """Sanitize user input for safe inclusion in markdown content."""
@@ -360,7 +402,8 @@ async def create_new_project(
                 'owner_id': user_id,
                 'collaborators': [],
                 'status': 'active',
-                'visibility': 'private'
+                'visibility': 'private',
+                'owner_display_name': f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip()
             },
             'settings': {
                 'genre': request.genre,
@@ -748,6 +791,16 @@ async def update_project(
         
         if request.status:
             updates['metadata.status'] = request.status.value
+
+        # Support visibility update if present in request body directly (frontend convenience)
+        try:
+            # request may have extra key 'visibility' not in UpdateProjectRequest; access from body if available
+            # Note: FastAPI already parsed 'request' into UpdateProjectRequest; use raw visibility via attribute access if present
+            visibility_value = getattr(request, 'visibility', None)
+            if visibility_value:
+                updates['metadata.visibility'] = visibility_value if isinstance(visibility_value, str) else visibility_value.value
+        except Exception:
+            pass
         
         if request.settings:
             # Update individual settings fields
@@ -766,6 +819,51 @@ async def update_project(
         # Perform the update
         from backend.database_integration import get_database_adapter
         db = get_database_adapter()
+
+        # If visibility is being updated, upsert a minimal root project doc with core fields for public library
+        try:
+            vis_update = updates.get('metadata.visibility')
+            if vis_update:
+                try:
+                    # Fetch full project to get title/genre/owner for card data
+                    current = await get_project(project_id)
+                except Exception:
+                    current = None
+                # Prepare minimal document
+                minimal = {
+                    'metadata': {
+                        'project_id': project_id,
+                        'title': (current or {}).get('metadata', {}).get('title'),
+                        'owner_id': (current or {}).get('metadata', {}).get('owner_id'),
+                        'collaborators': (current or {}).get('metadata', {}).get('collaborators', []),
+                        'owner_display_name': (current or {}).get('metadata', {}).get('owner_display_name'),
+                        'visibility': vis_update,
+                        'updated_at': datetime.now(timezone.utc)
+                    },
+                    'settings': {
+                        'genre': (current or {}).get('settings', {}).get('genre')
+                    }
+                }
+                # Use raw Firestore client to set merge=True on root doc
+                try:
+                    from backend.services.firestore_service import get_firestore_client
+                except ImportError:
+                    from services.firestore_service import get_firestore_client
+                client = get_firestore_client()
+                client.collection('projects').document(project_id).set(minimal, merge=True)
+                # Also update the user-scoped project document for consistency
+                owner_id = (current or {}).get('metadata', {}).get('owner_id')
+                if owner_id:
+                    try:
+                        client.collection('users').document(owner_id).collection('projects').document(project_id).update({
+                            'metadata.visibility': vis_update,
+                            'metadata.updated_at': datetime.now(timezone.utc)
+                        })
+                    except Exception as ue:
+                        logger.warning(f"Failed to update user-scoped project visibility: {ue}")
+        except Exception as e:
+            logger.warning(f"Failed to upsert root project doc for visibility change: {e}")
+
         success = await db.firestore.update_project(project_id, updates) if db.use_firestore else True
         
         if not success:
@@ -977,7 +1075,27 @@ async def get_reference_generation_progress(
             )
         
         # Look for reference generation job progress
-        job_progress = _reference_jobs.get(project_id)
+        job_progress = None
+        try:
+            from google.cloud import firestore as _gcf
+            from backend.services.firestore_service import get_firestore_client
+            client = get_firestore_client()
+            query = client.collection('reference_jobs') \
+                .where('project_id', '==', project_id) \
+                .order_by('updated_at', direction=_gcf.Query.DESCENDING) \
+                .limit(1)
+            docs = list(query.stream())
+            if docs:
+                data = docs[0].to_dict()
+                job_progress = {
+                    'status': data.get('status', 'running'),
+                    'progress': data.get('progress', 0),
+                    'stage': data.get('stage', ''),
+                    'message': data.get('message', ''),
+                    'updated_at': time.time()
+                }
+        except Exception:
+            job_progress = _reference_jobs.get(project_id)
         
         if not job_progress:
             # Check if references already exist (generation might be complete)
@@ -1100,11 +1218,58 @@ async def get_project_references(
                 detail="Access denied to this project"
             )
         
-        # Get reference files
-        from backend.database_integration import get_database_adapter
+        # Get reference files (primary: subcollection)
         db = get_database_adapter()
-        reference_files = await db.firestore.get_project_reference_files(project_id)
-        
+        # Use adapter abstraction to avoid AttributeError when Firestore client is not attached
+        reference_files = []
+        try:
+            reference_files = await db.get_project_reference_files(project_id)
+        except Exception as e:
+            logger.warning(f"Adapter get_project_reference_files failed for {project_id}: {e}")
+
+        # Fallbacks for legacy data models if subcollection is empty
+        if not reference_files:
+            try:
+                project_data = await get_project(project_id)
+                legacy_files = []
+                # Legacy embedded references dict: { name: { content, ... } } or { name: content }
+                if project_data and 'references' in project_data and isinstance(project_data['references'], dict):
+                    for ref_name, ref_val in project_data['references'].items():
+                        if isinstance(ref_val, dict):
+                            content = ref_val.get('content', '')
+                        else:
+                            content = str(ref_val) if ref_val is not None else ''
+                        legacy_files.append({'filename': f"{ref_name if ref_name.endswith('.md') else ref_name + '.md'}", 'content': content})
+                # Older legacy key: 'reference_files' as dict of filename -> content
+                if not legacy_files and 'reference_files' in project_data and isinstance(project_data['reference_files'], dict):
+                    for fname, content in project_data['reference_files'].items():
+                        legacy_files.append({'filename': fname, 'content': content})
+                if legacy_files:
+                    reference_files = legacy_files
+            except Exception as e:
+                logger.warning(f"Fallback load of legacy references failed for project {project_id}: {e}")
+
+        # Final fallback: legacy root collection 'references' (filename/content per doc)
+        if not reference_files:
+            try:
+                from backend.services.firestore_service import get_firestore_client
+            except ImportError:
+                from services.firestore_service import get_firestore_client
+            try:
+                client = get_firestore_client()
+                query = client.collection('references').where('project_id', '==', project_id)
+                docs = list(query.stream())
+                root_files = []
+                for doc in docs:
+                    data = doc.to_dict() or {}
+                    fname = data.get('filename') or data.get('name') or 'unnamed.md'
+                    content = data.get('content', '')
+                    root_files.append({'filename': fname, 'content': content})
+                if root_files:
+                    reference_files = root_files
+            except Exception as e:
+                logger.warning(f"Root collection references lookup failed for project {project_id}: {e}")
+
         return {
             'success': True,
             'project_id': project_id,
@@ -1156,17 +1321,66 @@ async def get_reference_file(
             )
         
         # Get reference files and find the specific one
-        from backend.database_integration import get_database_adapter
         db = get_database_adapter()
-        reference_files = await db.firestore.get_project_reference_files(project_id)
-        
-        # Find the file by filename
+        # Use adapter abstraction to avoid direct Firestore coupling
+        reference_files = []
+        try:
+            reference_files = await db.get_project_reference_files(project_id)
+        except Exception as e:
+            logger.warning(f"Adapter get_project_reference_files failed for {project_id}: {e}")
+
+        # Find the file by filename (normalize by ensuring .md)
+        search_names = {filename, filename if filename.endswith('.md') else filename + '.md'}
         target_file = None
         for ref_file in reference_files:
-            if ref_file.get('filename') == filename:
+            if ref_file.get('filename') in search_names:
                 target_file = ref_file
                 break
-        
+
+        # Fallback: legacy embedded references
+        if not target_file:
+            try:
+                project_data = await get_project(project_id)
+                if project_data:
+                    # references dict
+                    refs = project_data.get('references')
+                    if isinstance(refs, dict):
+                        for ref_name, ref_val in refs.items():
+                            normalized_name = ref_name if ref_name.endswith('.md') else ref_name + '.md'
+                            if normalized_name in search_names:
+                                content = ref_val.get('content', '') if isinstance(ref_val, dict) else str(ref_val)
+                                target_file = {'filename': normalized_name, 'content': content}
+                                break
+                    # reference_files dict
+                    if not target_file and isinstance(project_data.get('reference_files'), dict):
+                        content = project_data['reference_files'].get(filename) or project_data['reference_files'].get(next(iter(search_names)))
+                        if content is not None:
+                            normalized_name = filename if filename.endswith('.md') else filename + '.md'
+                            target_file = {'filename': normalized_name, 'content': content}
+            except Exception as e:
+                logger.warning(f"Fallback lookup for reference '{filename}' in project {project_id} failed: {e}")
+
+        # Final fallback: legacy root collection 'references'
+        if not target_file:
+            try:
+                try:
+                    from backend.services.firestore_service import get_firestore_client
+                except ImportError:
+                    from services.firestore_service import get_firestore_client
+                client = get_firestore_client()
+                query = client.collection('references').where('project_id', '==', project_id)
+                docs = list(query.stream())
+                for doc in docs:
+                    data = doc.to_dict() or {}
+                    fname = data.get('filename') or data.get('name') or 'unnamed.md'
+                    normalized_name = fname if fname.endswith('.md') else fname + '.md'
+                    if normalized_name in search_names:
+                        content = data.get('content', '')
+                        target_file = {'filename': normalized_name, 'content': content}
+                        break
+            except Exception as e:
+                logger.warning(f"Root collection lookup for '{filename}' in project {project_id} failed: {e}")
+
         if not target_file:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1428,7 +1642,12 @@ async def generate_cover_art(
         # Check if references are completed
         from backend.database_integration import get_database_adapter
         db = get_database_adapter()
-        reference_files_data = await db.firestore.get_project_reference_files(project_id)
+        # Use adapter method with internal fallbacks instead of direct Firestore-only call
+        try:
+            reference_files_data = await db.get_project_reference_files(project_id)
+        except Exception as e:
+            logger.warning(f"Adapter get_project_reference_files failed for cover art check: {e}")
+            reference_files_data = []
         
         if not reference_files_data or len(reference_files_data) == 0:
             raise HTTPException(
@@ -1529,6 +1748,22 @@ async def generate_cover_art(
                     'error': job.error,
                     'completed_at': job.completed_at.isoformat() if job.completed_at else None
                 })
+                
+                # If successful, save cover art URL to project document
+                if job.status == 'completed' and job.image_url:
+                    try:
+                        await db.firestore.update_project(project_id, {
+                            'cover_art': {
+                                'image_url': job.image_url,
+                                'job_id': job_id,
+                                'storage_path': job.storage_path,
+                                'generated_at': job.completed_at.isoformat() if job.completed_at else None
+                            }
+                        })
+                        logger.info(f"Successfully saved cover art URL to project {project_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to save cover art URL to project {project_id}: {e}")
+                        # Don't fail the entire operation if this fails
                 
                 # Track usage
                 await track_usage(

@@ -1,34 +1,19 @@
 {
-  "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "installCommand": "npm install",
-  "devCommand": "npm run dev",
-
   "functions": {
-    "src/app/api/**/*.ts": {
+    "src/app/api/auto-complete/**": {
       "maxDuration": 30
     },
-    "src/app/api/generate/route.ts": {
-      "maxDuration": 60
-    },
-    "src/app/api/auto-complete/**/route.ts": {
-      "maxDuration": 300
-    },
-    "src/app/api/prewriting/summary/route.ts": {
-      "maxDuration": 60
-    },
-    "src/app/api/projects/route.ts": {
-      "maxDuration": 60
-    },
-    "src/app/api/book-bible/**/*.ts": {
-      "maxDuration": 60
-    },
-    "src/app/api/references/**/*.ts": {
+    "src/app/api/chapters/**": {
       "maxDuration": 45
     },
-    "src/app/project/**/*.ts": {
-      "maxDuration": 45
+    "src/app/api/generate/**": {
+      "maxDuration": 30
+    },
+    "src/app/api/book-bible/**": {
+      "maxDuration": 30
+    },
+    "src/app/api/quality/**": {
+      "maxDuration": 60
     }
   },
   "headers": [
@@ -46,71 +31,8 @@
         {
           "key": "Access-Control-Allow-Headers",
           "value": "Content-Type, Authorization"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate"
         }
       ]
-    },
-    {
-      "source": "/api/book-bible/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "private, max-age=300"
-        }
-      ]
-    },
-    {
-      "source": "/api/chapters/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "private, max-age=60"
-        }
-      ]
-    },
-    {
-      "source": "/api/user/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "private, max-age=600"
-        }
-      ]
-    }
-  ],
-  "redirects": [
-    {
-      "source": "/",
-      "destination": "/dashboard",
-      "permanent": false,
-      "has": [
-        {
-          "type": "cookie",
-          "key": "__session"
-        }
-      ]
-    },
-    {
-      "source": "/",
-      "destination": "/sign-in",
-      "permanent": false
-    }
-  ],
-  "env": {
-    "NEXT_PUBLIC_BACKEND_URL": "https://silky-loss-production.up.railway.app"
-  },
-  "regions": ["iad1", "sfo1"],
-  "crons": [
-    {
-      "path": "/api/cron/cleanup-temp-files",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/sync-offline-data",
-      "schedule": "*/5 * * * *"
     }
   ]
-} 
+}

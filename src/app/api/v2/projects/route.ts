@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     // Forward query parameters
     const url = new URL(request.url)
     const queryParams = url.searchParams.toString()
-    const targetUrl = `${backendBaseUrl}/v2/projects`
+    const targetUrl = `${backendBaseUrl}/v2/projects/`
     const fullTargetUrl = queryParams ? `${targetUrl}?${queryParams}` : targetUrl
     
     console.log('[v2/projects] Forwarding to:', fullTargetUrl)

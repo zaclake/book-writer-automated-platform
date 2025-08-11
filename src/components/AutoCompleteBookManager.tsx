@@ -7,6 +7,7 @@ import { useUser } from '@clerk/nextjs'
 import { AutoCompleteEstimate } from '@/types/project'
 import apiClient from '@/lib/apiClient'
 import JobProgressBanner from '@/components/JobProgressBanner'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 import { useToast } from '@/components/ui/use-toast'
 
 interface AutoCompleteConfig {
@@ -259,15 +260,13 @@ export function AutoCompleteBookManager({
   const checkForExistingJob = async () => {
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/auto-complete/jobs?limit=1&status=active', {
-        headers: authHeaders
-      })
+      // Use Next.js proxy to avoid CORS
+      const response = await fetch(`/api/auto-complete/jobs?limit=1&status=active`, { headers: authHeaders })
       if (response.ok) {
         const data = await response.json()
-        if (data.jobs && Array.isArray(data.jobs) && data.jobs.length > 0) {
+        if (data && Array.isArray(data.jobs) && data.jobs.length > 0) {
           const job = data.jobs[0]
           setCurrentJob(job)
-          // Progress tracking will be handled by the consolidated useEffect
         }
       }
     } catch (error) {
@@ -361,14 +360,53 @@ export function AutoCompleteBookManager({
         const jobId = data?.job_id
         if (jobId) {
           storeJobId(jobId) // Persist job ID for recovery
+          // Prime UI with a pending job so the banner shows immediately
+          setCurrentJob({
+            job_id: jobId,
+            status: 'pending',
+            progress: {
+              progress_percentage: 0,
+              current_step: 0,
+              current_chapter: 0,
+              chapters_completed: 0,
+              total_chapters: estimation?.total_chapters || config.targetChapterCount,
+              estimated_time_remaining: undefined,
+              last_update: new Date().toISOString(),
+              detailed_status: 'Starting book generation...'
+            },
+            retries: 0,
+            max_retries: 3,
+            started_at: new Date().toISOString()
+          } as any)
           // Show toast notification about safe navigation
           toast({
             title: "🚀 Book generation started!",
-            description: "This process takes 30-45 minutes. You can safely close this tab and return later to check progress.",
+            description: "This process takes ~30–45 minutes. You can safely navigate away; progress will continue and update here.",
             variant: "default"
           })
+          setTimeout(() => {
+            GlobalLoader.show({
+              title: 'Auto-completing Your Book',
+              stage: 'Initializing...',
+              progress: 0,
+              showProgress: true,
+              size: 'md',
+              customMessages: [
+                '📚 Outlining chapters...',
+                '🧭 Plotting narrative arcs...',
+                '🎭 Deepening character arcs...',
+                '🧵 Weaving continuity between chapters...',
+                '✨ Refining prose and pacing...',
+                '🧪 Running quality gates...',
+              ],
+              timeoutMs: 3600000,
+            })
+          }, 0)
+          // Wait a moment for the job to initialize before starting tracking
+          setTimeout(() => {
+            startProgressTracking(jobId).catch(console.error)
+          }, 1000)
         }
-        startProgressTracking(jobId).catch(console.error)
         onJobStarted?.(jobId)
       } else {
         const errorData = await response.json().catch(() => ({}))
@@ -377,13 +415,32 @@ export function AutoCompleteBookManager({
           if (errorData?.existing_job_id) {
             setStatus(`🔄 Resuming existing job: ${errorData.existing_job_id}`)
             storeJobId(errorData.existing_job_id)
-            startProgressTracking(errorData.existing_job_id).catch(console.error)
+            // Prime UI with pending banner
+            setCurrentJob({
+              job_id: errorData.existing_job_id,
+              status: 'pending',
+              progress: {
+                progress_percentage: 0,
+                current_step: 0,
+                current_chapter: 0,
+                chapters_completed: 0,
+                total_chapters: estimation?.total_chapters || config.targetChapterCount,
+                estimated_time_remaining: undefined,
+                last_update: new Date().toISOString(),
+                detailed_status: 'Reconnecting to running job...'
+              }
+            } as any)
+            setTimeout(() => {
+              startProgressTracking(errorData.existing_job_id).catch(console.error)
+            }, 1000)
           }
         } else if (response.status === 402) {
           setStatus(`💳 Insufficient credits: ${errorData.error || ''}`)
           if (errorData?.estimated_credits && errorData?.remaining_credits) {
             setStatus(`💳 Insufficient credits: Need ${errorData.estimated_credits} > Available ${errorData.remaining_credits}`)
           }
+        } else if (response.status === 504 || response.status === 408) {
+          setStatus(`⏱️ Server timeout - this is normal for long operations. The job may have started. Please refresh in a few moments.`)
         } else {
           setStatus(`❌ Failed to start: ${errorData.error || 'Unknown error'}`)
         }
@@ -503,17 +560,18 @@ export function AutoCompleteBookManager({
   }
 
   const startProgressTracking = async (jobId: string, isReconnect = false) => {
+    if (!isReconnect) {
+      setStatus('📡 Connecting to progress updates...')
+    }
+    
     // First, get initial status
     fetchJobStatus(jobId)
     
     // Set up real-time SSE connection directly to backend
     try {
       const authHeaders = await getAuthHeaders()
-      const token = authHeaders.Authorization?.replace('Bearer ', '') || ''
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
-      
-      // Connect directly to backend with token as query param
-      const eventSource = new EventSource(`${backendUrl}/auto-complete/${jobId}/progress?token=${encodeURIComponent(token)}`)
+      // Connect to Next.js server-side proxy for SSE to avoid CORS
+      const eventSource = new EventSource(`/api/auto-complete/${jobId}/progress`)
       setProgressStream(eventSource)
       
       // Reset reconnect attempts on successful connection
@@ -708,14 +766,11 @@ export function AutoCompleteBookManager({
   const fetchJobStatus = async (jobId: string) => {
     try {
       const authHeaders = await getAuthHeaders()
-      const token = authHeaders.Authorization?.replace('Bearer ', '') || ''
-      
-      // Call backend directly via apiClient instead of broken Next.js route
-      const response = await apiClient.get(`/auto-complete/${jobId}/status`, apiClient.withAuth(token))
-      
-      if (response.ok && response.data) {
-        // Backend returns job data directly, not nested under 'job' property
-        setCurrentJob(response.data)
+      // Use Next.js proxy route
+      const response = await fetch(`/api/auto-complete/${jobId}/status`, { headers: authHeaders })
+      if (response.ok) {
+        const data = await response.json()
+        setCurrentJob(data)
         
         // Check if job is completed
         if (['completed', 'failed', 'cancelled'].includes(response.data.status)) {
@@ -725,7 +780,11 @@ export function AutoCompleteBookManager({
           }
           
           if (response.data.status === 'completed') {
+            GlobalLoader.hide()
             onJobCompleted?.(jobId, response.data.result)
+          }
+          if (response.data.status === 'failed' || response.data.status === 'cancelled') {
+            GlobalLoader.hide()
           }
         }
       } else {
@@ -741,14 +800,18 @@ export function AutoCompleteBookManager({
 
     try {
       const authHeaders = await getAuthHeaders()
-      const token = authHeaders.Authorization?.replace('Bearer ', '') || ''
-      const response = await apiClient.post(`/auto-complete/${currentJob.job_id}/control`, { action }, apiClient.withAuth(token))
+      const response = await fetch(`/api/auto-complete/${currentJob.job_id}/control`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      })
 
       if (response.ok) {
         setStatus(`✅ Job ${action}d successfully`)
         fetchJobStatus(currentJob.job_id)
       } else {
-        setStatus(`❌ Failed to ${action}: ${response.error}`)
+        const err = await response.json().catch(() => ({}))
+        setStatus(`❌ Failed to ${action}: ${err.error || response.status}`)
       }
     } catch (error) {
       setStatus(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -943,24 +1006,31 @@ export function AutoCompleteBookManager({
       )}
 
       {/* Job Progress Banner */}
-      {currentJob && (currentJob.status === 'running' || currentJob.status === 'pending' || currentJob.status === 'completed' || currentJob.status === 'failed') && (
-        <JobProgressBanner
-          jobId={currentJob.job_id}
-          status={currentJob.status as 'running' | 'completed' | 'failed' | 'pending'}
-          progressPercentage={currentJob.progress?.progress_percentage || 0}
-          currentChapter={currentJob.progress?.current_chapter || 0}
-          totalChapters={currentJob.progress?.total_chapters || 0}
-          estimatedTimeRemaining={
-            currentJob.progress?.estimated_time_remaining 
-              ? typeof currentJob.progress.estimated_time_remaining === 'string' 
-                ? currentJob.progress.estimated_time_remaining 
-                : `${Math.round(currentJob.progress.estimated_time_remaining / 60)} minutes`
-              : undefined
-          }
-          detailedStatus={currentJob.progress?.detailed_status}
-          onDismiss={currentJob.status === 'completed' || currentJob.status === 'failed' ? () => setCurrentJob(null) : undefined}
-        />
-      )}
+      {currentJob && (() => {
+        const s = currentJob.status as string
+        const displayStatus: 'running' | 'pending' | 'completed' | 'failed' =
+          ['running','generating','retrying','quality_checking'].includes(s) ? 'running' :
+          ['pending','initializing','paused'].includes(s) ? 'pending' :
+          (s === 'completed' ? 'completed' : (s === 'failed' || s === 'cancelled' ? 'failed' : 'pending'))
+        return (
+          <JobProgressBanner
+            jobId={currentJob.job_id}
+            status={displayStatus}
+            progressPercentage={currentJob.progress?.progress_percentage || 0}
+            currentChapter={currentJob.progress?.current_chapter || 0}
+            totalChapters={currentJob.progress?.total_chapters || 0}
+            estimatedTimeRemaining={
+              currentJob.progress?.estimated_time_remaining 
+                ? typeof currentJob.progress.estimated_time_remaining === 'string' 
+                  ? currentJob.progress.estimated_time_remaining 
+                  : `${Math.round(currentJob.progress.estimated_time_remaining / 60)} minutes`
+                : undefined
+            }
+            detailedStatus={currentJob.progress?.detailed_status}
+            onDismiss={displayStatus === 'completed' || displayStatus === 'failed' ? () => setCurrentJob(null) : undefined}
+          />
+        )
+      })()}
 
       {/* Current Job Status */}
       {currentJob ? (
@@ -1069,9 +1139,35 @@ export function AutoCompleteBookManager({
         </div>
       ) : (
         <div className="text-center py-8">
-          <div className="text-gray-500 mb-4">
-            No active auto-completion job
-          </div>
+          {/* Always render a prominent progress section if we have a job (even pending) */}
+          {currentJob && (
+            <div className="max-w-2xl mx-auto text-left mb-6">
+              <JobProgressBanner
+                jobId={currentJob.job_id}
+                status={(['running','generating','retrying','quality_checking'].includes(currentJob.status as any) ? 'running' : 'pending') as any}
+                progressPercentage={currentJob.progress?.progress_percentage || 0}
+                currentChapter={currentJob.progress?.current_chapter || 0}
+                totalChapters={currentJob.progress?.total_chapters || (estimation?.total_chapters || config.targetChapterCount)}
+                estimatedTimeRemaining={
+                  currentJob.progress?.estimated_time_remaining 
+                    ? typeof currentJob.progress.estimated_time_remaining === 'string' 
+                      ? currentJob.progress.estimated_time_remaining 
+                      : `${Math.round(currentJob.progress.estimated_time_remaining / 60)} minutes`
+                    : undefined
+                }
+                detailedStatus={currentJob.progress?.detailed_status || 'Starting...'}
+              />
+            </div>
+          )}
+          {!currentJob && (
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-lg max-w-2xl mx-auto text-left">
+              <div className="text-gray-900 font-medium mb-1">No active book generation</div>
+              <p className="text-gray-700 text-sm">
+                Book generation typically takes <span className="font-medium">30–45 minutes</span>. You can safely
+                browse other pages or return later—your progress is saved automatically and updates will appear here.
+              </p>
+            </div>
+          )}
           
           {/* Estimation Display */}
           {estimation && (

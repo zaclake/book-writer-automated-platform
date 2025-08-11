@@ -151,15 +151,15 @@ class LLMOrchestrator:
         self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
         
-    def _wait_for_rate_limit(self):
-        """Ensure minimum time between requests."""
+    async def _wait_for_rate_limit(self):
+        """Ensure minimum time between requests without blocking the event loop."""
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
         
         if time_since_last < self.min_request_interval:
             sleep_time = self.min_request_interval - time_since_last
             self.logger.info(f"Rate limiting: waiting {sleep_time:.2f}s")
-            time.sleep(sleep_time)
+            await asyncio.sleep(sleep_time)
         
         self.last_request_time = time.time()
     
@@ -200,19 +200,21 @@ class LLMOrchestrator:
         
         for attempt in range(self.retry_config.max_retries + 1):
             try:
-                # Rate limiting
-                self._wait_for_rate_limit()
+                # Rate limiting (non-blocking)
+                await self._wait_for_rate_limit()
                 
                 self.logger.info(f"Making API call (attempt {attempt + 1}/{self.retry_config.max_retries + 1})")
                 
                 if self.billable_client:
                     # Use billable client - this automatically handles credit billing
-                    billable_response = await self.client.chat_completions_create(
-                        model=self.model,
-                        messages=messages,
-                        timeout=120,  # 2 minute timeout for chapter generation
-                        **kwargs
-                    )
+                    from ..system.concurrency import get_llm_semaphore, semaphore
+                    async with semaphore(get_llm_semaphore()):
+                        billable_response = await self.client.chat_completions_create(
+                            model=self.model,
+                            messages=messages,
+                            timeout=120,  # 2 minute timeout for chapter generation
+                            **kwargs
+                        )
                     response = billable_response.response
                     credits_charged = billable_response.credits_charged
                     
@@ -224,13 +226,19 @@ class LLMOrchestrator:
                         pass
                         
                 else:
-                    # Use regular client - no billing
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=messages,
-                        timeout=120,  # 2 minute timeout for chapter generation
-                        **kwargs
-                    )
+                    # Use regular client - call sync SDK in a worker thread to avoid blocking the event loop
+                    from ..system.concurrency import get_llm_thread_semaphore, thread_semaphore
+                    import functools
+                    with thread_semaphore(get_llm_thread_semaphore()):
+                        response = await asyncio.to_thread(
+                            functools.partial(
+                                self.client.chat.completions.create,
+                                model=self.model,
+                                messages=messages,
+                                timeout=120,
+                                **kwargs
+                            )
+                        )
                     if hasattr(response, '_credits_charged'):
                         response._credits_charged = 0
                 
@@ -250,10 +258,10 @@ class LLMOrchestrator:
                     self.logger.error(f"Non-retryable error: {str(e)}")
                     break
                 
-                # Calculate and apply retry delay
+                # Calculate and apply retry delay (non-blocking)
                 delay = self._calculate_retry_delay(attempt)
                 self.logger.info(f"Retrying in {delay:.2f}s...")
-                time.sleep(delay)
+                await asyncio.sleep(delay)
         
         # All retries exhausted
         raise last_error
@@ -439,7 +447,7 @@ class LLMOrchestrator:
             )
 
     async def generate_chapter(self, chapter_number: int, target_words: int = 3800, 
-                        stage: str = "complete") -> GenerationResult:
+                        stage: str = "complete", context: Optional[Dict[str, Any]] = None) -> GenerationResult:
         """
         Generate a chapter with robust error handling and retry logic.
         """
@@ -452,7 +460,7 @@ class LLMOrchestrator:
         if stage == "spike":
             system_prompt, user_prompt = self._build_spike_prompts(chapter_number, target_words)
         else:
-            system_prompt, user_prompt = self._build_comprehensive_prompts(chapter_number, target_words)
+            system_prompt, user_prompt = self._build_comprehensive_prompts(chapter_number, target_words, context)
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -561,42 +569,89 @@ class LLMOrchestrator:
         
         return system_prompt.format(target_words=target_words), user_prompt
     
-    def _build_comprehensive_prompts(self, chapter_number: int, target_words: int) -> tuple[str, str]:
-        """Build comprehensive prompts for full chapter generation."""
-        # This will be expanded in Phase 2 with context retrieval
-        system_prompt = """You are an expert novelist following a comprehensive writing system.
+    def _build_comprehensive_prompts(self, chapter_number: int, target_words: int, context: Optional[Dict[str, Any]]) -> tuple[str, str]:
+        """Build comprehensive prompts for full chapter generation with reference/context injection."""
+        # Base system guidance
+        base_system = (
+            "You are an expert novelist following a comprehensive writing system.\n\n"
+            "WRITING SYSTEM REQUIREMENTS:\n"
+            f"- Target length: {target_words} words (hard target; keep within ±10%)\n"
+            "- Minimum 2 significant plot advancement points\n"
+            "- Character development through action and dialogue\n"
+            "- Multiple tension layers throughout\n"
+            "- Professional prose quality (publication standard)\n"
+            "- Strong opening hook and compelling ending\n"
+            "- Authentic dialogue with subtext\n"
+            "- Varied sentence structure and pacing\n"
+            "- Em-dash usage: use proper em-dash (—), not hyphen or spaced dash\n\n"
+            "QUALITY STANDARDS:\n"
+            "- 8+ on all craft elements (character, plot, prose, structure)\n"
+            "- Reader engagement throughout\n"
+            "- Genre expectations met (based on book bible)\n"
+            "- Professional polish and consistency\n"
+        )
 
-        WRITING SYSTEM REQUIREMENTS:
-        - Target length: {target_words} words (+/- 200 words acceptable)
-        - Minimum 2 significant plot advancement points
-        - Character development through action and dialogue
-        - Multiple tension layers throughout
-        - Professional prose quality (publication standard)
-        - Strong opening hook and compelling ending
-        - Authentic dialogue with subtext
-        - Varied sentence structure and pacing
-        
-        QUALITY STANDARDS:
-        - 8+ on all craft elements (character, plot, prose, structure)
-        - Reader engagement throughout
-        - Genre expectations met (thriller/mystery)
-        - Professional polish and consistency
-        
-        Write publication-ready content that meets these standards."""
-        
-        user_prompt = f"""Write Chapter {chapter_number} of a thriller novel.
-        
-        CHAPTER REQUIREMENTS:
-        - Target: {target_words} words
-        - Advance plot meaningfully (minimum 2 significant points)
-        - Develop characters through authentic action and dialogue
-        - Create multiple layers of tension
-        - End with compelling forward momentum
-        
-        Focus on professional quality prose that engages readers throughout.
-        Begin writing the chapter now."""
-        
-        return system_prompt.format(target_words=target_words), user_prompt
+        # Inject contextual information
+        def _trim(text: str, max_chars: int) -> str:
+            if not text:
+                return ""
+            if len(text) <= max_chars:
+                return text
+            return text[:max_chars] + "..."
+
+        book_bible = (context or {}).get("book_bible", "") or (context or {}).get("book_bible_content", "")
+        previous_summary = (context or {}).get("previous_chapters_summary", "") or (context or {}).get("previous_chapters", "")
+
+        # Build references summary with conservative caps
+        references_summary = ""
+        max_total_ref_chars = 2000
+        used = 0
+        refs_dict = (context or {}).get("references", {}) or {
+            # support keys like characters_reference, etc.
+            k.replace("_reference", ""): v for k, v in ((context or {}).items()) if isinstance(v, str) and k.endswith("_reference")
+        }
+        for ref_name, ref_content in refs_dict.items():
+            if used >= max_total_ref_chars:
+                break
+            remaining = max_total_ref_chars - used
+            excerpt = _trim(ref_content, min(500, remaining))
+            if excerpt.strip():
+                references_summary += f"\n--- {ref_name} ---\n{excerpt}\n"
+                used += len(excerpt)
+        if not references_summary:
+            references_summary = "No reference files available."
+
+        limited_book_bible = _trim(book_bible, 3000) if book_bible else "No book bible available."
+        limited_prev = _trim(previous_summary, 1500) if previous_summary else "No previous chapters."
+
+        system_prompt = base_system + (
+            "\nUse the provided STORY CONTEXT to maintain consistency with established characters, plot, world rules, and style.\n"
+            "Reference specific details; do not restate long passages.\n"
+        )
+
+        user_prompt = (
+            f"Write Chapter {chapter_number} for this book.\n\n"
+            "STORY CONTEXT\n"
+            "BOOK BIBLE:\n"
+            f"{limited_book_bible}\n\n"
+            "REFERENCE FILES:\n"
+            f"{references_summary}\n"
+            "PREVIOUS CHAPTERS CONTEXT:\n"
+            f"{limited_prev}\n\n"
+            "GENERATION REQUIREMENTS:\n"
+            f"- Chapter Number: {chapter_number}\n"
+            f"- Target Word Count: {target_words} words\n"
+            "- Maintain strict consistency with characters, plot, and world-building (do not invent external franchises or unrelated universes)\n"
+            "- Advance the plot meaningfully (min 2 significant points)\n"
+            "- Strong opening hook and a compelling end that flows to the next chapter\n\n"
+            "COMPLIANCE GUARDRAILS:\n"
+            "- Keep final word count within ±10% of target\n"
+            "- Use proper em-dash (—) where stylistically appropriate\n"
+            "- Adhere to the book bible’s world rules and voice\n\n"
+            f"Write Chapter {chapter_number} in full now."
+        )
+
+        return system_prompt, user_prompt
     
     def save_chapter(self, result: GenerationResult, output_file: str) -> bool:
         """Save generated chapter to file with metadata."""

@@ -124,8 +124,12 @@ except ModuleNotFoundError:
     from backend.utils.paths import temp_projects_root, get_project_workspace, ensure_project_structure
     from backend.utils.reference_parser import generate_reference_files
 
-# Import reference content generator
-from utils.reference_content_generator import ReferenceContentGenerator
+# Import reference content generator with robust fallback
+try:
+    from utils.reference_content_generator import ReferenceContentGenerator
+except Exception:
+    # In Railway/production, modules are under the 'backend' package
+    from backend.utils.reference_content_generator import ReferenceContentGenerator
 
 # Global job update events for SSE optimization
 job_update_events: Dict[str, asyncio.Event] = {}
@@ -264,11 +268,13 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS and security headers
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,https://www.writerbloom.com,https://bookwriterautomated-f9vhlimib-zaclakes-projects.vercel.app,https://bookwriterautomated-ngt27g4wu-zaclakes-projects.vercel.app,https://bookwriterautomated-hia787cms-zaclakes-projects.vercel.app').split(',')
+cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,https://www.writerbloom.com,https://writerbloom.com').split(',')
+cors_origin_regex = os.getenv('CORS_ORIGIN_REGEX', r"https://(.*\\.)?writerbloom\\.com$|https://.*vercel\\.app$|http://localhost:3000$")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=[o.strip() for o in cors_origins if o.strip()],
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
@@ -390,28 +396,89 @@ try:
         logger.info(f"Updated Python path: {sys.path[:3]}...")
     
     try:
-        # Preferred: running from monorepo root -> use absolute package path
-        projects_v2 = importlib.import_module("backend.routers.projects_v2")
-        chapters_v2 = importlib.import_module("backend.routers.chapters_v2")
-        users_v2 = importlib.import_module("backend.routers.users_v2")
-        logger.info("✅ Core routers imported via backend.* path")
-        
-        # Try to import prewriting router (optional, may have dependencies)
+        # Attempt absolute imports, but guard each to avoid one failure disabling all v2 routers
+        projects_v2 = None
+        chapters_v2 = None
+        users_v2 = None
+        prewriting_v2 = None
+        publish_v2 = None
+        credits_v2 = None
+
+        try:
+            projects_v2 = importlib.import_module("backend.routers.projects_v2")
+            logger.info("✅ projects_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"projects_v2 import via backend.* failed: {e}")
+        try:
+            chapters_v2 = importlib.import_module("backend.routers.chapters_v2")
+            logger.info("✅ chapters_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"chapters_v2 import via backend.* failed: {e}")
+        try:
+            users_v2 = importlib.import_module("backend.routers.users_v2")
+            logger.info("✅ users_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"users_v2 import via backend.* failed: {e}")
+
+        # Optional routers
         try:
             prewriting_v2 = importlib.import_module("backend.routers.prewriting_v2")
-            logger.info("✅ Prewriting router imported successfully")
-        except ImportError as e_prewriting:
-            logger.warning(f"Prewriting router disabled due to missing dependencies: {e_prewriting}")
-            prewriting_v2 = None
-            
-        # Try to import credits router (optional, depends on credits system being enabled)
+            logger.info("✅ prewriting_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"prewriting_v2 import via backend.* failed: {e}")
+        try:
+            publish_v2 = importlib.import_module("backend.routers.publish_v2")
+            logger.info("✅ publish_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"publish_v2 import via backend.* failed: {e}")
         try:
             credits_v2 = importlib.import_module("backend.routers.credits_v2")
-            logger.info("✅ Credits router imported successfully")
-        except ImportError as e_credits:
-            logger.warning(f"Credits router disabled due to missing dependencies: {e_credits}")
-            credits_v2 = None
-            
+            logger.info("✅ credits_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"credits_v2 import via backend.* failed: {e}")
+
+        # If any core router is still None, fall back to relative imports
+        if not (projects_v2 and chapters_v2 and users_v2):
+            logger.info("Falling back to routers.* imports for any missing routers")
+            if projects_v2 is None:
+                try:
+                    projects_v2 = importlib.import_module("routers.projects_v2")
+                    logger.info("✅ projects_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.error(f"❌ projects_v2 import via routers.* failed: {e}")
+            if chapters_v2 is None:
+                try:
+                    chapters_v2 = importlib.import_module("routers.chapters_v2")
+                    logger.info("✅ chapters_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.error(f"❌ chapters_v2 import via routers.* failed: {e}")
+            if users_v2 is None:
+                try:
+                    users_v2 = importlib.import_module("routers.users_v2")
+                    logger.info("✅ users_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.error(f"❌ users_v2 import via routers.* failed: {e}")
+
+            # Optional fallbacks
+            if prewriting_v2 is None:
+                try:
+                    prewriting_v2 = importlib.import_module("routers.prewriting_v2")
+                    logger.info("✅ prewriting_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.warning(f"prewriting_v2 import via routers.* failed: {e}")
+            if publish_v2 is None:
+                try:
+                    publish_v2 = importlib.import_module("routers.publish_v2")
+                    logger.info("✅ publish_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.warning(f"publish_v2 import via routers.* failed: {e}")
+            if credits_v2 is None:
+                try:
+                    credits_v2 = importlib.import_module("routers.credits_v2")
+                    logger.info("✅ credits_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.warning(f"credits_v2 import via routers.* failed: {e}")
+
     except (ModuleNotFoundError, ImportError) as e1:
         logger.warning(f"Failed to import via backend.* path: {e1}")
         try:
@@ -443,23 +510,55 @@ try:
             logger.error(f"  - routers.*: {e2}")
             raise e2
 
-    # Include routers
-    app.include_router(projects_v2.router)
-    app.include_router(chapters_v2.router)
-    app.include_router(users_v2.router)
+    # Include routers (ensure v2 routes are mounted) – only include those successfully imported
+    if projects_v2:
+        app.include_router(projects_v2.router)
+    else:
+        logger.error("projects_v2 not imported; skipping include")
+    if chapters_v2:
+        app.include_router(chapters_v2.router)
+    else:
+        logger.error("chapters_v2 not imported; skipping include")
+    if users_v2:
+        app.include_router(users_v2.router)
+    else:
+        logger.error("users_v2 not imported; skipping include")
     
     if prewriting_v2:
         app.include_router(prewriting_v2.router)
+    if publish_v2:
+        app.include_router(publish_v2.router)
+    else:
+        # Last-chance attempt to include publish router to avoid 404s in production
+        try:
+            from backend.routers import publish_v2 as _publish_v2
+            app.include_router(_publish_v2.router)
+            logger.info("✅ Fallback include of publish_v2 succeeded")
+        except Exception as e_fallback:
+            try:
+                import routers.publish_v2 as _publish_v2
+                app.include_router(_publish_v2.router)
+                logger.info("✅ Fallback include of publish_v2 (relative) succeeded")
+            except Exception as e_fallback2:
+                logger.error(f"❌ Failed to include publish_v2 router in fallback attempts: {e_fallback} | {e_fallback2}")
+    # Library router for public/private library endpoints (include independently of publish_v2)
+    try:
+        from backend.routers import library_v2
+    except Exception:
+        import routers.library_v2 as library_v2
+    app.include_router(library_v2.router)
         
     if credits_v2:
         app.include_router(credits_v2.router)
         
     # Log router status
-    included_routers = ['projects_v2', 'chapters_v2', 'users_v2']
-    if prewriting_v2:
-        included_routers.append('prewriting_v2')
-    if credits_v2:
-        included_routers.append('credits_v2')
+    included_routers = []
+    if projects_v2: included_routers.append('projects_v2')
+    if chapters_v2: included_routers.append('chapters_v2')
+    if users_v2: included_routers.append('users_v2')
+    if prewriting_v2: included_routers.append('prewriting_v2')
+    if publish_v2: included_routers.append('publish_v2')
+    if credits_v2: included_routers.append('credits_v2')
         
     logger.info(f"✅ Routers included successfully: {', '.join(included_routers)}")
 except Exception as e:
@@ -916,7 +1015,7 @@ def convert_request_to_config(request: AutoCompleteRequest) -> Dict[str, Any]:
 
 # Auto-complete endpoints
 @app.post("/auto-complete/start")
-@limiter.limit("5/minute")
+@limiter.limit("2/minute")
 async def start_auto_complete(
     request: Request,
     auto_complete_request: AutoCompleteRequest,
@@ -1401,11 +1500,12 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
                 
                 # Wait for job update event or timeout after 30 seconds
                 try:
-                    await asyncio.wait_for(event.wait(), timeout=30.0)
+                    await asyncio.wait_for(event.wait(), timeout=15.0)
                     event.clear()  # Reset event for next update
                 except asyncio.TimeoutError:
-                    # Send heartbeat
+                    # Send heartbeat and yield control
                     yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+                    await asyncio.sleep(0)
                     continue
                 
                 current_job = await firestore_client.load_job(job_id)

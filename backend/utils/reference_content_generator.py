@@ -6,9 +6,17 @@ import os
 import json
 import yaml
 import logging
+import asyncio
+from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from openai import OpenAI
+from ..system.concurrency import (
+    get_llm_semaphore,
+    semaphore,
+    get_llm_thread_semaphore,
+    thread_semaphore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,27 +252,32 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 logger.info(f"Starting OpenAI API request for {request_type} (attempt {attempt + 1})")
                 
                 if self.billable_client:
-                    # Use billable client
-                    billable_response = await self.client.chat_completions_create(
-                        model='gpt-4o',
-                        messages=messages,
-                        temperature=0.7,
-                        max_tokens=1800,  # keep well under 10k TPM across multiple calls
-                        top_p=0.9
-                    )
-                    response = billable_response.response
-                    credits_charged = billable_response.credits_charged
-                    logger.info(f"Credits charged for {request_type}: {credits_charged}")
+                    # Use billable client guarded by async semaphore
+                    async with semaphore(get_llm_semaphore()):
+                        billable_response = await self.client.chat_completions_create(
+                            model='gpt-4o',
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=1800,  # keep well under 10k TPM across multiple calls
+                            top_p=0.9
+                        )
+                        response = billable_response.response
+                        credits_charged = billable_response.credits_charged
+                        logger.info(f"Credits charged for {request_type}: {credits_charged}")
                 else:
-                    # Use regular client
-                    response = self.client.chat.completions.create(
-                        model='gpt-4o',
-                        messages=messages,
-                        temperature=0.7,
-                        max_tokens=1800,  # keep well under 10k TPM across multiple calls
-                        top_p=0.9,
-                        timeout=120  # 2 minute timeout for complex requests
-                    )
+                    # Use regular client in threadpool guarded by thread semaphore
+                    with thread_semaphore(get_llm_thread_semaphore()):
+                        response = await asyncio.to_thread(
+                            partial(
+                                self.client.chat.completions.create,
+                                model='gpt-4o',
+                                messages=messages,
+                                temperature=0.7,
+                                max_tokens=1800,
+                                top_p=0.9,
+                                timeout=120
+                            )
+                        )
                 
                 duration = time.time() - start_time
                 content = response.choices[0].message.content
@@ -412,59 +425,68 @@ Ensure all elements work together cohesively and provide specific, actionable gu
             {"role": "user", "content": user_prompt}
         ]
         
-        # Make API request with timeout
-        try:
-            import time
-            start_time = time.time()
-            logger.info(f"Starting OpenAI API request for {reference_type} using {model_config.get('model', 'gpt-4o')}")
-            
-            response = self.client.chat.completions.create(
-                model=model_config.get('model', 'gpt-4o'),
-                messages=messages,
-                temperature=model_config.get('temperature', 0.7),
-                max_tokens=model_config.get('max_tokens', 4000),
-                top_p=model_config.get('top_p', 0.9),
-                timeout=90  # 90 second timeout for OpenAI API calls
-            )
-            
-            duration = time.time() - start_time
-            logger.info(f"OpenAI API request completed for {reference_type} in {duration:.2f} seconds")
-            
-            generated_content = response.choices[0].message.content
-            
-            if not generated_content or len(generated_content.strip()) < 100:
-                raise Exception("Generated content is too short or empty")
-            
-            # Validate content contains expected sections (if specified)
-            if 'expected_sections' in prompt_config:
-                missing_sections = self._validate_content_sections(
-                    generated_content, 
-                    prompt_config['expected_sections']
+        # Make API request with timeout and transient retry (handles 5xx/Cloudflare 502)
+        import time
+        import random
+        max_attempts = 4
+        base_delay = 2.0
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                start_time = time.time()
+                logger.info(f"Starting OpenAI API request for {reference_type} using {model_config.get('model', 'gpt-4o')} (attempt {attempt}/{max_attempts})")
+
+                response = self.client.chat.completions.create(
+                    model=model_config.get('model', 'gpt-4o'),
+                    messages=messages,
+                    temperature=model_config.get('temperature', 0.7),
+                    max_tokens=model_config.get('max_tokens', 4000),
+                    top_p=model_config.get('top_p', 0.9),
+                    timeout=90  # 90s per attempt
                 )
-                if missing_sections:
-                    logger.warning(f"Generated content missing sections: {missing_sections}")
-            
-            logger.info(f"Successfully generated {len(generated_content)} characters for {reference_type}")
-            return generated_content
-            
-        except Exception as e:
-            # Handle specific timeout and API errors
-            error_message = str(e)
-            
-            if "timeout" in error_message.lower():
-                logger.error(f"OpenAI API request timed out for {reference_type}: {e}")
-                raise Exception(f"Content generation timed out after 90 seconds. Please try again later.")
-            elif "rate_limit" in error_message.lower():
-                logger.error(f"OpenAI API rate limit exceeded for {reference_type}: {e}")
-                raise Exception(f"OpenAI API rate limit exceeded. Please wait a moment and try again.")
-            elif "quota" in error_message.lower():
-                logger.error(f"OpenAI API quota exceeded for {reference_type}: {e}")
-                raise Exception(f"OpenAI API quota exceeded. Please check your API usage.")
-            elif "authentication" in error_message.lower():
-                logger.error(f"OpenAI API authentication failed for {reference_type}: {e}")
-                raise Exception(f"OpenAI API authentication failed. Please check your API key.")
-            else:
+
+                duration = time.time() - start_time
+                logger.info(f"OpenAI API request completed for {reference_type} in {duration:.2f} seconds")
+
+                generated_content = response.choices[0].message.content
+
+                if not generated_content or len(generated_content.strip()) < 100:
+                    raise Exception("Generated content is too short or empty")
+
+                if 'expected_sections' in prompt_config:
+                    missing_sections = self._validate_content_sections(
+                        generated_content,
+                        prompt_config['expected_sections']
+                    )
+                    if missing_sections:
+                        logger.warning(f"Generated content missing sections: {missing_sections}")
+
+                logger.info(f"Successfully generated {len(generated_content)} characters for {reference_type}")
+                return generated_content
+
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                is_transient = any(tok in error_str for tok in ["502", "bad gateway", "5xx", "service unavailable"]) \
+                    or "httpstatuserror" in error_str or "gateway" in error_str
+                is_timeout = "timeout" in error_str
+                is_rate = ("rate_limit" in error_str or "429" in error_str or "insufficient_quota" in error_str)
+
+                # Retry transient (5xx) and rate limit errors with backoff
+                if attempt < max_attempts and (is_transient or is_rate or is_timeout):
+                    delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                    logger.warning(f"Transient error for {reference_type} on attempt {attempt}: {e}. Retrying in {delay:.1f}s")
+                    time.sleep(delay)
+                    continue
+
+                # Non-retryable or exhausted retries
                 logger.error(f"OpenAI API request failed for {reference_type}: {e}")
+                if is_timeout:
+                    raise Exception("Content generation timed out. Please try again later.")
+                if is_rate:
+                    raise Exception("OpenAI API rate limit exceeded. Please wait and try again.")
+                if "authentication" in error_str:
+                    raise Exception("OpenAI API authentication failed. Please check your API key.")
                 raise Exception(f"Content generation failed: {e}")
     
     def _validate_content_sections(self, content: str, expected_sections: List[str]) -> List[str]:

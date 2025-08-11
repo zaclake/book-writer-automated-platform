@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import { PencilIcon } from '@heroicons/react/24/outline'
+import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 interface Project {
   id: string
@@ -224,14 +224,26 @@ const JourneyCard: React.FC<JourneyCardProps> = ({
         <div className="absolute inset-0 opacity-20 bg-gradient-to-br from-transparent via-white/30 to-transparent" />
         
         {/* Edit button - top right */}
-        {onEdit && (
-          <button
-            onClick={() => onEdit(project.id)}
-            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/80 backdrop-blur-sm border border-brand-lavender/20 text-brand-forest/60 hover:text-brand-lavender hover:bg-white hover:shadow-md transition-all duration-200 opacity-0 group-hover:opacity-100"
-          >
-            <PencilIcon className="w-4 h-4" />
-          </button>
-        )}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onEdit && (
+            <button
+              onClick={() => onEdit(project.id)}
+              className="p-2 rounded-full bg-white/80 backdrop-blur-sm border border-brand-lavender/20 text-brand-forest/60 hover:text-brand-lavender hover:bg-white hover:shadow-md transition-all duration-200"
+              title="Edit project"
+            >
+              <PencilIcon className="w-4 h-4" />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={() => onDelete(project.id)}
+              className="p-2 rounded-full bg-white/80 backdrop-blur-sm border border-red-200 text-red-600 hover:text-red-700 hover:bg-white hover:shadow-md transition-all duration-200"
+              title="Delete project"
+            >
+              <TrashIcon className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
         {/* Header with book thumbnail - tighter spacing */}
         <div className="relative flex items-start space-x-3 mb-4">

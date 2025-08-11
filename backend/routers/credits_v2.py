@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from pydantic import BaseModel, Field
-from auth_middleware import verify_token
+# Robust auth import to work in both /app and /app/backend execution contexts
+try:
+    from backend.auth_middleware import verify_token
+except ImportError:
+    from auth_middleware import verify_token
 
 # Import credit services
 try:

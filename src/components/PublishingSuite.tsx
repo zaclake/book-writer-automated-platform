@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CreativeLoader } from '@/components/ui/CreativeLoader'
+import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 import { Book, Download, FileText, Settings, Eye, CheckCircle } from 'lucide-react'
 import { usePublishJob } from '@/hooks/usePublishJob'
 import { Project } from '@/types/project'
@@ -82,6 +83,22 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
 
   const handlePublish = async (data: PublishFormData) => {
     try {
+      setTimeout(() => GlobalLoader.show({
+        title: 'Publishing Your Book',
+        stage: 'Preparing content',
+        progress: 0,
+        showProgress: true,
+        size: 'md',
+        customMessages: [
+          '📦 Collecting chapters...',
+          '🧱 Building book structure...',
+          '📑 Creating table of contents...',
+          '🖼️ Integrating cover art...',
+          '📚 Generating EPUB and PDF...',
+          '☁️ Uploading files...',
+        ],
+        timeoutMs: 1800000,
+      }), 0)
       await startPublishJob(projectId, {
         title: data.title,
         author: data.author,
@@ -165,7 +182,16 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
           </p>
         </div>
         
-        <CreativeLoader data-cy="creative-loader" />
+        {(() => {
+          // Update global loader progress if available
+          if (jobStatus?.progress?.progress_percentage != null) {
+            GlobalLoader.update({
+              stage: jobStatus.progress.current_step,
+              progress: jobStatus.progress.progress_percentage,
+            })
+          }
+          return null
+        })()}
         
         {jobStatus && (
           <div className="bg-muted/50 rounded-lg p-4">
@@ -192,6 +218,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
 
   // Show results if completed
   if (jobStatus?.status === 'completed' && downloadUrls) {
+    GlobalLoader.hide()
     return (
       <div className="space-y-6" data-cy="publish-success">
         <div className="text-center">
@@ -297,6 +324,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
 
   // Show error if failed
   if (error || jobStatus?.status === 'failed') {
+    GlobalLoader.hide()
     return (
       <div className="space-y-6">
         <Alert variant="destructive" data-cy="publish-error">
