@@ -82,7 +82,9 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
             const ifrs = Array.from(containerRef.current?.querySelectorAll('iframe') || [])
             let changed = false
             for (const ifr of ifrs as HTMLIFrameElement[]) {
-              if (ifr.hasAttribute('sandbox')) { ifr.removeAttribute('sandbox'); changed = true }
+              // Set an explicit permissive sandbox policy including scripts
+              const desired = 'allow-same-origin allow-scripts allow-pointer-lock allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox'
+              if (ifr.getAttribute('sandbox') !== desired) { ifr.setAttribute('sandbox', desired); changed = true }
               ifr.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
             }
             if (changed) {
@@ -97,14 +99,12 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
           try {
             const iframes = Array.from(containerRef.current?.querySelectorAll('iframe') || []) as HTMLIFrameElement[]
             for (const ifr of iframes) {
-              // Prefer removing sandbox entirely to avoid UA defaults overriding tokens
-              if (ifr.hasAttribute('sandbox')) {
-                ifr.removeAttribute('sandbox')
-              }
-              // Also set permissive allow features
+              const desired = 'allow-same-origin allow-scripts allow-pointer-lock allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox'
+              ifr.setAttribute('sandbox', desired)
+              // Set permissive allow features
               ifr.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write; encrypted-media')
             }
-            setDebug(d => (d && !d.includes('sandbox')) ? `${d} | iframe sandbox removed` : (d || 'iframe sandbox removed'))
+            setDebug(d => (d && !d.includes('sandbox')) ? `${d} | iframe sandbox set` : (d || 'iframe sandbox set'))
           } catch {}
         }
         const relaunchAfterFix = () => {
@@ -227,5 +227,6 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
     </div>
   )
 }
+
 
 
