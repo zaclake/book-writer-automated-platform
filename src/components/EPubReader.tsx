@@ -108,7 +108,21 @@ export default function EPubReader({ epubUrl, title }: EPubReaderProps) {
               'cover','title','copyright','toc','nav','acknowled','dedicat','imprint','front','back','colophon'
             ].some(k => lower(s).includes(k))
             const tocHref = nav.toc.map((t: any) => t.href).find((h: string) => h && !isFront(h))
-            if (tocHref) await rendition.display(tocHref)
+            if (tocHref) {
+              await rendition.display(tocHref)
+              await new Promise(r => setTimeout(r, 200))
+              if (lastTextLenRef.current < 150) {
+                // If still empty, iterate forward in spine until text appears
+                const spine = await book.loaded.spine
+                const hrefs: string[] = (spine?.items || []).map((it: any) => it?.href).filter(Boolean)
+                const startIdx = Math.max(0, hrefs.indexOf(tocHref))
+                for (let i = startIdx; i < hrefs.length; i++) {
+                  await rendition.display(hrefs[i])
+                  await new Promise(r => setTimeout(r, 250))
+                  if (lastTextLenRef.current > 200) break
+                }
+              }
+            }
           }
         } catch {}
         setReady(true)
