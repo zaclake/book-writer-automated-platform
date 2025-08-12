@@ -2,13 +2,7 @@
 builder = "DOCKERFILE"
 dockerfilePath = "backend/Dockerfile"
 
-[build]
-builder = "nixpacks"
-
-[deploy]
-startCommand = "bash start.sh"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
+# Use container CMD; no explicit startCommand override
 
 [variables]
-PYTHONPATH = "/app" 
+PYTHONPATH = "/app"
