@@ -1,29 +1,15 @@
 #!/usr/bin/env python3
 """
-Minimal FastAPI app for Railway deployment testing
+Thin bootstrap that starts the real application defined in `backend.main:app`.
+Some hosting providers may be configured to run this file directly.
 """
 import os
-from fastapi import FastAPI
-from datetime import datetime
+import uvicorn
 
-app = FastAPI()
-
-@app.get("/")
-def root():
-    return {
-        "message": "Minimal backend running", 
-        "timestamp": datetime.utcnow().isoformat(),
-        "port": os.getenv("PORT", "8000")
-    }
-
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+# Import the full FastAPI application
+from backend.main import app  # noqa: F401
 
 if __name__ == "__main__":
-    import uvicorn
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port) 
+    # Run the canonical app location explicitly to avoid accidental import of this module
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port)
