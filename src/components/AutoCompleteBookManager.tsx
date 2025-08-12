@@ -513,10 +513,15 @@ export function AutoCompleteBookManager({
         words_per_chapter: Math.round(config.targetWordCount / config.targetChapterCount)
       }
       
-      console.log('Auto-complete estimate request payload:', {
-        ...requestPayload,
-        book_bible: `${bookBible?.substring(0, 200)}... (${bookBible?.length} chars)` // Log truncated bible for debugging
-      })
+      try {
+        const bbStr = typeof bookBible === 'string' ? bookBible : JSON.stringify(bookBible)
+        console.log('Auto-complete estimate request payload:', {
+          ...requestPayload,
+          book_bible: `${bbStr?.substring(0, 200)}... (${bbStr?.length} chars)`
+        })
+      } catch {
+        console.log('Auto-complete estimate request payload: [book_bible present, non-stringable]')
+      }
       
       const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/auto-complete/estimate', {
@@ -773,22 +778,23 @@ export function AutoCompleteBookManager({
         setCurrentJob(data)
         
         // Check if job is completed
-        if (['completed', 'failed', 'cancelled'].includes(response.data.status)) {
+        if (['completed', 'failed', 'cancelled'].includes((data as any)?.status)) {
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
           
-          if (response.data.status === 'completed') {
+          if ((data as any)?.status === 'completed') {
             GlobalLoader.hide()
-            onJobCompleted?.(jobId, response.data.result)
+            onJobCompleted?.(jobId, (data as any)?.result)
           }
-          if (response.data.status === 'failed' || response.data.status === 'cancelled') {
+          if ((data as any)?.status === 'failed' || (data as any)?.status === 'cancelled') {
             GlobalLoader.hide()
           }
         }
       } else {
-        console.error('Failed to fetch job status:', response.error)
+        const err = await response.json().catch(() => ({}))
+        console.error('Failed to fetch job status:', err)
       }
     } catch (error) {
       console.error('Failed to fetch job status:', error)
@@ -1133,7 +1139,7 @@ export function AutoCompleteBookManager({
             </div>
             <div>
               <span>Job ID:</span>
-              <span className="ml-2 font-mono">{currentJob.job_id.substring(0, 8)}...</span>
+              <span className="ml-2 font-mono">{(currentJob.job_id || '').substring(0, 8)}...</span>
             </div>
           </div>
         </div>
