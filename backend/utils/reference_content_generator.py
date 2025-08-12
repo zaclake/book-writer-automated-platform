@@ -11,12 +11,74 @@ from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from openai import OpenAI
-from ..system.concurrency import (
-    get_llm_semaphore,
-    semaphore,
-    get_llm_thread_semaphore,
-    thread_semaphore,
-)
+# Concurrency controls with robust import fallbacks
+try:
+    from backend.system.concurrency import (
+        get_llm_semaphore,
+        semaphore,
+        get_llm_thread_semaphore,
+        thread_semaphore,
+    )
+except Exception:
+    try:
+        from ..system.concurrency import (
+            get_llm_semaphore,
+            semaphore,
+            get_llm_thread_semaphore,
+            thread_semaphore,
+        )
+    except Exception:
+        try:
+            from system.concurrency import (
+                get_llm_semaphore,
+                semaphore,
+                get_llm_thread_semaphore,
+                thread_semaphore,
+            )
+        except Exception:
+            import threading  # type: ignore
+            import asyncio  # type: ignore
+
+            _llm_sem = None
+            _llm_thread_sem = None
+
+            def _get_int_env(name: str, default: int) -> int:
+                try:
+                    return max(1, int(os.getenv(name, str(default))))
+                except Exception:
+                    return default
+
+            def get_llm_semaphore() -> 'asyncio.Semaphore':  # type: ignore
+                global _llm_sem
+                if _llm_sem is None:
+                    _llm_sem = asyncio.Semaphore(_get_int_env("MAX_CONCURRENT_LLM", 6))
+                return _llm_sem
+
+            def get_llm_thread_semaphore() -> 'threading.BoundedSemaphore':  # type: ignore
+                global _llm_thread_sem
+                if _llm_thread_sem is None:
+                    _llm_thread_sem = threading.BoundedSemaphore(_get_int_env("MAX_CONCURRENT_LLM", 6))
+                return _llm_thread_sem
+
+            class semaphore:  # type: ignore
+                def __init__(self, sem):
+                    self._sem = sem
+                async def __aenter__(self):
+                    await self._sem.acquire()
+                    return self
+                async def __aexit__(self, exc_type, exc, tb):
+                    self._sem.release()
+                    return False
+
+            class thread_semaphore:  # type: ignore
+                def __init__(self, sem):
+                    self._sem = sem
+                def __enter__(self):
+                    self._sem.acquire()
+                    return self
+                def __exit__(self, exc_type, exc, tb):
+                    self._sem.release()
+                    return False
 
 logger = logging.getLogger(__name__)
 

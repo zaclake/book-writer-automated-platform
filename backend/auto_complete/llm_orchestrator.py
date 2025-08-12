@@ -23,25 +23,105 @@ except ImportError:
     print("ERROR: OpenAI library not installed. Run: pip install openai")
     exit(1)
 
-# Local imports
+# Local imports (robust multi-path fallbacks)
+PromptManager = None
 try:
-    from backend.system.prompt_manager import PromptManager
-except ImportError:
-    # Fallback to the root-level prompt_manager
+    # Primary absolute import when `backend` is a package
+    from backend.system.prompt_manager import PromptManager as _PM
+    PromptManager = _PM
+except Exception:
     try:
-        from backend.prompt_manager import PromptManager
-    except ImportError:
-        # Final fallback - create a minimal PromptManager for testing
-        class PromptManager:
-            def __init__(self, prompts_dir):
-                self.prompts_dir = prompts_dir
-                self.logger = logging.getLogger(__name__)
-                self.logger.warning("Using fallback PromptManager - YAML templates not available")
-            
-            def get_template(self, stage):
-                return None
-        
-        logging.getLogger(__name__).error("PromptManager not available - using fallback")
+        # Relative import when running inside backend package
+        from ..system.prompt_manager import PromptManager as _PM
+        PromptManager = _PM
+    except Exception:
+        try:
+            # Top-level import when executed from repo root
+            from system.prompt_manager import PromptManager as _PM
+            PromptManager = _PM
+        except Exception:
+            try:
+                # Legacy fallback path
+                from backend.prompt_manager import PromptManager as _PM
+                PromptManager = _PM
+            except Exception:
+                # Final fallback - minimal stub
+                class PromptManager:  # type: ignore
+                    def __init__(self, prompts_dir):
+                        self.prompts_dir = prompts_dir
+                        self.logger = logging.getLogger(__name__)
+                        self.logger.warning("Using fallback PromptManager - YAML templates not available")
+
+                    def get_template(self, stage):
+                        return None
+                logging.getLogger(__name__).error("PromptManager not available - using fallback")
+
+# Concurrency controls (robust imports available to whole module)
+try:
+    from backend.system.concurrency import (
+        get_llm_semaphore,
+        get_llm_thread_semaphore,
+        semaphore,
+        thread_semaphore,
+    )
+except Exception:
+    try:
+        from ..system.concurrency import (
+            get_llm_semaphore,
+            get_llm_thread_semaphore,
+            semaphore,
+            thread_semaphore,
+        )
+    except Exception:
+        try:
+            from system.concurrency import (
+                get_llm_semaphore,
+                get_llm_thread_semaphore,
+                semaphore,
+                thread_semaphore,
+            )
+        except Exception:
+            import threading  # type: ignore
+            _llm_sem = None
+            _llm_thread_sem = None
+
+            def _get_int_env(name: str, default: int) -> int:
+                try:
+                    return max(1, int(os.getenv(name, str(default))))
+                except Exception:
+                    return default
+
+            def get_llm_semaphore() -> asyncio.Semaphore:  # type: ignore
+                global _llm_sem
+                if _llm_sem is None:
+                    _llm_sem = asyncio.Semaphore(_get_int_env("MAX_CONCURRENT_LLM", 6))
+                return _llm_sem
+
+            def get_llm_thread_semaphore() -> 'threading.BoundedSemaphore':  # type: ignore
+                global _llm_thread_sem
+                if _llm_thread_sem is None:
+                    _llm_thread_sem = threading.BoundedSemaphore(_get_int_env("MAX_CONCURRENT_LLM", 6))
+                return _llm_thread_sem
+
+            class semaphore:  # type: ignore
+                def __init__(self, sem: asyncio.Semaphore):
+                    self._sem = sem
+                async def __aenter__(self):
+                    await self._sem.acquire()
+                    return self
+                async def __aexit__(self, exc_type, exc, tb):
+                    self._sem.release()
+                    return False
+
+            class thread_semaphore:  # type: ignore
+                def __init__(self, sem: 'threading.BoundedSemaphore'):
+                    self._sem = sem
+                def __enter__(self):
+                    self._sem.acquire()
+                    return self
+                def __exit__(self, exc_type, exc, tb):
+                    self._sem.release()
+                    return False
 
 @dataclass
 class GenerationResult:
@@ -207,7 +287,6 @@ class LLMOrchestrator:
                 
                 if self.billable_client:
                     # Use billable client - this automatically handles credit billing
-                    from ..system.concurrency import get_llm_semaphore, semaphore
                     async with semaphore(get_llm_semaphore()):
                         billable_response = await self.client.chat_completions_create(
                             model=self.model,
@@ -227,7 +306,6 @@ class LLMOrchestrator:
                         
                 else:
                     # Use regular client - call sync SDK in a worker thread to avoid blocking the event loop
-                    from ..system.concurrency import get_llm_thread_semaphore, thread_semaphore
                     import functools
                     with thread_semaphore(get_llm_thread_semaphore()):
                         response = await asyncio.to_thread(
