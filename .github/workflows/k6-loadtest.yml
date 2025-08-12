@@ -1,0 +1,34 @@
+name: k6 Load Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Base URL to test (default is Railway backend)"
+        required: false
+        default: "https://silky-loss-production.up.railway.app"
+
+jobs:
+  stress:
+    name: Stress test backend health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run k6 stress (150 VUs, 60s)
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: scripts/k6/health-stress.js
+          flags: --vus 150 --duration 60s
+        env:
+          TARGET_BASE_URL: ${{ github.event.inputs.target_url }}
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary
+          path: /home/runner/work/_temp/k6-results*
+
+

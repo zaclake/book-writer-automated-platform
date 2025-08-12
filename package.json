@@ -49,7 +49,8 @@
     "seed": "node scripts/seed-data.js",
     "health-check": "node scripts/health-check.js",
     "railway:logs": "railway logs -f",
-    "railway:deploy": "railway up"
+    "railway:deploy": "railway up",
+    "loadtest": "npx artillery quick --count 20 --num 10 https://silky-loss-production.up.railway.app/health"
   },
   "dependencies": {
     "epubjs": "^0.3.93",
