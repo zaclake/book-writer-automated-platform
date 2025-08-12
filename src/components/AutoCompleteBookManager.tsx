@@ -793,6 +793,17 @@ export function AutoCompleteBookManager({
           }
         }
       } else {
+        if (response.status === 404) {
+          // Job not found (likely completed or stale). Stop polling and clear stored ID
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current)
+            intervalRef.current = null
+          }
+          clearStoredJobId()
+          setCurrentJob(null)
+          setStatus('ℹ️ No active job found (it may have completed).')
+          return
+        }
         const err = await response.json().catch(() => ({}))
         console.error('Failed to fetch job status:', err)
       }
