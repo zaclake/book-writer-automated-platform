@@ -30,6 +30,78 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# Concurrency controls (robust import across environments)
+try:
+    # Primary: absolute import when `backend` is a package
+    from backend.system.concurrency import (
+        get_image_semaphore,
+        get_image_thread_semaphore,
+        semaphore,
+        thread_semaphore,
+    )
+except Exception:
+    try:
+        # Fallback: relative import when running within the backend package
+        from ..system.concurrency import (
+            get_image_semaphore,
+            get_image_thread_semaphore,
+            semaphore,
+            thread_semaphore,
+        )
+    except Exception:
+        try:
+            # Fallback: top-level import when code is executed from repo root
+            from system.concurrency import (
+                get_image_semaphore,
+                get_image_thread_semaphore,
+                semaphore,
+                thread_semaphore,
+            )
+        except Exception:
+            # Last resort: minimal local implementations
+            import threading  # type: ignore
+            _image_sem = None
+            _image_thread_sem = None
+
+            def _get_int_env(name: str, default: int) -> int:
+                try:
+                    value = int(os.getenv(name, str(default)))
+                    return max(1, value)
+                except Exception:
+                    return default
+
+            def get_image_semaphore() -> asyncio.Semaphore:  # type: ignore
+                global _image_sem
+                if _image_sem is None:
+                    _image_sem = asyncio.Semaphore(_get_int_env("MAX_CONCURRENT_IMAGE", 2))
+                return _image_sem
+
+            def get_image_thread_semaphore() -> 'threading.BoundedSemaphore':  # type: ignore
+                global _image_thread_sem
+                if _image_thread_sem is None:
+                    _image_thread_sem = threading.BoundedSemaphore(_get_int_env("MAX_CONCURRENT_IMAGE", 2))
+                return _image_thread_sem
+
+            class semaphore:  # type: ignore
+                def __init__(self, sem: asyncio.Semaphore):
+                    self._sem = sem
+                async def __aenter__(self):
+                    await self._sem.acquire()
+                    return self
+                async def __aexit__(self, exc_type, exc, tb):
+                    self._sem.release()
+                    return False
+
+            class thread_semaphore:  # type: ignore
+                def __init__(self, sem: 'threading.BoundedSemaphore'):
+                    self._sem = sem
+                def __enter__(self):
+                    self._sem.acquire()
+                    return self
+                def __exit__(self, exc_type, exc, tb):
+                    self._sem.release()
+                    return False
+
 # KDP cover specifications based on research
 KDP_COVER_SPECS = {
     "ideal_width": 1600,
@@ -571,7 +643,6 @@ class CoverArtService:
                 
                 if self.billable_client:
                     # Use billable client
-                    from backend.system.concurrency import get_image_semaphore, semaphore
                     async with semaphore(get_image_semaphore()):
                         billable_response = await self.openai_client.images_generate(
                             model="gpt-image-1",
@@ -586,7 +657,6 @@ class CoverArtService:
                     logger.info(f"GPT-image-1 generation successful! Credits charged: {credits_charged}")
                 else:
                     # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
-                    from backend.system.concurrency import get_image_thread_semaphore, thread_semaphore
                     import functools
                     with thread_semaphore(get_image_thread_semaphore()):
                         response = await asyncio.to_thread(
@@ -606,7 +676,6 @@ class CoverArtService:
                 # Fallback to DALL-E 3
                 if self.billable_client:
                     # Use billable client
-                    from backend.system.concurrency import get_image_semaphore, semaphore
                     async with semaphore(get_image_semaphore()):
                         billable_response = await self.openai_client.images_generate(
                             model="dall-e-3",
@@ -621,7 +690,6 @@ class CoverArtService:
                     logger.info(f"DALL-E 3 generation successful! Credits charged: {credits_charged}")
                 else:
                     # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
-                    from backend.system.concurrency import get_image_thread_semaphore, thread_semaphore
                     import functools
                     with thread_semaphore(get_image_thread_semaphore()):
                         response = await asyncio.to_thread(
