@@ -59,3 +59,4 @@ temp_projects/
 local_storage/
 *.tmp
 *.temp
+.env*.local
