@@ -1,4 +1,8 @@
 [build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+
+[build]
 builder = "nixpacks"
 
 [deploy]
