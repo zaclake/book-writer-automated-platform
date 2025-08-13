@@ -259,7 +259,8 @@ class CoverArtService:
                         max_tokens=400,
                     )
                 )
-            content = response.choices[0].message["content"]
+            # OpenAI SDK returns ChatCompletion with message.content
+            content = response.choices[0].message.content
             import json as _json
             spec = _json.loads(content)
             if not isinstance(spec, dict) or "visual_elements" not in spec:
@@ -450,6 +451,9 @@ class CoverArtService:
         rural_score = count_mentions(rural_keywords)
         mountain_score = count_mentions(mountain_keywords)
         building_score = count_mentions(building_keywords)
+        # Industrial/plant detection
+        industrial_keywords = ['factory', 'industrial', 'plant', 'wastewater', 'rendering', 'pipe', 'pipes', 'smokestack', 'chimney', 'tank']
+        industrial_score = count_mentions(industrial_keywords)
         
         # Add dominant elements only
         scores = [
@@ -458,7 +462,8 @@ class CoverArtService:
             (urban_score, urban_keywords),
             (rural_score, rural_keywords),
             (mountain_score, mountain_keywords),
-            (building_score, building_keywords)
+            (building_score, building_keywords),
+            (industrial_score, industrial_keywords)
         ]
         
         # Sort by score and take top elements
@@ -466,7 +471,9 @@ class CoverArtService:
         
         added = 0
         for score, keywords in scores[:3]:  # Top 3 environment types
-            if score >= 2 and added < 2:  # require at least 2 mentions to avoid one-off noise
+            # For industrial cues allow a single explicit mention; for others require 2
+            min_thresh = 1 if keywords is industrial_keywords else 2
+            if score >= min_thresh and added < 2:
                 # Find the most mentioned keyword in this category
                 best_keyword = max(keywords, key=lambda k: content_lower.count(k))
                 if content_lower.count(best_keyword) > 0:
@@ -982,6 +989,96 @@ class CoverArtService:
         except Exception as e:
             logger.error(f"Failed to overlay text: {e}")
             return image_bytes
+
+    def _render_cover_programmatically(
+        self,
+        book_bible_content: str,
+        reference_files: Dict[str, str],
+        book_details: Dict[str, Any],
+        options: Optional[Dict[str, Any]] = None,
+    ) -> bytes:
+        """Render a clean, minimalistic cover using PIL only, avoiding image model hallucinations.
+        Uses palette if available and draws a simple motif if industrial/factory cues are present.
+        """
+        try:
+            width = KDP_COVER_SPECS["ideal_width"]
+            height = KDP_COVER_SPECS["ideal_height"]
+            from PIL import ImageDraw
+
+            # Determine palette
+            palette = book_details.get('color_palette') or []
+            # Default palette suitable for industrial theme
+            default_palette = [(25, 28, 36), (230, 90, 40), (240, 240, 240)]  # dark slate, orange, light gray
+            colors: List[Tuple[int, int, int]] = []
+            named = {
+                'red': (200, 60, 60), 'blue': (60, 90, 200), 'green': (60, 160, 90), 'purple': (120, 70, 160),
+                'yellow': (220, 190, 60), 'orange': (230, 120, 50), 'teal': (40, 150, 150), 'black': (10, 10, 10),
+                'white': (245, 245, 245), 'gray': (120, 120, 120), 'brown': (120, 85, 60)
+            }
+            for name in palette[:3]:
+                rgb = named.get(str(name).lower().strip())
+                if rgb:
+                    colors.append(rgb)
+            if not colors:
+                colors = default_palette[:2]
+
+            # Build base image with vertical gradient
+            base = Image.new('RGB', (width, height), colors[0])
+            draw = ImageDraw.Draw(base)
+            top = colors[0]
+            bottom = colors[1] if len(colors) > 1 else colors[0]
+            for y in range(height):
+                ratio = y / max(1, height - 1)
+                r = int(top[0] * (1 - ratio) + bottom[0] * ratio)
+                g = int(top[1] * (1 - ratio) + bottom[1] * ratio)
+                b = int(top[2] * (1 - ratio) + bottom[2] * ratio)
+                draw.line([(0, y), (width, y)], fill=(r, g, b))
+
+            # Decide motif from content
+            combined = (book_bible_content or "") + "\n" + "\n".join((reference_files or {}).values())
+            cl = combined.lower()
+            industrial_terms = ['factory', 'industrial', 'plant', 'wastewater', 'rendering', 'pipe', 'smokestack']
+            has_industrial = any(t in cl for t in industrial_terms)
+
+            # Draw simple motif
+            fg = (240, 240, 240) if (sum(colors[0]) < 360) else (30, 30, 30)
+            if has_industrial:
+                # Factory silhouette: rectangles + chimneys + pipes
+                ground_y = int(height * 0.68)
+                draw.rectangle([0, ground_y, width, height], fill=(0, 0, 0, 60))
+                # Buildings
+                b1 = [int(width * 0.12), ground_y - int(height * 0.18), int(width * 0.32), ground_y]
+                b2 = [int(width * 0.34), ground_y - int(height * 0.25), int(width * 0.56), ground_y]
+                b3 = [int(width * 0.58), ground_y - int(height * 0.15), int(width * 0.75), ground_y]
+                for box in (b1, b2, b3):
+                    draw.rectangle(box, fill=(40, 40, 40))
+                # Chimneys
+                ch1 = [int(width * 0.38), ground_y - int(height * 0.38), int(width * 0.42), ground_y - int(height * 0.25)]
+                ch2 = [int(width * 0.44), ground_y - int(height * 0.34), int(width * 0.48), ground_y - int(height * 0.25)]
+                draw.rectangle(ch1, fill=(50, 50, 50))
+                draw.rectangle(ch2, fill=(50, 50, 50))
+                # Pipes
+                draw.line([(int(width * 0.20), ground_y - int(height * 0.08)), (int(width * 0.55), ground_y - int(height * 0.08))], fill=fg, width=6)
+                draw.line([(int(width * 0.55), ground_y - int(height * 0.08)), (int(width * 0.55), ground_y - int(height * 0.02))], fill=fg, width=6)
+            else:
+                # Minimal diagonal band
+                band_color = (fg[0], fg[1], fg[2])
+                band_height = int(height * 0.12)
+                for offset in range(-band_height // 2, band_height // 2):
+                    y = int(height * 0.55) + offset
+                    draw.line([(int(width * 0.1), y - int(width * 0.2)), (int(width * 0.9), y + int(width * 0.2))], fill=band_color, width=3)
+
+            # Add text overlay
+            title_txt = (options or {}).get('title_text') if (options or {}).get('include_title') else ''
+            author_txt = (options or {}).get('author_text') if (options or {}).get('include_author') else ''
+            bytes_out = io.BytesIO()
+            base.save(bytes_out, format='JPEG', quality=95, optimize=True)
+            composed = self._overlay_text(bytes_out.getvalue(), (title_txt or '').strip(), (author_txt or '').strip())
+            return composed
+        except Exception as e:
+            logger.error(f"Failed to render programmatic cover: {e}")
+            # Fallback to a plain background
+            return Image.new('RGB', (KDP_COVER_SPECS["ideal_width"], KDP_COVER_SPECS["ideal_height"]), (30, 30, 30)).tobytes()
     
     async def upload_to_firebase(self, image_bytes: bytes, project_id: str, job_id: str) -> str:
         """
@@ -1120,7 +1217,26 @@ class CoverArtService:
             
             # Step 3: Generate image
             logger.info(f"Generating cover image for project {project_id}")
-            original_url, image_bytes = await self.generate_cover_image(prompt)
+            original_url = None
+            # If we failed to extract any credible visual elements and have industrial cues, use programmatic renderer
+            try:
+                has_elements = bool(book_details.get('visual_elements'))
+                combined_ctx = (book_bible_content or "") + "\n" + "\n".join((reference_files or {}).values())
+                industrial_terms = ['factory', 'industrial', 'plant', 'wastewater', 'rendering', 'pipe', 'smokestack']
+                has_industrial = any(t in combined_ctx.lower() for t in industrial_terms)
+            except Exception:
+                has_elements = False
+                has_industrial = False
+
+            force_programmatic = os.getenv('FORCE_PROGRAMMATIC_COVER', 'false').lower() == 'true'
+            if force_programmatic:
+                logger.info("FORCE_PROGRAMMATIC_COVER enabled: rendering programmatic cover")
+                image_bytes = self._render_cover_programmatically(book_bible_content, reference_files, book_details, options)
+            elif not has_elements and has_industrial:
+                logger.info("Using programmatic renderer for industrial theme (no credible elements extracted)")
+                image_bytes = self._render_cover_programmatically(book_bible_content, reference_files, book_details, options)
+            else:
+                original_url, image_bytes = await self.generate_cover_image(prompt)
             
             # Step 4: Upload to Firebase
             logger.info(f"Uploading cover art for project {project_id}")
