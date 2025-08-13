@@ -386,13 +386,16 @@ class CoverArtService:
         mountain_keywords = ['mountain', 'hill', 'peak', 'cliff']
         building_keywords = ['castle', 'palace', 'tower', 'mansion', 'cabin', 'house']
         
-        # Analyze which environment dominates
-        water_score = sum(1 for keyword in water_keywords if keyword in content_lower)
-        forest_score = sum(1 for keyword in forest_keywords if keyword in content_lower)
-        urban_score = sum(1 for keyword in urban_keywords if keyword in content_lower)
-        rural_score = sum(1 for keyword in rural_keywords if keyword in content_lower)
-        mountain_score = sum(1 for keyword in mountain_keywords if keyword in content_lower)
-        building_score = sum(1 for keyword in building_keywords if keyword in content_lower)
+        # Analyze which environment dominates (count mentions)
+        def count_mentions(keywords: List[str]) -> int:
+            return sum(content_lower.count(kw) for kw in keywords)
+
+        water_score = count_mentions(water_keywords)
+        forest_score = count_mentions(forest_keywords)
+        urban_score = count_mentions(urban_keywords)
+        rural_score = count_mentions(rural_keywords)
+        mountain_score = count_mentions(mountain_keywords)
+        building_score = count_mentions(building_keywords)
         
         # Add dominant elements only
         scores = [
@@ -407,12 +410,14 @@ class CoverArtService:
         # Sort by score and take top elements
         scores.sort(key=lambda x: x[0], reverse=True)
         
+        added = 0
         for score, keywords in scores[:3]:  # Top 3 environment types
-            if score > 0:
+            if score >= 2 and added < 2:  # require at least 2 mentions to avoid one-off noise
                 # Find the most mentioned keyword in this category
                 best_keyword = max(keywords, key=lambda k: content_lower.count(k))
                 if content_lower.count(best_keyword) > 0:
                     details['visual_elements'].append(best_keyword)
+                    added += 1
         
         # Look for time period indicators conservatively
         if any(word in content_lower for word in ['medieval', 'middle ages', 'knight']):
@@ -692,76 +697,40 @@ class CoverArtService:
             raise RuntimeError("OpenAI client not available")
         
         try:
-            logger.info("Starting AI image generation (GPT-image-1 -> DALL-E 3 fallback)")
+            logger.info("Starting AI image generation with GPT-image-1 (no fallback)")
             logger.info(f"Using prompt: {prompt}")
-            
-            # Try GPT-image-1 first (ChatGPT-4o's superior text rendering model)
-            try:
-                logger.info("Attempting GPT-image-1 generation...")
-                
-                if self.billable_client:
-                    # Use billable client
-                    async with semaphore(get_image_semaphore()):
-                        billable_response = await self.openai_client.images_generate(
+
+            # GPT-image-1 only
+            logger.info("Attempting GPT-image-1 generation...")
+            if self.billable_client:
+                # Use billable client
+                async with semaphore(get_image_semaphore()):
+                    billable_response = await self.openai_client.images_generate(
+                        model="gpt-image-1",
+                        prompt=prompt,
+                        size="1024x1536",  # Portrait (closest allowed)
+                        quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
+                        n=1
+                        # Note: GPT-image-1 doesn't support response_format parameter
+                    )
+                response = billable_response.response
+                credits_charged = billable_response.credits_charged
+                logger.info(f"GPT-image-1 generation successful! Credits charged: {credits_charged}")
+            else:
+                # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
+                import functools
+                with thread_semaphore(get_image_thread_semaphore()):
+                    response = await asyncio.to_thread(
+                        functools.partial(
+                            self.openai_client.images.generate,
                             model="gpt-image-1",
                             prompt=prompt,
                             size="1024x1536",  # Portrait (closest allowed)
                             quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
                             n=1
-                            # Note: GPT-image-1 doesn't support response_format parameter
                         )
-                    response = billable_response.response
-                    credits_charged = billable_response.credits_charged
-                    logger.info(f"GPT-image-1 generation successful! Credits charged: {credits_charged}")
-                else:
-                    # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
-                    import functools
-                    with thread_semaphore(get_image_thread_semaphore()):
-                        response = await asyncio.to_thread(
-                            functools.partial(
-                                self.openai_client.images.generate,
-                                model="gpt-image-1",
-                                prompt=prompt,
-                                size="1024x1536",  # Portrait (closest allowed)
-                                quality="high",  # GPT-image-1 uses 'high' instead of 'hd'
-                                n=1
-                            )
-                        )
-                    logger.info("GPT-image-1 generation successful!")
-                
-            except Exception as gpt_image_error:
-                logger.warning(f"GPT-image-1 failed ({gpt_image_error}), falling back to DALL-E 3...")
-                # Fallback to DALL-E 3
-                if self.billable_client:
-                    # Use billable client
-                    async with semaphore(get_image_semaphore()):
-                        billable_response = await self.openai_client.images_generate(
-                            model="dall-e-3",
-                            prompt=prompt,
-                            size="1024x1792",  # Closest to 1.6:1 aspect ratio available
-                            quality="hd",
-                            n=1,
-                            response_format="url"
-                        )
-                    response = billable_response.response
-                    credits_charged = billable_response.credits_charged
-                    logger.info(f"DALL-E 3 generation successful! Credits charged: {credits_charged}")
-                else:
-                    # Use regular client (wrap sync call in threadpool and guard with thread semaphore)
-                    import functools
-                    with thread_semaphore(get_image_thread_semaphore()):
-                        response = await asyncio.to_thread(
-                            functools.partial(
-                                self.openai_client.images.generate,
-                                model="dall-e-3",
-                                prompt=prompt,
-                                size="1024x1792",  # Closest to 1.6:1 aspect ratio available
-                                quality="hd",
-                                n=1,
-                                response_format="url"
-                            )
-                        )
-                    logger.info("DALL-E 3 generation successful!")
+                    )
+                logger.info("GPT-image-1 generation successful!")
             
             data_item = response.data[0]
             # Determine whether we got a URL (DALL-E 3) or b64_json (GPT-image-1)
