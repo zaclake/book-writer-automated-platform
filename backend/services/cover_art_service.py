@@ -859,6 +859,68 @@ class CoverArtService:
             logger.error(f"Failed to process image for KDP: {e}")
             # Return original if processing fails
             return image_bytes
+
+    def _overlay_text(self, image_bytes: bytes, title_text: Optional[str], author_text: Optional[str]) -> bytes:
+        """Overlay title and author text onto the image using PIL.
+        Tries common system fonts; falls back to PIL's default font.
+        """
+        try:
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            from PIL import ImageDraw, ImageFont
+
+            draw = ImageDraw.Draw(image)
+            width, height = image.size
+
+            # Try to load a decent sans-serif font; fallback to default
+            font_paths = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            ]
+            title_font = None
+            author_font = None
+            for path in font_paths:
+                try:
+                    title_font = ImageFont.truetype(path, size=max(36, height // 18))
+                    author_font = ImageFont.truetype(path, size=max(24, height // 28))
+                    break
+                except Exception:
+                    continue
+            if title_font is None:
+                title_font = ImageFont.load_default()
+                author_font = ImageFont.load_default()
+
+            # Helper to draw text with outline for readability
+            def draw_text_centered(y_pos: int, text: str, font, pad_y: int = 10):
+                if not text:
+                    return
+                text_bbox = draw.textbbox((0, 0), text, font=font)
+                text_w = text_bbox[2] - text_bbox[0]
+                text_h = text_bbox[3] - text_bbox[1]
+                x = (width - text_w) // 2
+                y = y_pos
+                # Semi-transparent dark rectangle behind text
+                rect_pad = 14
+                rect = [x - rect_pad, y - rect_pad, x + text_w + rect_pad, y + text_h + rect_pad]
+                draw.rectangle(rect, fill=(0, 0, 0, 160))
+                # Text (white)
+                draw.text((x, y), text, font=font, fill=(255, 255, 255))
+                return y + text_h + pad_y
+
+            current_y = height // 8
+            if title_text:
+                current_y = draw_text_centered(current_y, title_text, title_font, pad_y=height // 40)
+            if author_text:
+                # Place near lower portion if title exists; else keep upper third
+                if title_text:
+                    current_y = int(height * 0.78)
+                draw_text_centered(current_y, author_text, author_font, pad_y=0)
+
+            output = io.BytesIO()
+            image.save(output, format='JPEG', quality=95, optimize=True)
+            return output.getvalue()
+        except Exception as e:
+            logger.error(f"Failed to overlay text: {e}")
+            return image_bytes
     
     async def upload_to_firebase(self, image_bytes: bytes, project_id: str, job_id: str) -> str:
         """
@@ -982,6 +1044,13 @@ class CoverArtService:
             
             # Step 4: Upload to Firebase
             logger.info(f"Uploading cover art for project {project_id}")
+            # Optionally overlay title/author if requested
+            if options and (options.get('include_title') or options.get('include_author')):
+                title_txt = (options.get('title_text') or '').strip() if options.get('include_title') else ''
+                author_txt = (options.get('author_text') or '').strip() if options.get('include_author') else ''
+                if title_txt or author_txt:
+                    image_bytes = self._overlay_text(image_bytes, title_txt, author_txt)
+
             public_url = await self.upload_to_firebase(image_bytes, project_id, job_id)
             
             # Update job with success
