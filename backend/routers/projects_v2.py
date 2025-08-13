@@ -1721,7 +1721,18 @@ async def generate_cover_art(
             try:
                 logger.info(f"Starting background cover art generation for project {project_id}")
                 logger.info(f"Book bible content length: {len(book_bible_content)}")
-                logger.info(f"Reference files: {list(reference_files.keys())}")
+                # Log a small excerpt of the bible to verify correctness
+                try:
+                    safe_excerpt = (book_bible_content or "").replace("\n", " ")[:180]
+                    logger.info(f"Book bible excerpt: {safe_excerpt}")
+                except Exception:
+                    pass
+                # Log filenames and first 100 chars of each reference
+                try:
+                    ref_preview = {name: (content or "").replace("\n", " ")[:100] for name, content in reference_files.items()}
+                    logger.info(f"Reference files preview: {ref_preview}")
+                except Exception:
+                    logger.info(f"Reference files: {list(reference_files.keys())}")
                 logger.info(f"User feedback: {request.user_feedback}")
                 
                 # Build short grounding excerpts for prompt fidelity

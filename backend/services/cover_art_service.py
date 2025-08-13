@@ -624,39 +624,15 @@ class CoverArtService:
 
         # When requirements present, they already appeared earlier with precedence
 
-        # Handle options for title/author placement
+        # Handle options for title/author – do NOT ask the model to render text; we will overlay text post-generation
         if options:
             include_title = options.get('include_title', False)
             include_author = options.get('include_author', False)
-            title_text = (options.get('title_text') or '').strip()
-            author_text = (options.get('author_text') or '').strip()
-
-            if include_title and title_text:
-                # Instruct model to not invent other texts and render exact title
-                prompt_parts.append(
-                    f"Render EXACTLY the following book title text: \"{title_text}\" with correct spelling and no paraphrasing. "
-                    "Place it in large, clean, highly readable typography near the upper third. Do not include any other text besides the specified title and author (if provided)."
-                )
-            elif include_title:
-                prompt_parts.append("Reserve ample space near the upper third of the cover for the book title typography.")
-
-            if include_author and author_text:
-                prompt_parts.append(
-                    f"Render EXACTLY the following author name: \"{author_text}\" in smaller, complementary typography near the lower portion. "
-                    "Do not invent or substitute any author names."
-                )
-            elif include_author:
-                prompt_parts.append("Reserve subtle space near the lower portion of the cover for the author name typography.")
-
-            if not include_title and not include_author:
-                prompt_parts.append("No text, no typography, no title, no author name on the image.")
-
-            # Global constraints to improve text fidelity
+            # Reserve space only
             if include_title or include_author:
-                prompt_parts.append(
-                    "Use flat, legible Latin letterforms; avoid ornate scripts that distort characters; high contrast between text and background; "
-                    "no additional words, marks, or logos anywhere on the image. Render text exactly as specified; do not invent or modify characters."
-                )
+                prompt_parts.append("Do NOT render any text on the image. Leave clean space for typography (upper third for title; lower portion for author).")
+            else:
+                prompt_parts.append("No text, no typography on the image.")
 
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
