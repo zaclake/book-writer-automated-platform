@@ -212,6 +212,62 @@ class CoverArtService:
     def is_available(self) -> bool:
         """Check if the service is available."""
         return self.available
+
+    async def _generate_visual_spec(self, book_bible_content: str, reference_files: Dict[str, str], ui_options: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Use a text model to synthesize a concrete visual spec from the book bible and references.
+        Returns a dict with keys like: visual_elements (list), composition (str), palette (list), mood (str).
+        """
+        if not self.openai_client:
+            return None
+        try:
+            # Build short context
+            bible_excerpt = (book_bible_content or "")[:1200]
+            ref_snippets: List[str] = []
+            for name, content in (reference_files or {}).items():
+                if not content:
+                    continue
+                ref_snippets.append(f"{name}: {content[:600]}")
+                if len(ref_snippets) >= 4:
+                    break
+            refs_joined = "\n".join(ref_snippets)
+
+            title_txt = (ui_options or {}).get('title_text') or ''
+            author_txt = (ui_options or {}).get('author_text') or ''
+
+            system_msg = (
+                "You are a senior book cover art director. From the given context, produce a concise, concrete visual brief strictly grounded in the material. "
+                "Do not invent settings or motifs that are not present. Output valid JSON only with keys: visual_elements (list of 3-6 concise nouns), composition (one sentence), palette (list of 2-4 colors by common names), mood (one word)."
+            )
+            user_msg = (
+                f"Title: {title_txt}\nAuthor: {author_txt}\n\n"
+                f"Book Bible (excerpt):\n{bible_excerpt}\n\n"
+                f"References (snippets):\n{refs_joined}\n\n"
+                "Constraints: No text rendering; we will add typography later. Choose only elements clearly supported by the context."
+            )
+
+            import functools
+            with thread_semaphore(get_image_thread_semaphore()):
+                response = await asyncio.to_thread(
+                    functools.partial(
+                        getattr(self.openai_client.chat.completions, "create"),
+                        model=os.getenv("DEFAULT_AI_MODEL", "gpt-4o-mini"),
+                        messages=[
+                            {"role": "system", "content": system_msg},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        temperature=0.2,
+                        max_tokens=400,
+                    )
+                )
+            content = response.choices[0].message["content"]
+            import json as _json
+            spec = _json.loads(content)
+            if not isinstance(spec, dict) or "visual_elements" not in spec:
+                return None
+            return spec
+        except Exception as e:
+            logger.error(f"Failed to generate visual spec: {e}")
+            return None
     
     def extract_book_details(self, book_bible_content: str, reference_files: Dict[str, str], ui_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -594,6 +650,11 @@ class CoverArtService:
                     f"The visual language should align with the story's genre: {genre}, without relying on generic tropes or preconceived aesthetics"
                 )
         
+        # Prefer explicit composition from spec if provided
+        composition = book_details.get('composition', '')
+        if composition:
+            prompt_parts.append(f"Composition: {composition}")
+
         # Add visual elements from setting/world-building
         visual_elements = book_details.get('visual_elements', [])
         if visual_elements:
@@ -1014,6 +1075,25 @@ class CoverArtService:
             # Step 1: Extract book details
             logger.info(f"Extracting book details for project {project_id}")
             book_details = self.extract_book_details(book_bible_content, reference_files, ui_options=options or {})
+            # Step 1b: Generate explicit visual spec and merge conservatively
+            spec = await self._generate_visual_spec(book_bible_content, reference_files, options or {})
+            if spec:
+                try:
+                    ve = spec.get('visual_elements') or []
+                    if isinstance(ve, list) and ve:
+                        book_details['visual_elements'] = [str(x)[:24] for x in ve][:6]
+                    palette = spec.get('palette') or []
+                    if isinstance(palette, list) and palette:
+                        book_details['color_palette'] = [str(x)[:16] for x in palette][:4]
+                    mood = spec.get('mood')
+                    if isinstance(mood, str) and mood:
+                        book_details['mood_tone'] = mood[:16]
+                    comp = spec.get('composition')
+                    if isinstance(comp, str) and comp:
+                        book_details['composition'] = comp[:200]
+                    logger.info(f"Visual spec merged: {spec}")
+                except Exception:
+                    pass
             
             # Step 2: Generate prompt, with explicit grounding excerpts to discourage model hallucinations
             logger.info(f"Generating cover art prompt for project {project_id}")
