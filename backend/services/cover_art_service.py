@@ -212,7 +212,7 @@ class CoverArtService:
         """Check if the service is available."""
         return self.available
     
-    def extract_book_details(self, book_bible_content: str, reference_files: Dict[str, str]) -> Dict[str, Any]:
+    def extract_book_details(self, book_bible_content: str, reference_files: Dict[str, str], ui_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Extract key details from book bible and reference files for prompt generation.
         
@@ -237,6 +237,15 @@ class CoverArtService:
         }
         
         try:
+            # Normalize reference filenames for robust matching
+            normalized_refs: Dict[str, str] = {}
+            for raw_name, content in (reference_files or {}).items():
+                try:
+                    name_only = str(Path(raw_name).name).lower()
+                except Exception:
+                    name_only = str(raw_name).lower()
+                normalized_refs[name_only] = content or ''
+            
             # Extract from book bible
             bible_lower = book_bible_content.lower()
             
@@ -252,6 +261,12 @@ class CoverArtService:
                     if details['title']:
                         break
             
+            # Fallback: use UI-provided title if available
+            if not details['title'] and ui_options:
+                ui_title = (ui_options.get('title_text') or '').strip()
+                if ui_title:
+                    details['title'] = ui_title
+
             # Extract genre from common patterns
             genre_keywords = {
                 'fantasy': ['fantasy', 'magic', 'wizard', 'dragon', 'elf', 'dwarf'],
@@ -272,20 +287,22 @@ class CoverArtService:
                     break
             
             # Extract setting from multiple sources with priority
-            self._extract_setting_details(details, book_bible_content, reference_files)
+            self._extract_setting_details(details, book_bible_content, normalized_refs)
             
             # Extract characters intelligently
-            self._extract_character_details(details, reference_files)
+            self._extract_character_details(details, normalized_refs)
             
             # Extract themes intelligently
-            self._extract_theme_details(details, reference_files)
+            self._extract_theme_details(details, normalized_refs)
             
             # Extract mood/tone from style guide
-            self._extract_mood_tone(details, reference_files)
+            self._extract_mood_tone(details, normalized_refs)
             
             # Extract target audience
-            if 'target-audience-profile.md' in reference_files:
-                audience_content = reference_files['target-audience-profile.md']
+            # Accept multiple variants e.g. audience.md, target_audience.md
+            audience_key = next((k for k in normalized_refs.keys() if any(t in k for t in ['target-audience', 'target_audience', 'audience'])), None)
+            if audience_key:
+                audience_content = normalized_refs[audience_key]
                 audience_lower = audience_content.lower()
                 
                 if 'young adult' in audience_lower or 'ya' in audience_lower:
@@ -339,13 +356,22 @@ class CoverArtService:
                     break
         
         # Priority 2: Extract from world-building file more intelligently
-        if 'world-building.md' in reference_files:
-            world_content = reference_files['world-building.md']
+        # Accept flexible filenames for world/setting
+        world_key = next((k for k in reference_files.keys() if any(t in k for t in ['world-building', 'world_building', 'world', 'setting'])), None)
+        if world_key:
+            world_content = reference_files[world_key]
             self._extract_visual_elements_smart(details, world_content)
         
         # Priority 3: Fall back to outline if no world-building
-        if not details['visual_elements'] and 'outline.md' in reference_files:
-            outline_content = reference_files['outline.md']
+        if not details['visual_elements']:
+            outline_key = next((k for k in reference_files.keys() if 'outline' in k or 'plot-timeline' in k or 'plot_timeline' in k or 'timeline' in k), None)
+            if outline_key:
+                outline_content = reference_files[outline_key]
+                self._extract_visual_elements_smart(details, outline_content)
+        
+        # Also scan plot timeline for additional visual cues
+        if 'plot-timeline.md' in reference_files and len(details['visual_elements']) < 3:
+            self._extract_visual_elements_smart(details, reference_files['plot-timeline.md'])
             self._extract_visual_elements_smart(details, outline_content)
     
     def _extract_visual_elements_smart(self, details: Dict[str, Any], content: str):
@@ -388,8 +414,8 @@ class CoverArtService:
                 if content_lower.count(best_keyword) > 0:
                     details['visual_elements'].append(best_keyword)
         
-        # Look for time period indicators
-        if any(word in content_lower for word in ['medieval', 'ancient', 'historical']):
+        # Look for time period indicators conservatively
+        if any(word in content_lower for word in ['medieval', 'middle ages', 'knight']):
             details['visual_elements'].append('medieval')
         elif any(word in content_lower for word in ['modern', 'contemporary', 'current']):
             details['visual_elements'].append('modern')
@@ -408,8 +434,10 @@ class CoverArtService:
     
     def _extract_character_details(self, details: Dict[str, Any], reference_files: Dict[str, str]):
         """Extract character names more intelligently."""
-        if 'characters.md' in reference_files:
-            char_content = reference_files['characters.md']
+        # Accept flexible filenames for characters
+        char_key = next((k for k in reference_files.keys() if 'character' in k), None)
+        if char_key:
+            char_content = reference_files[char_key]
             char_lines = char_content.split('\n')
             
             for line in char_lines:
@@ -432,7 +460,9 @@ class CoverArtService:
 
         # spaCy fallback for names
         if _NLP and len(details['main_characters']) < 3:
-            combined_chars = "\n".join(reference_files.get('characters.md', '').split('\n')[:500])
+            # Try to find any character-like file content
+            char_any_key = next((k for k in reference_files.keys() if 'character' in k), None)
+            combined_chars = "\n".join((reference_files.get(char_any_key or '', '')).split('\n')[:500])
             doc = _NLP(combined_chars)
             for ent in doc.ents:
                 if ent.label_ == 'PERSON' and 2 <= len(ent.text.split()) <= 4:
@@ -444,8 +474,10 @@ class CoverArtService:
     
     def _extract_theme_details(self, details: Dict[str, Any], reference_files: Dict[str, str]):
         """Extract themes more intelligently."""
-        if 'themes-and-motifs.md' in reference_files:
-            themes_content = reference_files['themes-and-motifs.md']
+        # Accept flexible filenames for themes
+        themes_key = next((k for k in reference_files.keys() if 'theme' in k or 'motif' in k), None)
+        if themes_key:
+            themes_content = reference_files[themes_key]
             themes_lower = themes_content.lower()
             
             # Look for explicit theme statements
@@ -466,9 +498,9 @@ class CoverArtService:
         """Extract mood and tone more intelligently."""
         style_content = ""
         
-        # Check multiple possible files
-        for filename in ['style-guide.md', 'outline.md', 'themes-and-motifs.md']:
-            if filename in reference_files:
+        # Check only style/voice-specific files to avoid noisy matches from outline/theme
+        for filename in reference_files.keys():
+            if any(token in filename for token in ['style', 'voice', 'mood', 'palette']):
                 style_content += reference_files[filename] + "\n"
         
         if style_content:
@@ -490,22 +522,20 @@ class CoverArtService:
                 if best_mood[1] > 0:
                     details['mood_tone'] = best_mood[0]
 
-        # === Color palette detection ===
+        # === Color palette detection (only when style/voice content exists) ===
         color_keywords = ['red', 'crimson', 'scarlet', 'blue', 'azure', 'navy', 'green', 'emerald', 'olive',
                           'purple', 'violet', 'magenta', 'yellow', 'gold', 'amber', 'orange', 'teal', 'cyan',
                           'white', 'black', 'gray', 'silver', 'brown']
         palette = []
-        for word in color_keywords:
-            if word in style_lower:
-                palette.append(word)
-            if len(palette) >= 3:
-                break
-        if palette:
-            details['color_palette'] = palette
-        else:
-            details['color_palette'] = []
+        if style_content:
+            for word in color_keywords:
+                if word in style_lower:
+                    palette.append(word)
+                if len(palette) >= 3:
+                    break
+        details['color_palette'] = palette
     
-    def generate_cover_prompt(self, book_details: Dict[str, Any], user_feedback: Optional[str] = None, options: Optional[Dict[str, Any]] = None) -> str:
+    def generate_cover_prompt(self, book_details: Dict[str, Any], user_feedback: Optional[str] = None, options: Optional[Dict[str, Any]] = None, requirements: Optional[str] = None, raw_bible_excerpt: Optional[str] = None, references_digest: Optional[str] = None) -> str:
         """
         Generate a DALL-E 3 prompt for cover art based on book details.
         
@@ -520,24 +550,44 @@ class CoverArtService:
         
         # Start with base cover art instruction - be very explicit about 2D only
         prompt_parts.append("Create a professional 2D book cover design viewed straight-on from the front, completely flat with no 3D elements or perspective")
+        # Strict grounding policy: derive everything from references; avoid assumptions
+        prompt_parts.append("Ground every visual decision strictly in the provided book bible and reference files; do not invent details, settings, characters, symbols, or moods that are not supported by those materials")
+
+        # Add optional user requirements early and give them precedence
+        if requirements:
+            prompt_parts.append(
+                "User requirements (override genre and mood cues from references when conflicting): "
+                + requirements
+            )
+
+        # Operating instructions: prioritization and how to use references
+        prompt_parts.append(
+            "Follow this priority of guidance: (1) user requirements (if provided), (2) book bible main content, (3) reference files. "
+            "When using reference files: derive concrete visual elements only from (a) setting/world-building (environments, landscapes, architecture), (b) characters (include named characters but do not fabricate appearance details that are not specified; use non-specific silhouettes if needed), (c) themes (only symbolic elements explicitly mentioned), and (d) color palette if specified. "
+            "If information is missing or ambiguous, keep the composition simple and neutral rather than assuming details. No logos or series marks. No text unless title/author options are explicitly provided."
+        )
+
+        # Add explicit grounding context (not to be rendered on image)
+        if raw_bible_excerpt or references_digest:
+            prompt_parts.append(
+                "Grounding context (for guidance only; do NOT render any of this text on the image):"
+            )
+            if raw_bible_excerpt:
+                prompt_parts.append(f"Book bible core excerpt: {raw_bible_excerpt}")
+            if references_digest:
+                prompt_parts.append(f"Reference highlights: {references_digest}")
         
-        # Add genre-specific styling
+        # Optionally acknowledge genre without prescribing a style
         genre = book_details.get('genre', '').lower()
-        genre_styles = {
-            'fantasy': 'epic fantasy style with magical elements, dramatic lighting, rich colors',
-            'science fiction': 'futuristic sci-fi style with sleek design, metallic elements, cosmic backdrop',
-            'romance': 'romantic style with warm colors, elegant typography, emotional imagery',
-            'mystery': 'mysterious noir style with shadows, muted colors, intriguing elements',
-            'thriller': 'intense thriller style with bold colors, dynamic composition, suspenseful mood',
-            'horror': 'dark horror style with ominous atmosphere, dramatic shadows, chilling elements',
-            'historical': 'period-appropriate historical style with authentic details, vintage feel',
-            'contemporary': 'modern contemporary style with clean design, current aesthetic',
-            'young adult': 'vibrant YA style with bold colors, appealing to teen readers',
-            'literary fiction': 'sophisticated literary style with artistic composition, refined aesthetic'
-        }
-        
-        if genre in genre_styles:
-            prompt_parts.append(f"in {genre_styles[genre]}")
+        if genre:
+            if requirements:
+                prompt_parts.append(
+                    f"Align with the story's genre: {genre}, only where it does not conflict with the user requirements"
+                )
+            else:
+                prompt_parts.append(
+                    f"The visual language should align with the story's genre: {genre}, without relying on generic tropes or preconceived aesthetics"
+                )
         
         # Add visual elements from setting/world-building
         visual_elements = book_details.get('visual_elements', [])
@@ -545,19 +595,8 @@ class CoverArtService:
             elements_str = ', '.join(visual_elements[:3])  # Top 3 elements
             prompt_parts.append(f"featuring {elements_str}")
         
-        # Add mood/tone
-        mood = book_details.get('mood_tone', '')
-        if mood:
-            mood_descriptions = {
-                'dark': 'with a dark, brooding atmosphere',
-                'light': 'with a bright, uplifting feel',
-                'dramatic': 'with dramatic, intense energy',
-                'mysterious': 'with an enigmatic, mysterious quality',
-                'romantic': 'with romantic, passionate undertones',
-                'adventurous': 'with adventurous, exciting energy'
-            }
-            if mood in mood_descriptions:
-                prompt_parts.append(mood_descriptions[mood])
+        # Add mood/tone (neutral phrasing, no hardcoded adjectives beyond extracted label)
+        # Do not inject tone descriptors automatically; tone should emerge from user requirements and reference content
         
         # Add character elements if available
         characters = book_details.get('main_characters', [])
@@ -577,10 +616,13 @@ class CoverArtService:
         prompt_parts.append(f"Designed as a book cover with portrait orientation (aspect ratio 1.6:1)")
         prompt_parts.append("with clean, readable composition suitable for both large and thumbnail sizes")
         prompt_parts.append("Professional quality, high contrast, commercially viable design")
+        prompt_parts.append("Adhere strictly to the cultural, historical, and stylistic context present in the references; avoid adding symbols, attire, or architecture that are not supported by the provided materials")
         
         # Add user feedback if provided
         if user_feedback:
             prompt_parts.append(f"Incorporating this feedback: {user_feedback}")
+
+        # When requirements present, they already appeared earlier with precedence
 
         # Handle options for title/author placement
         if options:
@@ -590,17 +632,30 @@ class CoverArtService:
             author_text = (options.get('author_text') or '').strip()
 
             if include_title and title_text:
-                prompt_parts.append(f"Include the book title text \"{title_text}\" in large, clear, stylish typography near the upper third of the cover.")
+                prompt_parts.append(
+                    f"Render EXACTLY the following book title text: \"{title_text}\" with correct spelling and no paraphrasing. "
+                    "Place it in large, clean, highly readable typography near the upper third. Do not include any other text besides the specified title and author (if provided)."
+                )
             elif include_title:
                 prompt_parts.append("Reserve ample space near the upper third of the cover for the book title typography.")
 
             if include_author and author_text:
-                prompt_parts.append(f"Include the author name \"{author_text}\" in smaller, complementary typography near the lower portion of the cover.")
+                prompt_parts.append(
+                    f"Render EXACTLY the following author name: \"{author_text}\" in smaller, complementary typography near the lower portion. "
+                    "Do not invent or substitute any author names."
+                )
             elif include_author:
                 prompt_parts.append("Reserve subtle space near the lower portion of the cover for the author name typography.")
 
             if not include_title and not include_author:
                 prompt_parts.append("No text, no typography, no title, no author name on the image.")
+
+            # Global constraints to improve text fidelity
+            if include_title or include_author:
+                prompt_parts.append(
+                    "Use flat, legible Latin letterforms; avoid ornate scripts that distort characters; high contrast between text and background; "
+                    "no additional words, marks, or logos anywhere on the image. Render text exactly as specified; do not invent or modify characters."
+                )
 
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
@@ -608,7 +663,10 @@ class CoverArtService:
         # Color palette guidance
         if book_details.get('color_palette'):
             palette_str = ', '.join(book_details['color_palette'])
-            prompt_parts.append(f"Primary color palette: {palette_str}")
+            if requirements:
+                prompt_parts.append(f"Primary color palette (use only if consistent with user requirements): {palette_str}")
+            else:
+                prompt_parts.append(f"Primary color palette: {palette_str}")
         
         # Join all parts
         full_prompt = '. '.join(prompt_parts) + '.'
@@ -906,7 +964,8 @@ class CoverArtService:
                                 book_bible_content: str, reference_files: Dict[str, str],
                                 user_feedback: Optional[str] = None,
                                 options: Optional[Dict[str, Any]] = None,
-                                job_id: Optional[str] = None) -> CoverArtJob:
+                                job_id: Optional[str] = None,
+                                requirements: Optional[str] = None) -> CoverArtJob:
         """
         Complete cover art generation workflow.
         
@@ -948,9 +1007,27 @@ class CoverArtService:
             logger.info(f"Extracting book details for project {project_id}")
             book_details = self.extract_book_details(book_bible_content, reference_files)
             
-            # Step 2: Generate prompt
+            # Step 2: Generate prompt, with explicit grounding excerpts to discourage model hallucinations
             logger.info(f"Generating cover art prompt for project {project_id}")
-            prompt = self.generate_cover_prompt(book_details, user_feedback, options)
+            bible_excerpt = (book_bible_content or "")[:400]
+            try:
+                ref_parts = []
+                for name, content in (reference_files or {}).items():
+                    if not content:
+                        continue
+                    ref_parts.append(f"{name}: {content[:120]}")
+                references_digest = "; ".join(ref_parts)[:400]
+            except Exception:
+                references_digest = None
+
+            prompt = self.generate_cover_prompt(
+                book_details,
+                user_feedback,
+                options,
+                requirements,
+                raw_bible_excerpt=bible_excerpt,
+                references_digest=references_digest
+            )
             job.prompt = prompt
             
             # Step 3: Generate image

@@ -26,7 +26,7 @@ try:
         ProjectListResponse, ProjectMetadata, ProjectSettings,
         BookBible, ReferenceFile, BookLengthTier
     )
-except ImportError:
+except Exception:
     from models.firestore_models import (
         Project, CreateProjectRequest, UpdateProjectRequest,
         ProjectListResponse, ProjectMetadata, ProjectSettings,
@@ -83,6 +83,7 @@ class CoverArtRequest(BaseModel):
     user_feedback: Optional[str] = None
     regenerate: bool = False
     options: Optional[Dict[str, Any]] = None
+    requirements: Optional[str] = None
 
 def _update_reference_job_progress(job_id: str, progress: int, stage: str, message: str = "", project_id: Optional[str] = None, user_id: Optional[str] = None):
     """Update progress for a reference generation job and mirror to Firestore if possible."""
@@ -1696,7 +1697,8 @@ async def generate_cover_art(
             'user_id': user_id,
             'status': 'pending',
             'user_feedback': request.user_feedback,
-            'attempt_number': 2 if request.regenerate else 1
+            'attempt_number': 2 if request.regenerate else 1,
+            'requirements': request.requirements
         }
         
         # Save to Firestore
@@ -1722,6 +1724,20 @@ async def generate_cover_art(
                 logger.info(f"Reference files: {list(reference_files.keys())}")
                 logger.info(f"User feedback: {request.user_feedback}")
                 
+                # Build short grounding excerpts for prompt fidelity
+                bible_excerpt = (book_bible_content or "")[:400]
+                # Create a concise references digest (filenames + first 120 chars)
+                try:
+                    ref_parts = []
+                    for name, content in (reference_files or {}).items():
+                        if not content:
+                            continue
+                        ref_parts.append(f"{name}: {content[:120]}")
+                    references_digest = "; ".join(ref_parts)[:400]
+                except Exception:
+                    references_digest = None
+
+                logger.info(f"Cover art UI options: {request.options}")
                 job = await cover_art_service.generate_cover_art(
                     project_id=project_id,
                     user_id=user_id,
@@ -1729,8 +1745,21 @@ async def generate_cover_art(
                     reference_files=reference_files,
                     user_feedback=request.user_feedback,
                     options=request.options,
-                    job_id=job_id
+                    job_id=job_id,
+                    requirements=request.requirements
                 )
+                # Regenerate prompt with explicit grounding context for improved adherence (stored in job)
+                try:
+                    job.prompt = cover_art_service.generate_cover_prompt(
+                        cover_art_service.extract_book_details(book_bible_content, reference_files, request.options or {}),
+                        request.user_feedback,
+                        request.options,
+                        request.requirements,
+                        raw_bible_excerpt=bible_excerpt,
+                        references_digest=references_digest
+                    )
+                except Exception:
+                    pass
                 _cover_art_jobs[job_id] = job
                 
                 logger.info(f"Cover art generation completed with status: {job.status}")
