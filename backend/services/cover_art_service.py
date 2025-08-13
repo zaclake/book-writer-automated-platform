@@ -9,6 +9,7 @@ import json
 import logging
 import asyncio
 import tempfile
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
@@ -368,6 +369,12 @@ class CoverArtService:
     def _extract_visual_elements_smart(self, details: Dict[str, Any], content: str):
         """Smartly extract visual elements by analyzing context, not just keyword matching."""
         content_lower = content.lower()
+
+        def count_word_occurrences(text: str, word: str) -> int:
+            try:
+                return len(re.findall(r"\\b" + re.escape(word) + r"\\b", text))
+            except re.error:
+                return text.count(word)
         
         # Look for setting descriptions with context
         water_keywords = ['lake', 'ocean', 'sea', 'river', 'water', 'shore', 'dock', 'pier', 'boat', 'island']
@@ -379,7 +386,7 @@ class CoverArtService:
         
         # Analyze which environment dominates (count mentions)
         def count_mentions(keywords: List[str]) -> int:
-            return sum(content_lower.count(kw) for kw in keywords)
+            return sum(count_word_occurrences(content_lower, kw) for kw in keywords)
 
         water_score = count_mentions(water_keywords)
         forest_score = count_mentions(forest_keywords)
@@ -411,12 +418,12 @@ class CoverArtService:
                     added += 1
         
         # Look for time period indicators conservatively and only if clearly stated
-        if 'time period' in content_lower or 'set in' in content_lower or 'era' in content_lower:
-            if any(word in content_lower for word in ['medieval', 'middle ages', 'knight']):
+        if any(term in content_lower for term in ['time period', 'set in ', ' era']):
+            if re.search(r"\\b(medieval|middle ages|knight)\\b", content_lower):
                 details['visual_elements'].append('medieval')
-            elif any(word in content_lower for word in ['modern', 'contemporary', 'current']):
+            elif re.search(r"\\b(modern|contemporary|current)\\b", content_lower):
                 details['visual_elements'].append('modern')
-            elif any(word in content_lower for word in ['future', 'futuristic', 'sci-fi']):
+            elif re.search(r"\\b(future|futuristic|sci-?fi)\\b", content_lower):
                 details['visual_elements'].append('futuristic')
 
         # === Advanced NLP extraction (spaCy) ===
@@ -524,9 +531,10 @@ class CoverArtService:
                           'purple', 'violet', 'magenta', 'yellow', 'gold', 'amber', 'orange', 'teal', 'cyan',
                           'white', 'black', 'gray', 'silver', 'brown']
         palette = []
-        if style_content:
+        # Only extract a palette if there is an explicit palette marker to avoid incidental color words
+        if style_content and ('palette' in style_lower or '# color palette' in style_lower or 'color palette' in style_lower):
             for word in color_keywords:
-                if word in style_lower:
+                if re.search(r"\\b" + re.escape(word) + r"\\b", style_lower):
                     palette.append(word)
                 if len(palette) >= 3:
                     break
