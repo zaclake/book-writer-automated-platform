@@ -1229,28 +1229,9 @@ class CoverArtService:
             )
             job.prompt = prompt
             
-            # Step 3: Generate image
+            # Step 3: Generate image (GPT-image-1 only; no fallback)
             logger.info(f"Generating cover image for project {project_id}")
-            original_url = None
-            # If we failed to extract any credible visual elements and have industrial cues, use programmatic renderer
-            try:
-                has_elements = bool(book_details.get('visual_elements'))
-                combined_ctx = (book_bible_content or "") + "\n" + "\n".join((reference_files or {}).values())
-                industrial_terms = ['factory', 'industrial', 'plant', 'wastewater', 'rendering', 'pipe', 'smokestack']
-                has_industrial = any(t in combined_ctx.lower() for t in industrial_terms)
-            except Exception:
-                has_elements = False
-                has_industrial = False
-
-            force_programmatic = os.getenv('FORCE_PROGRAMMATIC_COVER', 'false').lower() == 'true'
-            if force_programmatic:
-                logger.info("FORCE_PROGRAMMATIC_COVER enabled: rendering programmatic cover")
-                image_bytes = self._render_cover_programmatically(book_bible_content, reference_files, book_details, options)
-            elif not has_elements and has_industrial:
-                logger.info("Using programmatic renderer for industrial theme (no credible elements extracted)")
-                image_bytes = self._render_cover_programmatically(book_bible_content, reference_files, book_details, options)
-            else:
-                original_url, image_bytes = await self.generate_cover_image(prompt)
+            original_url, image_bytes = await self.generate_cover_image(prompt)
             
             # Step 4: Upload to Firebase
             logger.info(f"Uploading cover art for project {project_id}")
