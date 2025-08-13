@@ -700,15 +700,29 @@ class CoverArtService:
 
         # When requirements present, they already appeared earlier with precedence
 
-        # Handle options for title/author – do NOT ask the model to render text; we will overlay text post-generation
+        # Handle options for title/author – ask the image model to render exact text
         if options:
             include_title = options.get('include_title', False)
             include_author = options.get('include_author', False)
-            # Reserve space only
-            if include_title or include_author:
-                prompt_parts.append("Do NOT render any text on the image. Leave clean space for typography (upper third for title; lower portion for author).")
-            else:
-                prompt_parts.append("No text, no typography on the image.")
+            title_text = (options.get('title_text') or '').strip()
+            author_text = (options.get('author_text') or '').strip()
+
+            if include_title and title_text:
+                prompt_parts.append(
+                    f"Render EXACTLY this book title text: \"{title_text}\" with correct spelling and no paraphrasing, placed large and readable near the upper third. Do not include any other words besides the specified title and author (if provided)."
+                )
+            elif include_title:
+                prompt_parts.append("Reserve ample space near the upper third for the book title typography.")
+
+            if include_author and author_text:
+                prompt_parts.append(
+                    f"Render EXACTLY this author name: \"{author_text}\" in smaller, complementary typography near the lower portion. Do not invent or substitute any author names."
+                )
+            elif include_author:
+                prompt_parts.append("Reserve subtle space near the lower portion for the author name typography.")
+
+            if not include_title and not include_author:
+                prompt_parts.append("No text on the image.")
 
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
@@ -721,9 +735,9 @@ class CoverArtService:
         # Join all parts
         full_prompt = '. '.join(prompt_parts) + '.'
         
-        # Ensure prompt isn't too long (DALL-E has limits)
-        if len(full_prompt) > 1000:
-            full_prompt = full_prompt[:1000] + '...'
+        # Ensure prompt isn't too long
+        if len(full_prompt) > 1800:
+            full_prompt = full_prompt[:1800] + '...'
         
         logger.info(f"Generated cover art prompt: {full_prompt[:200]}...")
         return full_prompt
@@ -1240,13 +1254,6 @@ class CoverArtService:
             
             # Step 4: Upload to Firebase
             logger.info(f"Uploading cover art for project {project_id}")
-            # Optionally overlay title/author if requested
-            if options and (options.get('include_title') or options.get('include_author')):
-                title_txt = (options.get('title_text') or '').strip() if options.get('include_title') else ''
-                author_txt = (options.get('author_text') or '').strip() if options.get('include_author') else ''
-                if title_txt or author_txt:
-                    image_bytes = self._overlay_text(image_bytes, title_txt, author_txt)
-
             public_url = await self.upload_to_firebase(image_bytes, project_id, job_id)
             
             # Update job with success
