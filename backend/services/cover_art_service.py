@@ -735,9 +735,19 @@ class CoverArtService:
                     "Render only the exact strings above. Do not add subtitles, taglines, series names, punctuation, or any extra words."
                 )
                 typeset_lines.append(
-                    "If any instruction conflicts, prioritize rendering these exact strings over all other instructions."
+                    "If any instruction conflicts, prioritize rendering these exact strings over all other instructions. Do not translate, localize, or stylistically modify the characters."
                 )
                 prompt_parts.append(' '.join(typeset_lines))
+
+            # Repeat as a final checklist at the end to maximize adherence
+            if include_title or include_author:
+                checklist = ["Final typesetting checklist (repeat):"]
+                if include_title and title_text:
+                    checklist.append(f"TitleText: {title_text}")
+                if include_author and author_text:
+                    checklist.append(f"AuthorText: {author_text}")
+                checklist.append("Render only these exact strings. No other words anywhere on the cover.")
+                prompt_parts.append(' '.join(checklist))
 
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
