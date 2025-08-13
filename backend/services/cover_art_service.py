@@ -700,7 +700,7 @@ class CoverArtService:
 
         # When requirements present, they already appeared earlier with precedence
 
-        # Handle options for title/author – ask the image model to render exact text
+        # Handle options for title/author – ask the image model to render exact text (no invention)
         if options:
             include_title = options.get('include_title', False)
             include_author = options.get('include_author', False)
@@ -709,20 +709,35 @@ class CoverArtService:
 
             if include_title and title_text:
                 prompt_parts.append(
-                    f"Render EXACTLY this book title text: \"{title_text}\" with correct spelling and no paraphrasing, placed large and readable near the upper third. Do not include any other words besides the specified title and author (if provided)."
+                    f"Render EXACTLY this book title text: \"{title_text}\" — case-sensitive, character-for-character, no paraphrasing, no translation, no abbreviations. Place large and readable near the upper third."
                 )
             elif include_title:
                 prompt_parts.append("Reserve ample space near the upper third for the book title typography.")
 
             if include_author and author_text:
                 prompt_parts.append(
-                    f"Render EXACTLY this author name: \"{author_text}\" in smaller, complementary typography near the lower portion. Do not invent or substitute any author names."
+                    f"Render EXACTLY this author name: \"{author_text}\" — case-sensitive, character-for-character. Place smaller, complementary typography near the lower portion."
                 )
             elif include_author:
                 prompt_parts.append("Reserve subtle space near the lower portion for the author name typography.")
 
             if not include_title and not include_author:
                 prompt_parts.append("No text on the image.")
+
+            # Typesetting hard constraints (highest priority)
+            if include_title or include_author:
+                typeset_lines = ["Typesetting (MUST FOLLOW EXACTLY):"]
+                if include_title and title_text:
+                    typeset_lines.append(f"TitleText: {title_text}")
+                if include_author and author_text:
+                    typeset_lines.append(f"AuthorText: {author_text}")
+                typeset_lines.append(
+                    "Render only the exact strings above. Do not add subtitles, taglines, series names, punctuation, or any extra words."
+                )
+                typeset_lines.append(
+                    "If any instruction conflicts, prioritize rendering these exact strings over all other instructions."
+                )
+                prompt_parts.append(' '.join(typeset_lines))
 
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
