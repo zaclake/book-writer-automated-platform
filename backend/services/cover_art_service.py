@@ -1005,7 +1005,7 @@ class CoverArtService:
         try:
             # Step 1: Extract book details
             logger.info(f"Extracting book details for project {project_id}")
-            book_details = self.extract_book_details(book_bible_content, reference_files)
+            book_details = self.extract_book_details(book_bible_content, reference_files, ui_options=options or {})
             
             # Step 2: Generate prompt, with explicit grounding excerpts to discourage model hallucinations
             logger.info(f"Generating cover art prompt for project {project_id}")
