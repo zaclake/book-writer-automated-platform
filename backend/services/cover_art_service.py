@@ -314,7 +314,7 @@ class CoverArtService:
                 elif 'children' in audience_lower:
                     details['target_audience'] = 'children'
             
-            # Create book description summary
+            # Create book description summary (do not infer if missing)
             if details['title']:
                 desc_parts = [f"'{details['title']}'"]
                 if details['genre']:
@@ -362,17 +362,8 @@ class CoverArtService:
             world_content = reference_files[world_key]
             self._extract_visual_elements_smart(details, world_content)
         
-        # Priority 3: Fall back to outline if no world-building
-        if not details['visual_elements']:
-            outline_key = next((k for k in reference_files.keys() if 'outline' in k or 'plot-timeline' in k or 'plot_timeline' in k or 'timeline' in k), None)
-            if outline_key:
-                outline_content = reference_files[outline_key]
-                self._extract_visual_elements_smart(details, outline_content)
-        
-        # Also scan plot timeline for additional visual cues
-        if 'plot-timeline.md' in reference_files and len(details['visual_elements']) < 3:
-            self._extract_visual_elements_smart(details, reference_files['plot-timeline.md'])
-            self._extract_visual_elements_smart(details, outline_content)
+        # Do NOT fall back to outline/timeline. Only world-building/setting may influence visual elements.
+        # This prevents spurious environment terms from plot summaries affecting the cover.
     
     def _extract_visual_elements_smart(self, details: Dict[str, Any], content: str):
         """Smartly extract visual elements by analyzing context, not just keyword matching."""
@@ -419,13 +410,14 @@ class CoverArtService:
                     details['visual_elements'].append(best_keyword)
                     added += 1
         
-        # Look for time period indicators conservatively
-        if any(word in content_lower for word in ['medieval', 'middle ages', 'knight']):
-            details['visual_elements'].append('medieval')
-        elif any(word in content_lower for word in ['modern', 'contemporary', 'current']):
-            details['visual_elements'].append('modern')
-        elif any(word in content_lower for word in ['future', 'futuristic', 'sci-fi']):
-            details['visual_elements'].append('futuristic')
+        # Look for time period indicators conservatively and only if clearly stated
+        if 'time period' in content_lower or 'set in' in content_lower or 'era' in content_lower:
+            if any(word in content_lower for word in ['medieval', 'middle ages', 'knight']):
+                details['visual_elements'].append('medieval')
+            elif any(word in content_lower for word in ['modern', 'contemporary', 'current']):
+                details['visual_elements'].append('modern')
+            elif any(word in content_lower for word in ['future', 'futuristic', 'sci-fi']):
+                details['visual_elements'].append('futuristic')
 
         # === Advanced NLP extraction (spaCy) ===
         if _NLP:
@@ -599,6 +591,9 @@ class CoverArtService:
         if visual_elements:
             elements_str = ', '.join(visual_elements[:3])  # Top 3 elements
             prompt_parts.append(f"featuring {elements_str}")
+        else:
+            # Explicitly instruct neutrality when we found no credible environment evidence
+            prompt_parts.append("Use a simple, neutral background and focus on strong typography and a minimal symbolic element derived only from explicit references, if any")
         
         # Add mood/tone (neutral phrasing, no hardcoded adjectives beyond extracted label)
         # Do not inject tone descriptors automatically; tone should emerge from user requirements and reference content
@@ -637,6 +632,7 @@ class CoverArtService:
             author_text = (options.get('author_text') or '').strip()
 
             if include_title and title_text:
+                # Instruct model to not invent other texts and render exact title
                 prompt_parts.append(
                     f"Render EXACTLY the following book title text: \"{title_text}\" with correct spelling and no paraphrasing. "
                     "Place it in large, clean, highly readable typography near the upper third. Do not include any other text besides the specified title and author (if provided)."
@@ -665,13 +661,10 @@ class CoverArtService:
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
 
-        # Color palette guidance
+        # Color palette guidance (only if palette was explicitly derived from style/voice files)
         if book_details.get('color_palette'):
             palette_str = ', '.join(book_details['color_palette'])
-            if requirements:
-                prompt_parts.append(f"Primary color palette (use only if consistent with user requirements): {palette_str}")
-            else:
-                prompt_parts.append(f"Primary color palette: {palette_str}")
+            prompt_parts.append(f"Primary color palette (only if explicitly specified in style/voice references): {palette_str}")
         
         # Join all parts
         full_prompt = '. '.join(prompt_parts) + '.'
