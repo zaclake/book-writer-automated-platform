@@ -20,15 +20,15 @@ RUN apt-get update -o Acquire::Retries=5 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install backend dependencies (paths relative to this Dockerfile's directory)
-# Railway builds from the directory containing the Dockerfile as context
-COPY requirements-deploy.txt /app/requirements.txt
+# Install backend dependencies (paths relative to build context root)
+# When Railway uses repo root as context, reference backend/ explicitly
+COPY backend/requirements-deploy.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy backend code into package path so imports resolve as 'backend.*'
 # Copy prompts to /app/prompts for prompt manager defaults
-COPY . /app/backend
-COPY prompts /app/prompts
+COPY backend /app/backend
+COPY backend/prompts /app/prompts
 
 EXPOSE 8000
 
