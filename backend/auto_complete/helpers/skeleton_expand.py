@@ -198,6 +198,53 @@ def ensure_clean_ending(text: str) -> str:
     return trimmed
 
 
+def fix_generic_ending(text: str) -> str:
+    """Detect and trim bland/generic closing sentences.
+
+    Patterns like 'The day would not wait', 'The night stretched ahead',
+    'Tomorrow would bring answers' are atmospheric padding. If the last
+    sentence matches a generic closer, trim it so the chapter ends on
+    the previous, more specific sentence.
+    """
+    if not text or len(text) < 200:
+        return text
+
+    # Split into sentences (preserve paragraph structure)
+    paragraphs = text.rstrip().split("\n\n")
+    if not paragraphs:
+        return text
+
+    last_para = paragraphs[-1].strip()
+    # Find the last sentence
+    sentences = re.split(r'(?<=[.!?])\s+', last_para)
+    if len(sentences) < 2:
+        return text
+
+    last_sentence = sentences[-1].strip()
+    last_lower = last_sentence.lower()
+
+    generic_patterns = [
+        r'^the (?:day|night|morning|evening|dawn|darkness|silence|quiet|world|work|shift) '
+        r'(?:would|could|did|was|stretched|waited|pressed|called|lay|loomed|settled)',
+        r'^(?:tomorrow|tonight|the hours? ahead|what came next|whatever came)',
+        r'^(?:everything|nothing|something|the rest) (?:would|could|was|had)',
+        r'^he (?:would|could) (?:not|deal with|face|handle|sort|figure)',
+        r'^(?:it was|this was) (?:only|just) the (?:beginning|start)',
+        r'^the (?:answer|truth|real work|hard part|rest) (?:would|could|lay|waited)',
+        r'^(?:but |and )?(?:that|it|this) (?:was|would be) (?:for|a) (?:another|later|tomorrow)',
+        r'^there (?:was|would be) (?:time|work|more|plenty)',
+    ]
+
+    for pattern in generic_patterns:
+        if re.match(pattern, last_lower):
+            # Trim the generic sentence — end on the previous one
+            trimmed_para = " ".join(sentences[:-1])
+            paragraphs[-1] = trimmed_para
+            return "\n\n".join(paragraphs)
+
+    return text
+
+
 # ─── Skeleton Generator ──────────────────────────────────────────────────────
 
 SKELETON_SYSTEM = (
@@ -589,41 +636,61 @@ def _validate_and_fix_skeleton(
                         break
 
     # ── Check 0b: Scene replay detection ──
-    # Extract prior scene summaries and revelations from the established context
+    # Match on specific scene PHRASES (3-grams), not individual words.
+    # Individual words cause massive false positives because character names,
+    # locations, and setting vocabulary repeat every chapter.
     if established_context:
-        ctx_lower = established_context.lower()
-        # Parse "SCENES ALREADY DEPICTED" and "REVELATIONS ALREADY MADE" sections
-        prior_scene_keywords: List[str] = []
+        # Build a set of character/location names to exclude
+        char_names_lower = set()
+        for c in characters:
+            for part in c.lower().split():
+                if len(part) >= 3:
+                    char_names_lower.add(part)
+
+        # Extract prior scene 3-grams (phrases, not individual words)
+        # Only from "SCENES ALREADY DEPICTED" and "REVELATIONS ALREADY MADE" sections
+        prior_scene_phrases: List[str] = []
+        in_scene_section = False
         for line in established_context.split("\n"):
+            header_lower = line.strip().lower()
+            if "scenes already depicted" in header_lower or "revelations already made" in header_lower:
+                in_scene_section = True
+                continue
+            if header_lower.startswith("already established") or header_lower.startswith("unresolved") or header_lower.startswith("character emotional"):
+                in_scene_section = False
+                continue
+            if not in_scene_section:
+                continue
             stripped = line.strip().lstrip("- ")
             if stripped.startswith("Ch ") and ":" in stripped:
                 scene_desc = stripped.split(":", 1)[1].strip().lower()
-                # Extract key action words from scene descriptions
-                for word in re.findall(r"[a-z]{4,}", scene_desc):
-                    if word not in _STOPWORDS:
-                        prior_scene_keywords.append(word)
+                words = [w for w in re.findall(r"[a-z]{4,}", scene_desc)
+                         if w not in _STOPWORDS and w not in char_names_lower]
+                for j in range(len(words) - 2):
+                    prior_scene_phrases.append(f"{words[j]} {words[j+1]} {words[j+2]}")
 
-        if prior_scene_keywords:
-            keyword_set = set(prior_scene_keywords)
+        if prior_scene_phrases:
+            phrase_set = set(prior_scene_phrases)
+            replay_flags = 0
             for i, beat in enumerate(beats):
+                if replay_flags >= 2:
+                    break
                 action_lower = (beat.get("action", "") or "").lower()
-                action_words = set(re.findall(r"[a-z]{4,}", action_lower))
-                overlap = action_words & keyword_set
-                # If a beat's action shares 3+ significant words with a prior scene,
-                # it's likely a replay — rewrite it to show consequences instead
-                if len(overlap) >= 3:
-                    overlap_str = ", ".join(sorted(overlap)[:5])
-                    beat["action"] = (
-                        f"Show CONSEQUENCES of prior events (do NOT re-depict). "
-                        f"Original beat replayed prior scene (overlapping: {overlap_str}). "
-                        f"Original: {beat.get('action', '')}"
-                    )
+                action_words = [w for w in re.findall(r"[a-z]{4,}", action_lower)
+                                if w not in _STOPWORDS and w not in char_names_lower]
+                beat_phrases = set()
+                for j in range(len(action_words) - 2):
+                    beat_phrases.add(f"{action_words[j]} {action_words[j+1]} {action_words[j+2]}")
+                matching = beat_phrases & phrase_set
+                if len(matching) >= 2:
+                    match_str = "; ".join(sorted(matching)[:3])
                     beat["notes"] = (
                         f"{beat.get('notes', '')} "
-                        f"WARNING: This beat risked replaying a prior scene. "
-                        f"Focus on NEW reactions, decisions, or developments."
+                        f"CAUTION: This beat's action resembles a prior scene ({match_str}). "
+                        f"Show NEW consequences or reactions, not the same events."
                     ).strip()
-                    fixes_applied.append(f"beat {i+1}: flagged as potential scene replay, redirected to consequences")
+                    replay_flags += 1
+                    fixes_applied.append(f"beat {i+1}: added scene-replay caution (soft warning)")
 
     # ── Check 1: How many beats have 2+ characters? ──
     multi_char_beats = sum(
@@ -694,6 +761,32 @@ def _validate_and_fix_skeleton(
                 if len(beats[i-1].get("characters_present", [])) < 2:
                     beats[i-1]["characters_present"] = [pov] + others[:1]
                 fixes_applied.append(f"beat {i}: broke 3-way same-type run")
+
+    # ── Check 5b: Cap consecutive solo beats ──
+    # If 3+ consecutive beats have only the POV character, inject a second
+    # character into the middle one to break the solo streak.
+    solo_run_start = None
+    for i, beat in enumerate(beats):
+        chars = beat.get("characters_present", [])
+        is_solo = (len(chars) <= 1)
+        if is_solo:
+            if solo_run_start is None:
+                solo_run_start = i
+        else:
+            solo_run_start = None
+
+        if solo_run_start is not None and (i - solo_run_start) >= 2:
+            mid = solo_run_start + 1
+            beats[mid]["characters_present"] = [pov] + others[:1]
+            if beats[mid].get("info_type") not in ("dialogue_scene", "confrontation"):
+                beats[mid]["info_type"] = "dialogue_scene"
+                beats[mid]["action"] = (
+                    f"{others[0] if others else 'Companion'} interrupts or arrives — "
+                    f"brief exchange that breaks the solo stretch. "
+                    f"Original: {beats[mid].get('action', '')}"
+                )
+            fixes_applied.append(f"beat {mid+1}: broke 3+ consecutive solo beats")
+            solo_run_start = None
 
     # ── Check 6: Final beat should not be pure reflection/observation ──
     final = beats[-1] if beats else None
@@ -1195,6 +1288,12 @@ async def stitch_beats(
         "who called whom, who arrived first) matches the NARRATED version earlier in the chapter. "
         "If a character claims they did something that the narration showed someone else doing, "
         "fix the dialogue to match the narration. The narrated version is always canonical.\n\n"
+        "7. TAIL DRAG: After the LAST dialogue or character interaction in the chapter, there "
+        "should be at most 1-2 short paragraphs before the chapter ends. If the chapter has "
+        "3+ paragraphs of the POV character alone (logging, walking, drinking coffee, watching "
+        "sunrise, reflecting) AFTER the last conversation, cut or heavily condense them to 1 "
+        "paragraph. The chapter should end close to its last moment of human tension, not drift "
+        "into solo procedure.\n\n"
         "Do NOT:\n"
         "- Add new metaphors, imagery, or sensory details\n"
         "- Expand or pad the text — the goal is TIGHTER, not longer\n"
@@ -2093,6 +2192,7 @@ async def generate_chapter_skeleton_expand(
     cleaned = fix_paragraph_repetition(stitched)
     cleaned = trim_repeated_phrases(cleaned)
     cleaned = strip_meta_narration(cleaned)
+    cleaned = fix_generic_ending(cleaned)
     cleaned = ensure_clean_ending(cleaned)
 
     # Balance straight double quotes (close any dangling open)
