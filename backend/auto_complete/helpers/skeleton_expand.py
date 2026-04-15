@@ -252,14 +252,14 @@ SKELETON_SYSTEM = (
     "You are a novel architect planning a single chapter beat by beat.\n"
     "Output STRICT JSON only. No commentary, no code fences.\n\n"
     "Each beat is a SCENE — a continuous dramatic unit with a clear purpose.\n"
-    "When expanded into prose, a beat becomes 2-5 paragraphs.\n\n"
+    "When expanded into prose, a beat becomes 3-6 paragraphs.\n\n"
     "CHAPTER STRUCTURE PHILOSOPHY:\n"
     "A chapter is NOT a tour. It is not a sequence of observations. It is a dramatic unit\n"
     "with a BEGINNING STATE and an END STATE that are DIFFERENT. Something must change —\n"
     "a relationship, a piece of knowledge, a decision, a threat level, a commitment.\n"
     "If you cannot articulate what changed between beat 1 and the final beat, the chapter\n"
     "does not justify its existence.\n\n"
-    "BEAT COUNT: Plan FEWER, DEEPER beats. A chapter should have 6-10 beats, not 12-16.\n"
+    "BEAT COUNT: A chapter should have 8-12 beats. Each beat becomes 3-6 paragraphs of prose.\n"
     "Each beat should do real work. If a beat is just 'character walks to location and\n"
     "notices the atmosphere,' CUT IT. Atmosphere belongs inside action beats, not as\n"
     "standalone beats.\n\n"
@@ -339,9 +339,9 @@ async def generate_skeleton(
     plan_transition = chapter_plan.get("transition_note", "")
 
     weight_guidance = {
-        "light": "This is a quieter chapter — 4-6 beats. Focus on character interaction and one key shift. Shorter is better — not every chapter needs to be the same length.",
-        "standard": "Standard chapter — 6-9 beats. Mix of action, dialogue, and one surprise.",
-        "heavy": "This is a major chapter (climax, revelation, confrontation) — 9-12 beats. Full scenes with buildup, escalation, and consequence. This chapter should be LONGER than average.",
+        "light": "This is a quieter chapter — 6-8 beats. Focus on character interaction and one key shift.",
+        "standard": "Standard chapter — 8-11 beats. Mix of action, dialogue, and one surprise.",
+        "heavy": "This is a major chapter (climax, revelation, confrontation) — 11-14 beats. Full scenes with buildup, escalation, and consequence. This chapter should be LONGER than average.",
     }
 
     # Ensure we have characters — extract from bible if plan doesn't provide them
@@ -441,7 +441,7 @@ async def generate_skeleton(
         user_prompt += "Each character MUST behave consistently with their arc position.\n\n"
 
     user_prompt += (
-        "Return a JSON object with a 'beats' array (6-10 beats):\n"
+        "Return a JSON object with a 'beats' array (8-12 beats):\n"
         '{"beats": [\n'
         "  {\n"
         '    "beat_number": 1,\n'
@@ -457,7 +457,7 @@ async def generate_skeleton(
         "]}\n\n"
         "Rules:\n"
         "- Follow the beat count from the NARRATIVE WEIGHT guidance above. "
-        "Light chapters can be as few as 4 beats. Heavy chapters can be up to 12.\n"
+        "Light chapters can be as few as 6 beats. Heavy chapters can be up to 14.\n"
         "- At least 70% of beats should be 'plain' register. At most 1 'vivid'.\n"
         "- At least 2 beats must be 'dialogue_scene' or 'confrontation'.\n"
         "- At least 1 beat must be 'decision' (protagonist commits to an action).\n"
@@ -506,7 +506,7 @@ def _default_skeleton(
 ) -> List[Dict[str, Any]]:
     """Fallback skeleton when LLM fails. Uses plan data when available."""
     plan = chapter_plan or {}
-    count = {"light": 5, "standard": 7, "heavy": 11}.get(narrative_weight, 7)
+    count = {"light": 7, "standard": 9, "heavy": 12}.get(narrative_weight, 9)
 
     characters = plan.get("focal_characters", []) or []
     pov = characters[0] if characters else "Protagonist"
@@ -943,12 +943,14 @@ async def build_voice_profiles(
         "- Avg sentence length (short/medium/long)\n"
         "- Contraction frequency (high/low/none)\n"
         "- Vocabulary tier (blue-collar slang / professional jargon / academic)\n"
-        "- Verbal tics or distinctive phrases they repeat\n"
-        "- What REPLACES the tic when the budget is spent (action, silence, or alternate phrasing)\n"
+        "- ONE subtle verbal habit used SPARINGLY (max 1 time per chapter). "
+        "Voice distinction should come primarily from sentence structure, vocabulary "
+        "level, and what the character notices — not from catchphrases.\n"
+        "- What REPLACES the habit when the budget is spent (action, silence, or alternate phrasing)\n"
         "- What they NEVER say or do in dialogue\n"
-        "CRITICAL CONSTRAINT: Each verbal tic or catchphrase you define must be used "
-        "MAXIMUM 2 times per chapter. After 2 uses in a chapter, the character must "
-        "express the same intent through the replacement you define.\n"
+        "CRITICAL CONSTRAINT: Each verbal habit you define must be used "
+        "MAXIMUM 1 time per chapter. Differentiate characters through HOW they "
+        "speak (sentence length, directness, vocabulary) not WHAT phrases they repeat.\n"
         "Keep each character's section to 3-5 lines.\n"
     )
 
@@ -996,7 +998,7 @@ async def build_voice_profiles(
 REGISTER_INSTRUCTIONS = {
     "plain": (
         "Write in PLAIN prose. Short, direct sentences. Functional writing. "
-        "Max 2 sentences per paragraph on average. "
+        "2-4 sentences per paragraph on average. "
         "Include ONE sensory detail per beat (not per paragraph — one per beat total). "
         "No metaphors. No lyrical flourishes. No stacked adjectives. "
         "The prose should be invisible — the reader sees the scene, not the writing.\n"
@@ -1009,7 +1011,7 @@ REGISTER_INSTRUCTIONS = {
         "EXAMPLES OF PLAIN PROSE:\n"
         "  'She checked the lock. The handle was cold, slick with rain that came "
         "off on her palm. She turned it once and listened. Nothing. She moved on.'\n"
-        "TARGET: 100-180 words for this beat."
+        "TARGET: 200-300 words for this beat."
     ),
     "moderate": (
         "Write in MODERATE prose. Mix plain sentences with occasional descriptive detail. "
@@ -1018,7 +1020,7 @@ REGISTER_INSTRUCTIONS = {
         "medium (8-19 words) and some long sentences (20+ words). "
         "Target: 25-35% short, 50-60% medium, 10-20% long. "
         "Vary rhythm: follow a long sentence with a short one.\n"
-        "TARGET: 150-250 words for this beat."
+        "TARGET: 280-400 words for this beat."
     ),
     "vivid": (
         "Write in VIVID prose. This is a key moment — deploy sensory detail and rhythm. "
@@ -1035,7 +1037,7 @@ REGISTER_INSTRUCTIONS = {
         "EXAMPLES OF VIVID PROSE:\n"
         "  'Lightning cracked overhead, so bright it turned the world to bone. For a heartbeat, "
         "everything sharpened — the fence, the slick black puddles, the dark shape beyond.'\n"
-        "TARGET: 200-300 words for this beat."
+        "TARGET: 350-500 words for this beat."
     ),
 }
 
@@ -1083,7 +1085,7 @@ async def expand_beat(
     temp_instruction = TEMP_INSTRUCTIONS.get(temperature, TEMP_INSTRUCTIONS["medium"])
 
     system_prompt = (
-        "You are a novelist writing a short passage (2-5 paragraphs) that is part of a larger chapter.\n"
+        "You are a novelist writing a passage (3-6 paragraphs) that is part of a larger chapter.\n"
         "Output ONLY the prose. No headings, no meta-commentary, no beat numbers.\n"
         "Write in third person past tense unless the book context specifies otherwise.\n"
         f"\n{register_instruction}\n"
@@ -1140,9 +1142,11 @@ async def expand_beat(
         "After 2 mentions, refer to it indirectly or skip entirely. "
         "Exception: if a prop is CENTRAL to the plot of this beat (a weapon in a fight, "
         "a letter being read), it may appear more, but vary the phrasing each time.\n"
-        "- NO REPEATED VERBAL TICS: Each character's verbal tic or catchphrase may appear "
-        "MAXIMUM 2 times in a chapter. After that, express the same intent through action, "
-        "silence, or different phrasing.\n"
+        "- NO REPEATED VERBAL TICS: Each character's verbal habit or catchphrase may appear "
+        "MAXIMUM 1 time in the ENTIRE chapter. If this character has already used their "
+        "verbal habit in a prior beat, express the same intent through action, silence, "
+        "or completely different phrasing. Differentiate characters through sentence "
+        "structure and vocabulary, not repeated catchphrases.\n"
         "- SENSORY FRESHNESS: Do not repeat the same environmental detail (smell, sound, "
         "temperature, light quality) that appeared in earlier beats. Each beat needs a NEW "
         "sensory detail from a DIFFERENT sense. If earlier beats used sound, use smell or "
@@ -1274,7 +1278,7 @@ async def expand_beat(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.6 if register == "vivid" else 0.45,
-            max_tokens=800,
+            max_tokens=1200,
         )
     except Exception:
         return ""
@@ -1328,7 +1332,7 @@ async def stitch_beats(
         "4. ATMOSPHERIC OVERLOAD: If the opening has 2+ paragraphs of pure setting before "
         "the first character action, condense the setting INTO the action paragraphs.\n\n"
         "5. GESTURE/SENSORY/VERBAL TIC AUDITS: Same rules as before — max 3 gestures, "
-        "max 2 of any sensory detail, max 2 of any verbal tic.\n\n"
+        "max 2 of any sensory detail, max 1 of any verbal tic.\n\n"
         "6. INTERNAL CONSISTENCY: Check that any dialogue retelling events (who found what, "
         "who called whom, who arrived first) matches the NARRATED version earlier in the chapter. "
         "If a character claims they did something that the narration showed someone else doing, "
@@ -1339,6 +1343,15 @@ async def stitch_beats(
         "the solo ending serves a clear narrative purpose (building dread, showing isolation, "
         "processing a major revelation). The chapter should usually end close to its last "
         "moment of tension.\n\n"
+        "8. VERBAL TIC AUDIT: If any character's catchphrase or verbal habit appears more "
+        "than once in the chapter, remove all but the FIRST occurrence. Replace subsequent "
+        "uses with action, silence, or different phrasing. Characters should be distinguished "
+        "by HOW they speak (sentence structure, vocabulary), not by repeated catchphrases.\n\n"
+        "9. SENSORY REPETITION AUDIT: If the same specific environmental detail (a particular "
+        "smell, sound, or texture — e.g. 'cut hay', 'metallic tang', 'hum of the fridge') "
+        "appears in more than 2 scenes/beats, remove the 3rd+ occurrences entirely or replace "
+        "with a DIFFERENT sensory detail from a DIFFERENT sense. Each scene should have its "
+        "own unique sensory anchor.\n\n"
         "Do NOT:\n"
         "- Add new metaphors, imagery, or sensory details\n"
         "- Expand or pad the text — the goal is TIGHTER, not longer\n"

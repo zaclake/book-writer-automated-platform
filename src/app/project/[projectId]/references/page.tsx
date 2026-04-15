@@ -905,6 +905,7 @@ export default function ReferenceReviewPage() {
       progressIntervalRef.current = null
     }
     generationStartedAtRef.current = Date.now()
+    let sawRunning = false
 
     const poll = async () => {
       try {
@@ -914,25 +915,33 @@ export default function ReferenceReviewPage() {
         if (!res.ok) return
         const data = await res.json()
 
-        // Ignore stale "completed" responses that arrive before the new job
-        // has had time to register (the fallback returns "completed" if old
-        // files exist). Give the backend 8 seconds to start the new job.
-        const elapsed = Date.now() - generationStartedAtRef.current
-        if (data.status === 'completed' && elapsed < 8000 && !data.files_total) {
-          GlobalLoader.update({ stage: 'Initializing generation...' })
-          return
-        }
-
         const progressNum = typeof data.progress === 'number' ? data.progress
           : data.progress?.percentage ?? 0
         const filesCompleted = data.files_completed || 0
         const filesTotal = data.files_total || 0
+
+        // Track whether we've ever seen a "running" status from the actual job.
+        // This distinguishes real job progress from stale/fallback responses.
+        if (data.status === 'running') {
+          sawRunning = true
+        }
+
+        // Only treat "completed" as genuine when EITHER:
+        // (a) we previously saw "running" (real job lifecycle), OR
+        // (b) the response includes files_total > 0 (from a real job record, not the fallback)
+        // The file-existence fallback returns completed WITHOUT files_total,
+        // so it can never satisfy these conditions.
+        const isGenuineCompletion = data.status === 'completed' && (sawRunning || filesTotal > 0)
+
+        // While not genuinely complete, show progress
         const stageLabel = filesTotal > 0
           ? `${data.stage || 'Generating'} — ${filesCompleted} of ${filesTotal} files complete`
-          : data.stage || 'Initializing...'
+          : sawRunning
+            ? data.stage || 'Generating references...'
+            : 'Initializing generation...'
         GlobalLoader.update({ progress: progressNum, stage: stageLabel })
 
-        if (data.status === 'completed' && (elapsed >= 8000 || data.files_total > 0)) {
+        if (isGenuineCompletion) {
           clearInterval(progressIntervalRef.current as NodeJS.Timeout)
           progressIntervalRef.current = null
           setIsGeneratingRefs(false)
@@ -940,7 +949,9 @@ export default function ReferenceReviewPage() {
           GlobalLoader.hide()
           setTimeout(() => GlobalLoader.forceHide?.(), 1000)
           await loadReferenceFiles()
+          return
         }
+
         if (data.status === 'failed' || data.status === 'failed-rate-limit') {
           clearInterval(progressIntervalRef.current as NodeJS.Timeout)
           progressIntervalRef.current = null
@@ -948,6 +959,19 @@ export default function ReferenceReviewPage() {
           GlobalLoader.hide()
           setTimeout(() => GlobalLoader.forceHide?.(), 1000)
           setStatus(`Reference generation failed${data.message ? `: ${data.message}` : ''}`)
+          return
+        }
+
+        // Safety timeout: if we've been polling for 45 minutes with no
+        // genuine completion or failure, something went wrong.
+        const elapsed = Date.now() - generationStartedAtRef.current
+        if (elapsed > 2700000) {
+          clearInterval(progressIntervalRef.current as NodeJS.Timeout)
+          progressIntervalRef.current = null
+          setIsGeneratingRefs(false)
+          GlobalLoader.hide()
+          setTimeout(() => GlobalLoader.forceHide?.(), 1000)
+          setStatus('Reference generation timed out. Please check your references and retry if needed.')
         }
       } catch (e) {
         // Keep trying quietly; network hiccups are expected

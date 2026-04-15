@@ -146,6 +146,9 @@ export default function PasteIdeaPage() {
 
   const startReferenceProgressPolling = async (projectId: string) => {
     const authHeaders = await getAuthHeaders()
+    let sawRunning = false
+    const startedAt = Date.now()
+
     const poll = async () => {
       try {
         const res = await fetchApi(`/api/v2/projects/${projectId}/references/progress`, {
@@ -157,19 +160,32 @@ export default function PasteIdeaPage() {
           : data.progress?.percentage ?? 0
         const filesCompleted = data.files_completed || 0
         const filesTotal = data.files_total || 0
+
+        if (data.status === 'running') {
+          sawRunning = true
+        }
+
         const stageLabel = filesTotal > 0
-          ? `${data.stage || 'Generating'} (${filesCompleted}/${filesTotal} files)`
-          : data.stage || 'Generating'
+          ? `${data.stage || 'Generating'} — ${filesCompleted} of ${filesTotal} files`
+          : sawRunning
+            ? data.stage || 'Generating references...'
+            : 'Initializing generation...'
         GlobalLoader.update({ progress: progressNum, stage: stageLabel })
 
-        if (data.status === 'completed') {
+        // Only treat completed as genuine if we saw running first or
+        // the response has files_total (real job record, not fallback)
+        const isGenuineCompletion = data.status === 'completed' && (sawRunning || filesTotal > 0)
+
+        if (isGenuineCompletion) {
           if (progressIntervalRef.current) {
             clearInterval(progressIntervalRef.current)
             progressIntervalRef.current = null
           }
           GlobalLoader.hide()
           router.push(`/project/${projectId}/references`)
+          return
         }
+
         if (data.status === 'failed' || data.status === 'failed-rate-limit') {
           if (progressIntervalRef.current) {
             clearInterval(progressIntervalRef.current)
@@ -177,6 +193,17 @@ export default function PasteIdeaPage() {
           }
           GlobalLoader.hide()
           setError(data.message || 'Reference generation failed')
+          return
+        }
+
+        // Safety timeout after 45 minutes
+        if (Date.now() - startedAt > 2700000) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current)
+            progressIntervalRef.current = null
+          }
+          GlobalLoader.hide()
+          router.push(`/project/${projectId}/references`)
         }
       } catch {}
     }
