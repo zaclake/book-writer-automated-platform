@@ -269,6 +269,12 @@ async def generate_skeleton(
         "heavy": "This is a major chapter (climax, revelation, confrontation) — 8-10 beats. Full scenes with buildup and consequence.",
     }
 
+    # Ensure we have characters — extract from bible if plan doesn't provide them
+    if not plan_characters:
+        plan_characters = _extract_character_names_from_bible(book_bible)
+    if not plan_pov and plan_characters:
+        plan_pov = plan_characters[0]
+
     user_prompt = (
         f"Create a beat-by-beat skeleton for Chapter {chapter_number} of {total_chapters}.\n\n"
         f"NARRATIVE WEIGHT: {weight_guidance.get(narrative_weight, weight_guidance['standard'])}\n\n"
@@ -279,7 +285,11 @@ async def generate_skeleton(
         f"- Ending type: {plan_ending}\n"
         f"- Emotional arc: {plan_emotional_arc}\n"
         f"- POV: {plan_pov}\n"
-        f"- Characters: {json.dumps(plan_characters)}\n\n"
+        f"- Characters IN THIS CHAPTER (MUST appear): {json.dumps(plan_characters)}\n\n"
+        f"MANDATORY CHARACTER INTERACTION:\n"
+        f"At least 2 of these characters MUST appear together in dialogue scenes.\n"
+        f"A chapter where the POV character is alone the entire time is STRUCTURALLY BROKEN.\n"
+        f"Plan at least 2 beats where 2+ characters are present and talking.\n\n"
         f"BOOK BIBLE (excerpt):\n{book_bible[:4000]}\n\n"
     )
     if style_guide:
@@ -396,6 +406,145 @@ def _default_skeleton(narrative_weight: str = "standard") -> List[Dict[str, Any]
             "characters_present": [],
             "notes": "",
         })
+    return beats
+
+
+def _extract_character_names_from_bible(book_bible: str, max_names: int = 6) -> List[str]:
+    """Extract character names from the book bible when focal_characters is empty."""
+    names = []
+    section_headers = frozenset({
+        "Genre", "Setting", "Premise", "Tone", "Themes", "Voice", "Structure",
+        "Act", "Main Characters", "Characters", "Story Arc", "Key Plot Points",
+        "World Building", "World", "Plot", "Outline", "Notes", "Style",
+        "Sensory Priorities", "Things to Avoid", "Pacing Rules",
+    })
+    # Look for markdown headers that typically introduce characters
+    for match in re.finditer(r'###?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', book_bible):
+        name = match.group(1).strip()
+        if len(name.split()) <= 3 and name not in section_headers:
+            names.append(name)
+    if not names:
+        # Fallback: find capitalized multi-word sequences that look like names
+        for match in re.finditer(r'\b([A-Z][a-z]{2,}\s+[A-Z][a-z]{2,})\b', book_bible):
+            name = match.group(1)
+            if name not in names:
+                names.append(name)
+    return names[:max_names]
+
+
+def _validate_and_fix_skeleton(
+    beats: List[Dict[str, Any]],
+    focal_characters: List[str],
+    book_bible: str = "",
+    logger=None,
+) -> List[Dict[str, Any]]:
+    """Validate a skeleton and fix structural problems before expansion.
+
+    Checks:
+    1. At least 2 beats must have 2+ characters (interaction, not solo)
+    2. At least 2 beats must be dialogue_scene or confrontation
+    3. At least 1 beat must be decision type
+    4. No more than 2 consecutive same info_type
+    5. Characters_present must not be empty for most beats
+
+    If problems are found, fixes them in-place by modifying beat types and
+    injecting characters.
+    """
+    import logging
+    log = logger or logging.getLogger(__name__)
+
+    if not beats:
+        return beats
+
+    # Ensure we have character names to work with
+    characters = list(focal_characters) if focal_characters else []
+    if not characters:
+        characters = _extract_character_names_from_bible(book_bible)
+    if not characters:
+        characters = ["Protagonist", "Companion"]
+
+    pov = characters[0] if characters else "Protagonist"
+    others = characters[1:] if len(characters) > 1 else ["Companion"]
+
+    fixes_applied = []
+
+    # Check 1: How many beats have 2+ characters?
+    multi_char_beats = sum(
+        1 for b in beats
+        if len(b.get("characters_present", [])) >= 2
+    )
+    if multi_char_beats < 2:
+        # Inject characters into middle and late beats
+        inject_positions = [len(beats) // 3, len(beats) * 2 // 3]
+        for pos in inject_positions:
+            if pos < len(beats):
+                beat = beats[pos]
+                existing = beat.get("characters_present", [])
+                if len(existing) < 2:
+                    beat["characters_present"] = [pov] + others[:1]
+                    if beat.get("info_type") not in ("dialogue_scene", "confrontation"):
+                        beat["info_type"] = "dialogue_scene"
+                        beat["action"] = (
+                            f"{pov} and {others[0]} discuss the situation — "
+                            f"tension, disagreement, or new information exchanged. "
+                            f"Original action: {beat.get('action', '')}"
+                        )
+                    fixes_applied.append(f"beat {pos+1}: injected characters + dialogue")
+
+    # Check 2: How many dialogue/confrontation beats?
+    dialogue_beats = sum(
+        1 for b in beats
+        if b.get("info_type") in ("dialogue_scene", "confrontation")
+    )
+    if dialogue_beats < 2:
+        # Convert deepening/observation beats to dialogue
+        for i, beat in enumerate(beats):
+            if dialogue_beats >= 2:
+                break
+            if beat.get("info_type") in ("deepening", "action", "new_development") and i > 0:
+                beat["info_type"] = "dialogue_scene"
+                existing_chars = beat.get("characters_present", [])
+                if len(existing_chars) < 2:
+                    beat["characters_present"] = [pov] + others[:1]
+                beat["action"] = (
+                    f"This beat becomes a dialogue scene between "
+                    f"{beat['characters_present'][0]} and {beat['characters_present'][-1]}. "
+                    f"Original action: {beat.get('action', '')}"
+                )
+                dialogue_beats += 1
+                fixes_applied.append(f"beat {i+1}: converted to dialogue_scene")
+
+    # Check 3: At least 1 decision beat
+    decision_beats = sum(1 for b in beats if b.get("info_type") == "decision")
+    if decision_beats < 1:
+        # Convert the second-to-last beat to a decision
+        idx = max(0, len(beats) - 2)
+        beats[idx]["info_type"] = "decision"
+        beats[idx]["action"] = (
+            f"{pov} makes a decision about what to do next — commits to an action "
+            f"with consequences. Original: {beats[idx].get('action', '')}"
+        )
+        fixes_applied.append(f"beat {idx+1}: converted to decision")
+
+    # Check 4: Populate empty characters_present
+    for beat in beats:
+        if not beat.get("characters_present"):
+            beat["characters_present"] = [pov]
+
+    # Check 5: Break consecutive same-type runs longer than 2
+    for i in range(2, len(beats)):
+        if (beats[i].get("info_type") == beats[i-1].get("info_type") ==
+                beats[i-2].get("info_type")):
+            # Change the middle beat type
+            if beats[i-1].get("info_type") != "dialogue_scene":
+                beats[i-1]["info_type"] = "dialogue_scene"
+                if len(beats[i-1].get("characters_present", [])) < 2:
+                    beats[i-1]["characters_present"] = [pov] + others[:1]
+                fixes_applied.append(f"beat {i}: broke 3-way same-type run")
+
+    if fixes_applied:
+        log.info(f"Skeleton validation fixed {len(fixes_applied)} issues: {', '.join(fixes_applied)}")
+
     return beats
 
 
@@ -1548,6 +1697,15 @@ async def generate_chapter_skeleton_expand(
         plot_timeline=plot_timeline_ref[:3000] if plot_timeline_ref else "",
     )
     log.info(f"Chapter {chapter_number}: Skeleton has {len(skeleton)} beats (weight: {narrative_weight})")
+
+    # Validate and fix structural issues in the skeleton before expanding
+    focal_chars = chapter_plan.get("focal_characters", []) or context.get("focal_characters", []) or []
+    skeleton = _validate_and_fix_skeleton(
+        beats=skeleton,
+        focal_characters=focal_chars,
+        book_bible=book_bible,
+        logger=log,
+    )
 
     expanded_parts: List[str] = []
     accumulated_text = ""
