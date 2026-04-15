@@ -262,6 +262,8 @@ async def generate_skeleton(
     plan_characters = chapter_plan.get("focal_characters", [])
     plan_pov = chapter_plan.get("pov_character", "")
     plan_emotional_arc = chapter_plan.get("emotional_arc", "")
+    plan_plot_points = chapter_plan.get("required_plot_points", [])
+    plan_transition = chapter_plan.get("transition_note", "")
 
     weight_guidance = {
         "light": "This is a quieter chapter — 6-7 beats. Focus on character interaction and one key shift.",
@@ -275,23 +277,60 @@ async def generate_skeleton(
     if not plan_pov and plan_characters:
         plan_pov = plan_characters[0]
 
+    # Build the MANDATORY EVENTS section from plan data
+    mandatory_events = []
+    if plan_summary:
+        mandatory_events.append(f"STORY: {plan_summary}")
+    for pp in plan_plot_points:
+        if pp and isinstance(pp, str):
+            mandatory_events.append(f"MUST HAPPEN: {pp}")
+    for obj in plan_objectives:
+        if obj and isinstance(obj, str) and obj not in mandatory_events:
+            mandatory_events.append(f"OBJECTIVE: {obj}")
+
     user_prompt = (
         f"Create a beat-by-beat skeleton for Chapter {chapter_number} of {total_chapters}.\n\n"
         f"NARRATIVE WEIGHT: {weight_guidance.get(narrative_weight, weight_guidance['standard'])}\n\n"
-        f"CHAPTER PLAN:\n"
-        f"- Summary: {plan_summary}\n"
-        f"- Objectives: {json.dumps(plan_objectives)}\n"
-        f"- Opening type: {plan_opening}\n"
-        f"- Ending type: {plan_ending}\n"
-        f"- Emotional arc: {plan_emotional_arc}\n"
-        f"- POV: {plan_pov}\n"
-        f"- Characters IN THIS CHAPTER (MUST appear): {json.dumps(plan_characters)}\n\n"
-        f"MANDATORY CHARACTER INTERACTION:\n"
-        f"At least 2 of these characters MUST appear together in dialogue scenes.\n"
-        f"A chapter where the POV character is alone the entire time is STRUCTURALLY BROKEN.\n"
-        f"Plan at least 2 beats where 2+ characters are present and talking.\n\n"
-        f"BOOK BIBLE (excerpt):\n{book_bible[:4000]}\n\n"
     )
+
+    # Present plan events as NON-NEGOTIABLE requirements, not suggestions
+    if mandatory_events:
+        user_prompt += (
+            "═══════════════════════════════════════════\n"
+            "  MANDATORY CHAPTER EVENTS (NON-NEGOTIABLE)\n"
+            "═══════════════════════════════════════════\n"
+            "Your skeleton MUST include beats that execute ALL of these events.\n"
+            "You may NOT skip, defer, or replace any of them.\n"
+            "Each event must have its own beat or be clearly part of a beat.\n\n"
+        )
+        for i, event in enumerate(mandatory_events, 1):
+            user_prompt += f"  {i}. {event}\n"
+        user_prompt += "\n"
+
+    # Characters as requirements
+    if plan_characters:
+        user_prompt += (
+            f"REQUIRED CHARACTERS (must appear in this chapter):\n"
+            f"  POV: {plan_pov}\n"
+            f"  Also present: {', '.join(c for c in plan_characters if c != plan_pov)}\n"
+            f"  At least 2 of these characters MUST interact in dialogue.\n"
+            f"  A chapter where the POV character is alone is BROKEN.\n\n"
+        )
+
+    # Structural hints (less forceful)
+    if plan_opening or plan_ending or plan_emotional_arc:
+        user_prompt += f"STRUCTURAL GUIDANCE:\n"
+        if plan_opening:
+            user_prompt += f"  - Suggested opening: {plan_opening}\n"
+        if plan_ending:
+            user_prompt += f"  - Suggested ending: {plan_ending}\n"
+        if plan_emotional_arc:
+            user_prompt += f"  - Emotional arc: {plan_emotional_arc}\n"
+        if plan_transition:
+            user_prompt += f"  - Transition from previous chapter: {plan_transition}\n"
+        user_prompt += "\n"
+
+    user_prompt += f"BOOK BIBLE (excerpt):\n{book_bible[:4000]}\n\n"
     if style_guide:
         user_prompt += f"STYLE GUIDE:\n{style_guide[:2000]}\n\n"
     if world_building:
@@ -436,27 +475,28 @@ def _validate_and_fix_skeleton(
     beats: List[Dict[str, Any]],
     focal_characters: List[str],
     book_bible: str = "",
+    chapter_plan: Dict[str, Any] = None,
     logger=None,
 ) -> List[Dict[str, Any]]:
     """Validate a skeleton and fix structural problems before expansion.
 
     Checks:
-    1. At least 2 beats must have 2+ characters (interaction, not solo)
-    2. At least 2 beats must be dialogue_scene or confrontation
-    3. At least 1 beat must be decision type
-    4. No more than 2 consecutive same info_type
-    5. Characters_present must not be empty for most beats
-
-    If problems are found, fixes them in-place by modifying beat types and
-    injecting characters.
+    1. Plan compliance: do required plot points and characters appear?
+    2. At least 2 beats must have 2+ characters (interaction, not solo)
+    3. At least 2 beats must be dialogue_scene or confrontation
+    4. At least 1 beat must be decision type
+    5. No more than 2 consecutive same info_type
+    6. Characters_present must not be empty for most beats
+    7. Final beat must not be reflection/observation
     """
     import logging
     log = logger or logging.getLogger(__name__)
+    chapter_plan = chapter_plan or {}
 
     if not beats:
         return beats
 
-    # Ensure we have character names to work with
+    # Build character list: prefer plan characters, then bible extraction
     characters = list(focal_characters) if focal_characters else []
     if not characters:
         characters = _extract_character_names_from_bible(book_bible)
@@ -468,13 +508,39 @@ def _validate_and_fix_skeleton(
 
     fixes_applied = []
 
-    # Check 1: How many beats have 2+ characters?
+    # ── Plan compliance: ensure required characters appear ──
+    # Check if the plan's focal characters actually appear in beat actions
+    plan_chars = chapter_plan.get("focal_characters", []) or []
+    if plan_chars and len(plan_chars) >= 2:
+        all_beat_text = " ".join(
+            (b.get("action", "") + " " + " ".join(b.get("characters_present", [])))
+            for b in beats
+        ).lower()
+        missing_chars = [
+            c for c in plan_chars
+            if c.lower().split()[0] not in all_beat_text
+        ]
+        if missing_chars:
+            # Inject missing characters into middle beats as dialogue partners
+            for char in missing_chars[:2]:
+                inject_pos = len(beats) // 2
+                for j in range(inject_pos, len(beats)):
+                    if beats[j].get("info_type") not in ("dialogue_scene", "confrontation"):
+                        beats[j]["info_type"] = "dialogue_scene"
+                        beats[j]["characters_present"] = [pov, char]
+                        beats[j]["action"] = (
+                            f"{char} appears and confronts/informs {pov}. "
+                            f"Original: {beats[j].get('action', '')}"
+                        )
+                        fixes_applied.append(f"beat {j+1}: injected missing plan character {char}")
+                        break
+
+    # ── Check 1: How many beats have 2+ characters? ──
     multi_char_beats = sum(
         1 for b in beats
         if len(b.get("characters_present", [])) >= 2
     )
     if multi_char_beats < 2:
-        # Inject characters into middle and late beats
         inject_positions = [len(beats) // 3, len(beats) * 2 // 3]
         for pos in inject_positions:
             if pos < len(beats):
@@ -491,13 +557,12 @@ def _validate_and_fix_skeleton(
                         )
                     fixes_applied.append(f"beat {pos+1}: injected characters + dialogue")
 
-    # Check 2: How many dialogue/confrontation beats?
+    # ── Check 2: Dialogue beat count ──
     dialogue_beats = sum(
         1 for b in beats
         if b.get("info_type") in ("dialogue_scene", "confrontation")
     )
     if dialogue_beats < 2:
-        # Convert deepening/observation beats to dialogue
         for i, beat in enumerate(beats):
             if dialogue_beats >= 2:
                 break
@@ -507,40 +572,53 @@ def _validate_and_fix_skeleton(
                 if len(existing_chars) < 2:
                     beat["characters_present"] = [pov] + others[:1]
                 beat["action"] = (
-                    f"This beat becomes a dialogue scene between "
-                    f"{beat['characters_present'][0]} and {beat['characters_present'][-1]}. "
+                    f"Dialogue scene between {beat['characters_present'][0]} "
+                    f"and {beat['characters_present'][-1]}. "
                     f"Original action: {beat.get('action', '')}"
                 )
                 dialogue_beats += 1
                 fixes_applied.append(f"beat {i+1}: converted to dialogue_scene")
 
-    # Check 3: At least 1 decision beat
+    # ── Check 3: At least 1 decision beat ──
     decision_beats = sum(1 for b in beats if b.get("info_type") == "decision")
     if decision_beats < 1:
-        # Convert the second-to-last beat to a decision
         idx = max(0, len(beats) - 2)
         beats[idx]["info_type"] = "decision"
         beats[idx]["action"] = (
-            f"{pov} makes a decision about what to do next — commits to an action "
+            f"{pov} makes a decision — commits to a specific action "
             f"with consequences. Original: {beats[idx].get('action', '')}"
         )
         fixes_applied.append(f"beat {idx+1}: converted to decision")
 
-    # Check 4: Populate empty characters_present
+    # ── Check 4: Populate empty characters_present ──
     for beat in beats:
         if not beat.get("characters_present"):
             beat["characters_present"] = [pov]
 
-    # Check 5: Break consecutive same-type runs longer than 2
+    # ── Check 5: Break consecutive same-type runs ──
     for i in range(2, len(beats)):
         if (beats[i].get("info_type") == beats[i-1].get("info_type") ==
                 beats[i-2].get("info_type")):
-            # Change the middle beat type
             if beats[i-1].get("info_type") != "dialogue_scene":
                 beats[i-1]["info_type"] = "dialogue_scene"
                 if len(beats[i-1].get("characters_present", [])) < 2:
                     beats[i-1]["characters_present"] = [pov] + others[:1]
                 fixes_applied.append(f"beat {i}: broke 3-way same-type run")
+
+    # ── Check 6: Final beat should not be pure reflection/observation ──
+    final = beats[-1] if beats else None
+    if final and final.get("info_type") in ("deepening", "transition"):
+        action_lower = (final.get("action", "") or "").lower()
+        if any(w in action_lower for w in ("watch", "reflect", "think", "sunrise",
+                                            "sunrise", "dawn", "coffee", "window",
+                                            "stare", "gaze", "contemplate")):
+            final["info_type"] = "dialogue_scene"
+            final["characters_present"] = [pov] + others[:1]
+            final["action"] = (
+                f"Chapter ends on a confrontation or unanswered question between "
+                f"{pov} and {others[0]}. Original: {final.get('action', '')}"
+            )
+            fixes_applied.append("final beat: replaced reflection with dialogue ending")
 
     if fixes_applied:
         log.info(f"Skeleton validation fixed {len(fixes_applied)} issues: {', '.join(fixes_applied)}")
@@ -1553,7 +1631,16 @@ async def generate_chapter_skeleton_expand(
             "emotional_arc": context.get("emotional_arc", ""),
             "focal_characters": context.get("focal_characters", []),
             "pov_character": context.get("pov_character", ""),
+            "required_plot_points": context.get("required_plot_points", []),
+            "transition_note": context.get("transition_note", ""),
         }
+    # Ensure required_plot_points is populated from context if plan doesn't have it
+    if not chapter_plan.get("required_plot_points"):
+        chapter_plan["required_plot_points"] = context.get("required_plot_points", [])
+    if not chapter_plan.get("focal_characters"):
+        chapter_plan["focal_characters"] = context.get("focal_characters", [])
+    if not chapter_plan.get("transition_note"):
+        chapter_plan["transition_note"] = context.get("transition_note", "")
 
     anti_pattern = context.get("anti_pattern_context", "") or ""
     previous_ending = context.get("last_chapter_ending", "")
@@ -1704,6 +1791,7 @@ async def generate_chapter_skeleton_expand(
         beats=skeleton,
         focal_characters=focal_chars,
         book_bible=book_bible,
+        chapter_plan=chapter_plan,
         logger=log,
     )
 
