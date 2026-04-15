@@ -138,9 +138,26 @@ def trim_repeated_phrases(text: str, max_occurrences: int = 3) -> str:
 
 
 def strip_meta_narration(text: str) -> str:
-    """Remove fourth-wall-breaking meta text."""
+    """Remove fourth-wall-breaking meta text and LLM preamble/revision notes."""
     if not text:
         return text or ""
+
+    # Strip LLM preamble: "Certainly!", "Here is your revised...", revision bullet lists, separators
+    # This handles the case where the stitch or revision pass outputs commentary before the prose.
+    preamble_pattern = re.compile(
+        r'^(?:'
+        r'(?:Certainly|Sure|Of course|Absolutely|Great|Here)[!.,]?\s*'
+        r'(?:Here\s+is|Below\s+is|I\'ve)[^\n]*\n*'
+        r'|Here\s+is\s+(?:your|the)\s+(?:revised|updated|edited|final|completed)[^\n]*\n*'
+        r'|(?:---+\s*\n)+'
+        r'|(?:\s*[-*]\s+[A-Z][^\n]*\n)+\s*(?:---+\s*\n)*'
+        r'|Chapter\s+\d+\s*\n+'
+        r')+',
+        re.MULTILINE | re.IGNORECASE,
+    )
+    text = preamble_pattern.sub('', text, count=1).lstrip()
+
+    # Strip trailing meta narration
     patterns = [
         r'[Tt]he chapter ended[^.]*\.',
         r'[Ee]nd of chapter[^.]*\.',
@@ -407,7 +424,7 @@ async def generate_skeleton(
             response_format={"type": "json_object"},
         )
     except Exception:
-        return _default_skeleton(narrative_weight)
+        return _default_skeleton(narrative_weight, chapter_plan=chapter_plan)
 
     content = ""
     if hasattr(response, "output_text"):
@@ -423,12 +440,39 @@ async def generate_skeleton(
     except Exception:
         pass
 
-    return _default_skeleton(narrative_weight)
+    return _default_skeleton(narrative_weight, chapter_plan=chapter_plan)
 
 
-def _default_skeleton(narrative_weight: str = "standard") -> List[Dict[str, Any]]:
-    """Fallback skeleton when LLM fails."""
+def _default_skeleton(
+    narrative_weight: str = "standard",
+    chapter_plan: Dict[str, Any] = None,
+) -> List[Dict[str, Any]]:
+    """Fallback skeleton when LLM fails. Uses plan data when available."""
+    plan = chapter_plan or {}
     count = {"light": 6, "standard": 8, "heavy": 10}.get(narrative_weight, 8)
+
+    characters = plan.get("focal_characters", []) or []
+    pov = characters[0] if characters else "Protagonist"
+    others = characters[1:] if len(characters) > 1 else []
+    summary = plan.get("summary", "")
+    objectives = plan.get("objectives", []) or []
+    plot_points = plan.get("required_plot_points", []) or []
+
+    # Build meaningful beat actions from plan data
+    planned_actions: List[str] = []
+    if summary:
+        planned_actions.append(f"Open the chapter: {summary[:100]}")
+    for pp in plot_points:
+        if pp and isinstance(pp, str):
+            planned_actions.append(pp[:100])
+    for obj in objectives:
+        if obj and isinstance(obj, str) and obj not in planned_actions:
+            planned_actions.append(obj[:100])
+
+    info_types = ["dialogue_scene", "new_development", "deepening",
+                  "confrontation", "decision", "dialogue_scene",
+                  "deepening", "action", "new_development", "dialogue_scene"]
+
     beats = []
     for i in range(count):
         register = "plain"
@@ -436,13 +480,20 @@ def _default_skeleton(narrative_weight: str = "standard") -> List[Dict[str, Any]
             register = "moderate"
         elif i == count - 2:
             register = "vivid"
+
+        action = planned_actions[i] if i < len(planned_actions) else f"Advance the chapter — beat {i + 1}"
+        beat_chars = [pov]
+        if others and i % 2 == 1:
+            beat_chars.append(others[i % len(others)] if others else "Companion")
+
         beats.append({
             "beat_number": i + 1,
-            "action": f"Continue the chapter — beat {i + 1}",
+            "action": action,
+            "what_changes": "Story advances",
             "prose_register": register,
             "emotional_temperature": "medium",
-            "info_type": "deepening",
-            "characters_present": [],
+            "info_type": info_types[i % len(info_types)],
+            "characters_present": beat_chars,
             "notes": "",
         })
     return beats
@@ -477,6 +528,7 @@ def _validate_and_fix_skeleton(
     book_bible: str = "",
     chapter_plan: Dict[str, Any] = None,
     logger=None,
+    established_context: str = "",
 ) -> List[Dict[str, Any]]:
     """Validate a skeleton and fix structural problems before expansion.
 
@@ -488,6 +540,7 @@ def _validate_and_fix_skeleton(
     5. No more than 2 consecutive same info_type
     6. Characters_present must not be empty for most beats
     7. Final beat must not be reflection/observation
+    8. Scene replay: beats must not replay scenes/revelations from prior chapters
     """
     import logging
     log = logger or logging.getLogger(__name__)
@@ -534,6 +587,43 @@ def _validate_and_fix_skeleton(
                         )
                         fixes_applied.append(f"beat {j+1}: injected missing plan character {char}")
                         break
+
+    # ── Check 0b: Scene replay detection ──
+    # Extract prior scene summaries and revelations from the established context
+    if established_context:
+        ctx_lower = established_context.lower()
+        # Parse "SCENES ALREADY DEPICTED" and "REVELATIONS ALREADY MADE" sections
+        prior_scene_keywords: List[str] = []
+        for line in established_context.split("\n"):
+            stripped = line.strip().lstrip("- ")
+            if stripped.startswith("Ch ") and ":" in stripped:
+                scene_desc = stripped.split(":", 1)[1].strip().lower()
+                # Extract key action words from scene descriptions
+                for word in re.findall(r"[a-z]{4,}", scene_desc):
+                    if word not in _STOPWORDS:
+                        prior_scene_keywords.append(word)
+
+        if prior_scene_keywords:
+            keyword_set = set(prior_scene_keywords)
+            for i, beat in enumerate(beats):
+                action_lower = (beat.get("action", "") or "").lower()
+                action_words = set(re.findall(r"[a-z]{4,}", action_lower))
+                overlap = action_words & keyword_set
+                # If a beat's action shares 3+ significant words with a prior scene,
+                # it's likely a replay — rewrite it to show consequences instead
+                if len(overlap) >= 3:
+                    overlap_str = ", ".join(sorted(overlap)[:5])
+                    beat["action"] = (
+                        f"Show CONSEQUENCES of prior events (do NOT re-depict). "
+                        f"Original beat replayed prior scene (overlapping: {overlap_str}). "
+                        f"Original: {beat.get('action', '')}"
+                    )
+                    beat["notes"] = (
+                        f"{beat.get('notes', '')} "
+                        f"WARNING: This beat risked replaying a prior scene. "
+                        f"Focus on NEW reactions, decisions, or developments."
+                    ).strip()
+                    fixes_applied.append(f"beat {i+1}: flagged as potential scene replay, redirected to consequences")
 
     # ── Check 1: How many beats have 2+ characters? ──
     multi_char_beats = sum(
@@ -860,6 +950,7 @@ async def expand_beat(
     overused_phrases: str = "",
     previous_beat_emotional_point: str = "",
     within_chapter_repetition: str = "",
+    chapter_events_summary: str = "",
 ) -> str:
     """Expand a single beat into prose. No word target — write until the beat is complete."""
 
@@ -927,10 +1018,12 @@ async def expand_beat(
         "temperature, light quality) that appeared in earlier beats. Each beat needs a NEW "
         "sensory detail from a DIFFERENT sense. If earlier beats used sound, use smell or "
         "touch. Never write 'the air felt' or 'the hum of' if those phrases appeared before.\n"
-        "- EVIDENCE RULE: If the ALREADY ESTABLISHED context mentions evidence or findings, "
-        "you may REFERENCE them in ONE SHORT PHRASE (e.g. 'the residue from the hatch' or "
-        "'the forged log entry'). Do NOT re-describe what the evidence looks like, what it "
-        "means, or how it was found. The reader already knows.\n"
+        "- EVIDENCE RULE: Each piece of evidence or prior finding may be mentioned AT MOST "
+        "ONCE in this beat, and AT MOST ONCE in the entire chapter. If an earlier beat already "
+        "referenced it, do NOT mention it again — the reader remembers. When you do reference "
+        "evidence, use a DIFFERENT phrasing each time across chapters (e.g. vary between "
+        "'the marks on the hatch', 'what he'd found at the hatch', 'the hatch discovery'). "
+        "Do NOT re-describe what the evidence looks like or what it means.\n"
     )
 
     if overused_phrases:
@@ -1001,6 +1094,14 @@ async def expand_beat(
     if director_scene_card:
         user_prompt += f"\nDIRECTOR SCENE CARD:\n{director_scene_card[:600]}\n"
 
+    if chapter_events_summary:
+        user_prompt += (
+            f"\nCHAPTER EVENTS SO FAR (canonical record — your prose MUST be consistent with these):\n"
+            f"{chapter_events_summary}\n"
+            f"Any dialogue that retells these events must match exactly. Do NOT contradict who "
+            f"found what, who told whom, or the sequence of actions.\n"
+        )
+
     if previous_beats_text:
         tail = previous_beats_text[-1500:]
         user_prompt += f"\nPREVIOUS TEXT (continue from here, do not repeat):\n...{tail}\n"
@@ -1062,6 +1163,7 @@ async def stitch_beats(
     book_bible_excerpt: str,
     repetition_report: str = "",
     cross_chapter_phrases: str = "",
+    chapter_events_summary: str = "",
 ) -> str:
     """Light smoothing pass with data-driven repetition fixing.
 
@@ -1089,11 +1191,17 @@ async def stitch_beats(
         "the first character action, condense the setting INTO the action paragraphs.\n\n"
         "5. GESTURE/SENSORY/VERBAL TIC AUDITS: Same rules as before — max 3 gestures, "
         "max 2 of any sensory detail, max 2 of any verbal tic.\n\n"
+        "6. INTERNAL CONSISTENCY: Check that any dialogue retelling events (who found what, "
+        "who called whom, who arrived first) matches the NARRATED version earlier in the chapter. "
+        "If a character claims they did something that the narration showed someone else doing, "
+        "fix the dialogue to match the narration. The narrated version is always canonical.\n\n"
         "Do NOT:\n"
         "- Add new metaphors, imagery, or sensory details\n"
         "- Expand or pad the text — the goal is TIGHTER, not longer\n"
         "- Change character voice, plot content, or register\n"
-        "\nReturn the FULL chapter text with changes applied.\n"
+        "- Include ANY preamble, explanation, or list of changes you made\n"
+        "\nOutput ONLY the revised chapter text. No 'Here is your revised...' or "
+        "bullet lists of changes. Start directly with the first sentence of the chapter.\n"
     )
 
     user_prompt = (
@@ -1108,6 +1216,12 @@ async def stitch_beats(
         user_prompt += (
             f"PHRASES OVERUSED ACROSS PRIOR CHAPTERS (replace if found):\n"
             f"{cross_chapter_phrases}\n\n"
+        )
+    if chapter_events_summary:
+        user_prompt += (
+            f"CANONICAL EVENT SEQUENCE (use this to verify consistency — "
+            f"if any dialogue contradicts these events, fix the dialogue):\n"
+            f"{chapter_events_summary}\n\n"
         )
 
     user_prompt += (
@@ -1177,6 +1291,62 @@ def _extract_emotional_summary(text: str) -> str:
     return ""
 
 
+# ─── Within-Chapter Event Tracker ──────────────────────────────────────────────
+
+def _extract_beat_events(beat_text: str, beat_number: int, beat_action: str) -> str:
+    """Extract a 1-2 line factual summary of what happened in a beat.
+
+    This compact summary survives context truncation so later beats
+    always know the canonical sequence of events (who found what,
+    who told whom, key actions and discoveries).
+    """
+    if not beat_text:
+        return ""
+
+    events: List[str] = []
+
+    # Detect dialogue attributions (who spoke)
+    speakers = set()
+    for m in re.finditer(r'["\u201c][^"\u201d]+["\u201d]\s*(?:,?\s*)(\w+)\s+(?:said|called|asked|replied|whispered|muttered|snapped|shouted)', beat_text):
+        speakers.add(m.group(1))
+    for m in re.finditer(r'(\w+)\s+(?:said|called|asked|replied|whispered|muttered|snapped|shouted)\s*[,.]?\s*["\u201c]', beat_text):
+        speakers.add(m.group(1))
+
+    # Detect discoveries / findings
+    discovery_patterns = [
+        r'(?:found|discovered|noticed|spotted|saw)\s+(?:a|the|an)\s+(\w[\w\s]{2,20})',
+        r'(?:body|corpse|figure)\s+(?:lay|was|floated)',
+        r'(?:dead|deceased|lifeless)',
+    ]
+    discoveries = []
+    for pattern in discovery_patterns:
+        for m in re.finditer(pattern, beat_text, re.IGNORECASE):
+            discoveries.append(m.group(0).strip()[:40])
+
+    # Detect decisions / actions
+    decision_patterns = [
+        r'(?:decided|chose|committed|resolved|made\s+(?:a|his|her)\s+decision)',
+        r'(?:called|phoned|radioed|reported)',
+    ]
+    decisions = []
+    for pattern in decision_patterns:
+        for m in re.finditer(pattern, beat_text, re.IGNORECASE):
+            decisions.append(m.group(0).strip())
+
+    # Build compact summary
+    parts = []
+    if beat_action:
+        parts.append(beat_action[:80])
+    if discoveries:
+        parts.append(f"Found: {'; '.join(discoveries[:2])}")
+    if speakers:
+        parts.append(f"Speakers: {', '.join(sorted(speakers)[:4])}")
+    if decisions:
+        parts.append(f"Action: {'; '.join(decisions[:2])}")
+
+    return f"Beat {beat_number}: {' | '.join(parts)}" if parts else ""
+
+
 # ─── Within-Chapter Repetition Scanner ────────────────────────────────────────
 
 def _scan_within_chapter_repetition(accumulated_text: str) -> str:
@@ -1238,13 +1408,38 @@ def _scan_within_chapter_repetition(accumulated_text: str) -> str:
         if count >= 2 and len(phrase.split()) <= 10:
             warnings.append(f'catchphrase "{phrase}" ({count}x)')
 
+    # Unearned callback detection: "again", "still [verb]ing", "as before", "once more"
+    # that reference something not established earlier in this chapter's text
+    callback_patterns = [
+        (r'\b(\w{3,})\s+(?:started|began|came)\s+(?:up\s+)?again\b', "started X again"),
+        (r'\bonce\s+more\b', "once more"),
+        (r'\bas\s+before\b', "as before"),
+        (r'\blike\s+(?:last|the\s+previous)\s+time\b', "like last time"),
+        (r'\bnot\s+for\s+the\s+first\s+time\b', "not for the first time"),
+    ]
+    for pattern, label in callback_patterns:
+        matches = list(re.finditer(pattern, text_lower))
+        if matches:
+            for m in matches[:1]:
+                context_start = max(0, m.start() - 40)
+                snippet = accumulated_text[context_start:m.end()].strip()
+                # Check if the referenced thing actually appeared earlier
+                if label == "started X again":
+                    subject = m.group(1)
+                    prior_text = text_lower[:m.start()]
+                    if subject not in prior_text:
+                        warnings.append(
+                            f'unearned callback: "{subject} ... again" — '
+                            f'"{subject}" has no prior mention in this chapter'
+                        )
+
     if not warnings:
         return ""
     return (
         "⚠ REPETITION ALERT — These have ALREADY appeared in this chapter. "
         "Using them again will damage the prose. Find a completely different "
         "action, object, or phrase:\n"
-        + "\n".join(f"- {w}" for w in warnings[:8])
+        + "\n".join(f"- {w}" for w in warnings[:10])
     )
 
 
@@ -1403,7 +1598,7 @@ class EstablishedFactsLedger:
             return {"facts": [], "scene_events": [], "unresolved_threads": [], "character_states": []}
 
         system_prompt = (
-            "You are a continuity tracker. Extract FIVE types of information:\n\n"
+            "You are a continuity tracker. Extract SIX types of information:\n\n"
             "1. ESTABLISHED FACTS: Key facts the READER now knows (character descriptions, "
             "setting details, relationship dynamics, discoveries, objects introduced).\n\n"
             "2. SCENE EVENTS: Specific scenes that played out (e.g., 'Postman reported Fuzzy Filter "
@@ -1419,7 +1614,12 @@ class EstablishedFactsLedger:
             "results are presented to other characters (e.g., 'Nero showed the residue report "
             "to the group in the breakroom — all evidence was discussed in full'). These prevent "
             "future chapters from re-presenting the SAME evidence.\n\n"
-            "Output STRICT JSON with five arrays.\n"
+            "6. REVELATIONS & CONFESSIONS: Any scene where a character reveals a secret, "
+            "confesses knowledge, admits something, or discloses information they had been "
+            "withholding (e.g., 'Postman told Nero he saw a blue-shirted figure by the fence', "
+            "'Tony admitted he knew about the leak'). Include WHO told WHOM and WHAT was revealed. "
+            "These are CRITICAL — future chapters must NEVER replay the same revelation.\n\n"
+            "Output STRICT JSON with six arrays.\n"
         )
 
         user_prompt = (
@@ -1437,10 +1637,13 @@ class EstablishedFactsLedger:
             '  "character_states": [{"character": "Name", "emotional_state": "description", '
             f'"as_of_chapter": {chapter_number}' + '}],\n'
             '  "evidence_presentations": [{"summary": "what evidence was presented to whom", '
+            f'"chapter": {chapter_number}' + '}],\n'
+            '  "revelations": [{"who_revealed": "character name", "told_to": "character name", '
+            '"what_revealed": "specific secret or information disclosed", '
             f'"chapter": {chapter_number}' + '}]\n'
             "}\n"
             "Extract 5-10 facts, 2-5 scene events, any unresolved threads, states for all named characters, "
-            "and any evidence presentation scenes.\n"
+            "any evidence presentation scenes, and ALL revelations/confessions.\n"
         )
 
         try:
@@ -1470,10 +1673,11 @@ class EstablishedFactsLedger:
                 "unresolved_threads": [t for t in parsed.get("unresolved_threads", []) if isinstance(t, dict)],
                 "character_states": [c for c in parsed.get("character_states", []) if isinstance(c, dict)],
                 "evidence_presentations": [e for e in parsed.get("evidence_presentations", []) if isinstance(e, dict)],
+                "revelations": [r for r in parsed.get("revelations", []) if isinstance(r, dict)],
             }
             return result
         except Exception:
-            return {"facts": [], "scene_events": [], "unresolved_threads": [], "character_states": [], "evidence_presentations": []}
+            return {"facts": [], "scene_events": [], "unresolved_threads": [], "character_states": [], "evidence_presentations": [], "revelations": []}
 
     def add_chapter_facts(self, chapter_number: int, new_data) -> None:
         """Add extracted data (facts + scene events + threads + character states)."""
@@ -1498,6 +1702,9 @@ class EstablishedFactsLedger:
             for ev_pres in new_data.get("evidence_presentations", []):
                 ev_pres["chapter"] = chapter_number
                 ledger_data.setdefault("evidence_presentations", []).append(ev_pres)
+            for rev in new_data.get("revelations", []):
+                rev["chapter"] = chapter_number
+                ledger_data.setdefault("revelations", []).append(rev)
             self._save_extended(ledger_data)
         elif isinstance(new_data, list):
             for fact in new_data:
@@ -1597,6 +1804,24 @@ class EstablishedFactsLedger:
                 summary = ep.get("summary", "")
                 ch = ep.get("chapter", "?")
                 line = f"- Ch {ch}: {summary}"
+                if used + len(line) > max_chars * 0.95:
+                    break
+                lines.append(line)
+                used += len(line)
+            sections.append("\n".join(lines))
+
+        revelations = ext.get("revelations", [])
+        if revelations:
+            lines = [
+                "REVELATIONS ALREADY MADE (these secrets are OUT — do NOT have the character "
+                "reveal the same information again; show CONSEQUENCES instead):"
+            ]
+            for rev in revelations:
+                who = rev.get("who_revealed", "?")
+                told = rev.get("told_to", "?")
+                what = rev.get("what_revealed", "?")
+                ch = rev.get("chapter", "?")
+                line = f"- Ch {ch}: {who} told {told}: \"{what}\""
                 if used + len(line) > max_chars:
                     break
                 lines.append(line)
@@ -1793,11 +2018,13 @@ async def generate_chapter_skeleton_expand(
         book_bible=book_bible,
         chapter_plan=chapter_plan,
         logger=log,
+        established_context=established_facts_text,
     )
 
     expanded_parts: List[str] = []
     accumulated_text = ""
     emotional_summary = ""
+    events_log: List[str] = []
     for i, beat in enumerate(skeleton):
         register = beat.get("prose_register", "plain")
         is_final = (i == len(skeleton) - 1)
@@ -1805,6 +2032,7 @@ async def generate_chapter_skeleton_expand(
         log.info(f"Chapter {chapter_number}: Expanding beat {i+1}/{len(skeleton)} ({register}{'[FIRST]' if is_first else ''}{'[FINAL]' if is_final else ''})")
 
         within_chapter_warnings = _scan_within_chapter_repetition(accumulated_text)
+        events_summary = "\n".join(events_log) if events_log else ""
 
         beat_text = await expand_beat(
             orchestrator=orchestrator,
@@ -1826,12 +2054,16 @@ async def generate_chapter_skeleton_expand(
             overused_phrases=overused_phrases_str,
             previous_beat_emotional_point=emotional_summary,
             within_chapter_repetition=within_chapter_warnings,
+            chapter_events_summary=events_summary,
         )
 
         if beat_text:
             expanded_parts.append(beat_text)
             accumulated_text += "\n\n" + beat_text
             emotional_summary = _extract_emotional_summary(beat_text) if not is_final else ""
+            beat_event = _extract_beat_events(beat_text, i + 1, beat.get("action", ""))
+            if beat_event:
+                events_log.append(beat_event)
 
     if not expanded_parts:
         log.error(f"Chapter {chapter_number}: No beats expanded")
@@ -1846,6 +2078,7 @@ async def generate_chapter_skeleton_expand(
         log.info(f"Chapter {chapter_number}: Found repetition issues for stitch pass")
 
     log.info(f"Chapter {chapter_number}: Stitching...")
+    final_events_summary = "\n".join(events_log) if events_log else ""
     stitched = await stitch_beats(
         orchestrator=orchestrator,
         expanded_text=raw_chapter,
@@ -1853,6 +2086,7 @@ async def generate_chapter_skeleton_expand(
         book_bible_excerpt=book_bible[:2000],
         repetition_report=repetition_report,
         cross_chapter_phrases=overused_phrases_str,
+        chapter_events_summary=final_events_summary,
     )
 
     # Step 4: Deterministic cleanup

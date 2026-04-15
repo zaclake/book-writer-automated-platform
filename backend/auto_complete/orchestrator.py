@@ -1627,7 +1627,11 @@ class AutoCompleteBookOrchestrator:
                 "Preserve story facts and voice. Apply targeted changes only.\n"
                 "Eliminate repetition loops and list spirals. Do not repeat words or phrases.\n"
                 "Output plain text only (no Markdown formatting: no headings, bullets, blockquotes, emphasis markers like *, **, _, or separators like ---).\n"
-                "Use em dashes sparingly."
+                "Use em dashes sparingly.\n"
+                "CRITICAL: Output ONLY the revised chapter prose. Do NOT include any preamble, "
+                "explanation, list of changes, or commentary. Do NOT start with 'Certainly', "
+                "'Here is', 'Sure', or any introductory text. Start directly with the first "
+                "sentence of the chapter."
             )
             revision_user = (
                 f"Revise Chapter {chapter_number} to address the issues.\n\n"
