@@ -1006,6 +1006,10 @@ REGISTER_INSTRUCTIONS = {
         "But still: ONE strong central image per paragraph. Do not stack metaphors. "
         "Let one striking, original detail carry the moment. "
         "After the vivid moment, return to plainer prose for the beat's conclusion.\n"
+        "VIVID CONTAINMENT: The heightened prose lives in ONE paragraph only — the "
+        "peak moment. The paragraphs before and after it must be plain. Do NOT let "
+        "atmospheric description spill across 2-3 consecutive paragraphs. If you wrote "
+        "a vivid image in one paragraph, the next paragraph must be action or dialogue.\n"
         "SENTENCE LENGTH VARIETY: Even vivid beats need short sentences for contrast. "
         "Target: 20-30% short, 45-55% medium, 20-30% long.\n"
         "EXAMPLES OF VIVID PROSE:\n"
@@ -1083,6 +1087,16 @@ async def expand_beat(
         "- Characters NEVER state the book's theme in dialogue. No abstract declarations.\n"
         "- Confessions should use euphemism and deflection, not direct statements of guilt.\n"
         "- No rehearsal monologues: characters do NOT practice what they will say to others.\n"
+        "- DIALOGUE ESCALATION: In any scene with 3+ dialogue exchanges, each exchange must "
+        "SHIFT something — the power balance, the information level, the emotional register, "
+        "or the topic. If character A asks a question and character B deflects, the NEXT exchange "
+        "cannot be the same pattern. A must try a different angle, or B must crack. Conversations "
+        "that repeat the same posture (ask → deflect → ask → deflect) are broken.\n"
+        "- ATTRIBUTION VARIETY: Do NOT use 'kept his voice even/flat/measured/low' more than "
+        "ONCE per chapter. After the first use, show tone through WORD CHOICE and SENTENCE "
+        "LENGTH, not narrator description. Vary dialogue tags: use 'said' for most, silence "
+        "or action beats for the rest. Never stack 'he replied... he answered... he said' in "
+        "consecutive exchanges.\n"
         "- NEVER start a sentence with 'There was' or 'There were.' Restructure to lead "
         "with the subject or a sensory detail instead.\n"
         "- CHARACTER INTERIORITY: The POV character is a thinking, feeling person — not a "
@@ -1111,6 +1125,10 @@ async def expand_beat(
         "temperature, light quality) that appeared in earlier beats. Each beat needs a NEW "
         "sensory detail from a DIFFERENT sense. If earlier beats used sound, use smell or "
         "touch. Never write 'the air felt' or 'the hum of' if those phrases appeared before.\n"
+        "- SMELL CAP: Maximum 2 smell/odor/scent/tang references per chapter. Smell is the "
+        "most overused sense in fiction. After 2 smell mentions, switch to touch, taste, "
+        "or visual texture. Do NOT mention chlorine, bleach, or chemical smells more than "
+        "once per chapter total.\n"
         "- EVIDENCE RULE: Each piece of evidence or prior finding may be mentioned AT MOST "
         "ONCE in this beat, and AT MOST ONCE in the entire chapter. If an earlier beat already "
         "referenced it, do NOT mention it again — the reader remembers. When you do reference "
@@ -1271,6 +1289,10 @@ async def stitch_beats(
         "Fix these specific issues:\n\n"
         "1. DEAD WEIGHT: Cut or condense any paragraph where the character just 'paused,' "
         "'listened,' 'glanced,' or 'waited' without advancing plot, character, or tension. "
+        "Also cut any paragraph that is PURE REFLECTION — 'He thought about X', "
+        "'He considered Y', 'He wondered about Z' — where the character is only musing "
+        "without acting, deciding, or learning. Reflection is earned ONLY when it leads "
+        "directly to a decision or action in the same paragraph. "
         "If a paragraph could be removed without the reader noticing, remove it.\n\n"
         "2. REPETITION FIXES: See the SPECIFIC ISSUES section for exact phrases and words "
         "that repeat. Replace the 3rd+ occurrence with a DIFFERENT action or cut the sentence.\n\n"
@@ -1589,16 +1611,28 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
         issues.extend(f"  {t}" for t in trigrams)
 
     # Single-word overuse (props, atmospheric words, gesture verbs)
-    # Uses {3,} to catch short props (cup, mug, pen) and lower threshold for earlier detection
     capitalized = set(w.lower() for w in re.findall(r"\b[A-Z][a-z]{2,}\b", chapter_text))
     total_words = len(text_lower.split())
     word_counts = Counter(re.findall(r"[a-z]{3,}", text_lower))
     overused_words = []
-    for word, count in word_counts.most_common(12):
+    # Scan more words (top 20) to catch props that aren't the most frequent
+    for word, count in word_counts.most_common(20):
         if word in _STOPWORDS or word in capitalized:
             continue
         if count >= max(3, total_words // 500):
             overused_words.append(f'  "{word}" ({count}x)')
+    # Specific prop/body-part words that should be caught at 4+ even if
+    # they didn't make the top-N cut above
+    _PROP_WORDS = frozenset({
+        "boots", "clipboard", "radio", "phone", "logbook", "notebook",
+        "mug", "coffee", "thermos", "flashlight", "helmet", "gloves",
+        "concrete", "gravel", "grating", "walkway", "railing",
+    })
+    for word in _PROP_WORDS:
+        count = word_counts.get(word, 0)
+        entry = f'  "{word}" ({count}x)'
+        if count >= 4 and entry not in overused_words:
+            overused_words.append(entry)
     if overused_words:
         issues.append("Overused words:")
         issues.extend(overused_words)
@@ -1650,6 +1684,13 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
         (r'not\s+for\s+the\s+first\s+time', "not for the first time"),
         (r'(?:the|a)\s+(?:sound|hum|drone|whir|buzz)\s+of\s+\w+\s+'
          r'(?:filled|pressed|settled|hung)', "the sound/hum of X filled/pressed"),
+        (r'already\s+(?:planning|thinking|noting|considering|sorting|cataloging|imagining|'
+         r'running|mapping|weighing|replaying|moving)', "already [verb]ing"),
+        (r'(?:kept|held)\s+(?:his|her|their)\s+(?:voice|tone|gaze|eyes|face|expression)\s+'
+         r'(?:even|flat|steady|low|neutral|measured|still|blank|calm)',
+         "kept his voice/face even/flat/steady"),
+        (r'(?:he|she)\s+(?:thought|wondered)\s+(?:about|of|how|if|whether)',
+         "He thought/wondered about"),
     ]
     crutch_issues = []
     for pattern, label in construction_patterns:
@@ -1659,6 +1700,26 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
     if crutch_issues:
         issues.append("CONSTRUCTION CRUTCHES (repeated sentence shapes — rewrite with varied syntax):")
         issues.extend(crutch_issues)
+
+    # Sensory channel stacking: detect when one sense (usually smell) dominates
+    smell_words = len(re.findall(
+        r'(?:smell|scent|odor|tang|stink|stench|whiff|reek|fragrance|aroma|'
+        r'smelled|stank|reeked|wafted|drifted|clung|lingered)\b', text_lower
+    ))
+    sound_words = len(re.findall(
+        r'(?:hum|drone|clang|clatter|rattle|buzz|whir|thud|scrape|creak|'
+        r'click|snap|bang|slam|rumble|echo)\b', text_lower
+    ))
+    if smell_words >= 6:
+        issues.append(
+            f"SENSORY IMBALANCE: Smell references ({smell_words}x) dominate — "
+            f"cut to 3 max, replace extras with touch, taste, or visual details"
+        )
+    if sound_words >= 8:
+        issues.append(
+            f"SENSORY IMBALANCE: Sound references ({sound_words}x) dominate — "
+            f"cut to 4 max, vary with other senses"
+        )
 
     return "\n".join(issues) if issues else ""
 
