@@ -6,7 +6,7 @@ import { UI_STRINGS } from '@/lib/strings'
 export default function CommunityPage() {
   return (
     <div className="min-h-screen bg-brand-sand py-12">
-      <div className="max-w-4xl mx-auto px-6 text-center">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 md:px-8 text-center">
         {/* Coming Soon Illustration */}
         <div className="mb-8">
           <div className="w-32 h-32 mx-auto bg-gradient-to-br from-brand-soft-purple/20 to-brand-leaf/20 rounded-full flex items-center justify-center mb-6">
@@ -33,7 +33,7 @@ export default function CommunityPage() {
         </p>
 
         {/* Features Preview */}
-        <div className="grid md:grid-cols-3 gap-6 max-w-3xl mx-auto mb-8">
+        <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto mb-8">
           <div className="bg-white p-6 rounded-xl border border-gray-200">
             <div className="text-3xl mb-3">📧</div>
             <h3 className="font-semibold text-gray-900 mb-2">Contact & Support</h3>

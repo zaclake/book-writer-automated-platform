@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuthToken } from '@/lib/auth'
+import { fetchApi } from '@/lib/api-client'
 import { DocumentTextIcon, PencilIcon, EyeIcon, CheckCircleIcon, SparklesIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
@@ -58,7 +59,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
         return
       }
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/v2/projects/${projectId}/references`, {
+      const response = await fetchApi(`/api/v2/projects/${projectId}/references`, {
         headers: authHeaders
       })
       if (response.ok) {
@@ -68,7 +69,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
           const fileDetails = await Promise.all(
             files.map(async (fileInfo: any) => {
               try {
-                const fileResponse = await fetch(`/api/v2/projects/${projectId}/references/${fileInfo.name}`, {
+                const fileResponse = await fetchApi(`/api/v2/projects/${projectId}/references/${fileInfo.name}`, {
                   headers: authHeaders
                 })
                 if (fileResponse.ok) {
@@ -129,9 +130,9 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-          const response = await fetch(`/api/v2/projects/${projectId}/references/${fileName}`, {
-      headers: authHeaders
-    })
+      const response = await fetchApi(`/api/v2/projects/${projectId}/references/${fileName}`, {
+        headers: authHeaders
+      })
       
       if (response.ok) {
         const fileData = await response.json()
@@ -160,7 +161,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/v2/projects/${projectId}/references/${selectedFile.name}`, {
+      const response = await fetchApi(`/api/v2/projects/${projectId}/references/${selectedFile.name}`, {
         method: 'PUT',
         headers: {
           ...authHeaders,
@@ -214,15 +215,16 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
     setGenerationStatus({ isGenerating: true, message: 'Generating AI-powered reference content...' })
     GlobalLoader.show({
       title: 'Generating References',
-      stage: 'Starting...',
+      stage: 'Starting generation...',
       showProgress: true,
-      size: 'md',
+      safeToLeave: true,
+      canMinimize: true,
       customMessages: [
-        '🖋️ Sharpening pencils for epic writing...',
-        '📚 Consulting the storytelling gods...',
-        "🎭 Giving your characters personality...",
-        "🗺️ Drawing your story's treasure map...",
-        '🔮 Gazing into plot crystal balls...',
+        'Building character profiles...',
+        'Analyzing story structure...',
+        'Creating world details...',
+        'Developing themes...',
+        'Compiling style guide...',
       ],
       timeoutMs: 1800000,
     })
@@ -233,7 +235,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
       // Start polling for progress updates
       const poll = async () => {
         try {
-          const res = await fetch(`/api/v2/projects/${projectId}/references/progress`, { headers: authHeaders })
+          const res = await fetchApi(`/api/v2/projects/${projectId}/references/progress`, { headers: authHeaders })
           if (!res.ok) return
           const data = await res.json()
           if (typeof data.progress === 'number') {
@@ -255,7 +257,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
       }
       const progressInterval = setInterval(poll, 3000)
       await poll()
-      const response = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
+      const response = await fetchApi(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: {
           ...authHeaders,
@@ -325,7 +327,7 @@ export function ReferenceFileManager({ projectId: propProjectId }: ReferenceFile
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/v2/projects/${projectId}/references/generate`, {
+      const response = await fetchApi(`/api/v2/projects/${projectId}/references/generate`, {
         method: 'POST',
         headers: {
           ...authHeaders,

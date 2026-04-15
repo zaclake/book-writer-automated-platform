@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import useSWR from 'swr'
 import { useAuthToken } from '@/lib/auth'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
+import { fetchApi } from '@/lib/api-client'
 
 interface PublishConfig {
   title: string
@@ -23,6 +24,22 @@ interface PublishConfig {
   formats: string[]
   use_existing_cover: boolean
   include_toc: boolean
+  include_kdp_kit?: boolean
+  kdp_description?: string
+  kdp_keywords?: string[]
+  kdp_categories?: string[]
+  kdp_subtitle?: string
+  kdp_series_name?: string
+  kdp_series_number?: string
+  kdp_language?: string
+  kdp_primary_marketplace?: string
+  kdp_author_bio?: string
+  kdp_contributors?: string
+  kdp_edition?: string
+  kdp_age_range?: string
+  kdp_grade_range?: string
+  kdp_imprint?: string
+  kdp_pricing?: string
 }
 
 interface JobProgress {
@@ -39,6 +56,7 @@ interface JobStatus {
     epub_url?: string
     pdf_url?: string
     html_url?: string
+    kdp_kit_url?: string
     file_sizes?: Record<string, number>
     word_count?: number
     page_count?: number
@@ -58,12 +76,13 @@ interface PublishJobHook {
     epub?: string
     pdf?: string
     html?: string
+    kdp_kit?: string
   } | null
 }
 
 const createFetcher = (getAuthHeaders: () => Promise<Record<string, string>>) => async (url: string) => {
   const authHeaders = await getAuthHeaders()
-  const response = await fetch(url, {
+  const response = await fetchApi(url, {
     headers: authHeaders
   })
   
@@ -95,9 +114,19 @@ export function usePublishJob(): PublishJobHook {
         }
         return 2000 // Poll every 2 seconds
       },
+      onSuccess: (data: any) => {
+        if (data?.progress?.progress_percentage != null) {
+          GlobalLoader.update({
+            progress: data.progress.progress_percentage,
+            stage: data.progress.current_step || 'Publishing...',
+            showProgress: true,
+          })
+        }
+      },
       onError: (err) => {
         console.error('Failed to fetch job status:', err)
         setError(new Error('Failed to fetch job status'))
+        GlobalLoader.update({ stage: 'Reconnecting for updates...', showProgress: true })
       }
     }
   )
@@ -129,20 +158,21 @@ export function usePublishJob(): PublishJobHook {
 
       GlobalLoader.show({
         title: 'Publishing Your Book',
-        stage: 'Starting...',
+        stage: 'Preparing content...',
         showProgress: true,
-        size: 'md',
+        safeToLeave: true,
+        canMinimize: true,
         customMessages: [
-          '📦 Packaging content...',
-          '🧩 Building chapters into formats...',
-          '🧭 Creating navigation and TOC...',
-          '✨ Polishing layout and typography...',
-          '☁️ Uploading final files...',
+          'Packaging chapters...',
+          'Building book structure...',
+          'Creating navigation...',
+          'Formatting typography...',
+          'Uploading files...',
         ],
         timeoutMs: 3600000,
       })
 
-      const response = await fetch(`/api/v2/publish/project/${projectId}`, {
+      const response = await fetchApi(`/api/v2/publish/project/${projectId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,10 +201,12 @@ export function usePublishJob(): PublishJobHook {
   }
 
   // Extract download URLs from job result
-  const downloadUrls = jobStatus?.result ? {
-    epub: jobStatus.result.epub_url,
-    pdf: jobStatus.result.pdf_url,
-    html: jobStatus.result.html_url
+  // Prefer flattened fields on result; fallback to top-level download_urls if present
+  const downloadUrls = jobStatus ? {
+    epub: jobStatus.result?.epub_url || (jobStatus as any)?.download_urls?.epub,
+    pdf: jobStatus.result?.pdf_url || (jobStatus as any)?.download_urls?.pdf,
+    html: jobStatus.result?.html_url || (jobStatus as any)?.download_urls?.html,
+    kdp_kit: jobStatus.result?.kdp_kit_url || (jobStatus as any)?.download_urls?.kdp_kit,
   } : null
 
   return {

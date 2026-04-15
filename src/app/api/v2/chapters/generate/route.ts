@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
- * Proxy chapter generation requests to the FastAPI backend with authentication.
+ * Proxy chapter generation requests to the FastAPI backend.
  */
 export async function POST(request: NextRequest) {
   console.log('[v2/chapters/generate] POST request started')
-  
+
   try {
     const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     if (!backendBaseUrl) {
@@ -20,30 +19,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get Clerk auth and JWT token
-    const { getToken } = await auth()
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-    
-    try {
-      const token = await getToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-        console.log('[v2/chapters/generate] Auth token added to request')
-      } else {
-        console.warn('[v2/chapters/generate] No auth token available')
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        )
-      }
-    } catch (error) {
-      console.error('[v2/chapters/generate] Failed to get Clerk token:', error)
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 }
-      )
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     }
 
     // Get request body
@@ -51,7 +34,7 @@ export async function POST(request: NextRequest) {
     console.log('[v2/chapters/generate] Request body keys:', Object.keys(body))
 
     const targetUrl = `${backendBaseUrl}/v2/chapters/generate`
-    
+
     console.log('[v2/chapters/generate] Forwarding to:', targetUrl)
     console.log('[v2/chapters/generate] Headers:', Object.keys(headers))
 
@@ -75,11 +58,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const data = await backendResponse.json()
-    
+    const contentType = backendResponse.headers.get('content-type') || ''
+    let data: any = null
+    let rawText: string | null = null
+    if (contentType.includes('application/json')) {
+      data = await backendResponse.json()
+    } else {
+      rawText = await backendResponse.text()
+      data = rawText ? { error: rawText } : { error: 'Empty response from backend' }
+    }
+
     if (!backendResponse.ok) {
       console.error('[v2/chapters/generate] Backend error:', backendResponse.status, data)
-      return NextResponse.json(data, { status: backendResponse.status })
+      return NextResponse.json(
+        {
+          ...data,
+          status: backendResponse.status,
+          backend_content_type: contentType || 'unknown',
+          backend_raw: rawText
+        },
+        { status: backendResponse.status }
+      )
     }
 
     console.log('[v2/chapters/generate] Request completed successfully')

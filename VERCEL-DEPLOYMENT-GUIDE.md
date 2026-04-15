@@ -30,7 +30,7 @@ CLERK_SECRET_KEY=sk_test_your_clerk_secret_key_here
 #### 🤖 OpenAI API & Reference Generation
 ```
 OPENAI_API_KEY=sk-your_openai_api_key_here
-DEFAULT_AI_MODEL=gpt-4o
+DEFAULT_AI_MODEL=gpt-5.2-pro
 DEFAULT_AI_TEMPERATURE=0.7
 REFERENCE_PROMPTS_DIR=./prompts/reference-generation
 ```

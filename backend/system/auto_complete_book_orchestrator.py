@@ -413,12 +413,39 @@ class AutoCompleteBookOrchestrator:
                 # Build context for this chapter
                 context = self._build_chapter_context(job.chapter_number, attempt)
                 
-                # Generate chapter using 5-stage process
-                generation_results = self.llm_orchestrator.generate_chapter_5_stage(
-                    chapter_number=job.chapter_number,
-                    target_words=self.config.target_word_count // self.config.target_chapter_count,
-                    context=context
-                )
+                # Gate legacy 5-stage generation behind an explicit flag.
+                allow_5_stage = os.getenv("ENABLE_5_STAGE_WRITING", "false").strip().lower() in ("1", "true", "yes", "y", "on")
+
+                # Generate chapter using 5-stage process when required fields exist
+                required_fields = [
+                    "genre",
+                    "story_context",
+                    "required_plot_points",
+                    "focus_characters",
+                    "chapter_climax_goal"
+                ]
+                missing_fields = [field for field in required_fields if not context.get(field)]
+                if not allow_5_stage or missing_fields:
+                    if not allow_5_stage:
+                        self.logger.info("5-stage generation disabled (ENABLE_5_STAGE_WRITING != true); using single-stage generation.")
+                    if allow_5_stage and missing_fields:
+                        self.logger.warning(
+                            f"Missing 5-stage fields ({', '.join(missing_fields)}); falling back to single-stage generation."
+                        )
+                    generation_results = [
+                        await self.llm_orchestrator.generate_chapter(
+                            chapter_number=job.chapter_number,
+                            target_words=self.config.target_word_count // self.config.target_chapter_count,
+                            stage="complete",
+                            context=context
+                        )
+                    ]
+                else:
+                    generation_results = await self.llm_orchestrator.generate_chapter_5_stage(
+                        chapter_number=job.chapter_number,
+                        target_words=self.config.target_word_count // self.config.target_chapter_count,
+                        context=context
+                    )
                 
                 # Get final chapter content
                 if generation_results and generation_results[-1].success:
@@ -523,6 +550,33 @@ class AutoCompleteBookOrchestrator:
         """Build context for chapter generation using ChapterContextManager."""
         # Get comprehensive context from context manager
         context_data = self.context_manager.build_next_chapter_context(chapter_number)
+
+        # Load project metadata and core references when available
+        book_bible_content = ""
+        genre = ""
+        references_content: Dict[str, str] = {}
+        try:
+            meta_file = self.project_path / ".project-meta.json"
+            if meta_file.exists():
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                genre = str(meta.get("genre") or "")
+        except Exception as e:
+            self.logger.warning(f"Failed to load project metadata: {e}")
+
+        try:
+            book_bible_file = self.project_path / "book-bible.md"
+            if book_bible_file.exists():
+                book_bible_content = book_bible_file.read_text(encoding="utf-8")
+        except Exception as e:
+            self.logger.warning(f"Failed to load book bible: {e}")
+
+        try:
+            references_dir = self.project_path / "references"
+            if references_dir.exists():
+                for ref_file in references_dir.glob("*.md"):
+                    references_content[ref_file.stem] = ref_file.read_text(encoding="utf-8")
+        except Exception as e:
+            self.logger.warning(f"Failed to load reference files: {e}")
         
         # Add generation-specific context
         context = {
@@ -553,8 +607,42 @@ class AutoCompleteBookOrchestrator:
             
             # Pacing and continuity guidance
             "pacing_guidance": context_data.get('pacing_guidance', {}),
-            "continuity_requirements": context_data.get('continuity_requirements', [])
+            "continuity_requirements": context_data.get('continuity_requirements', []),
+            "book_bible": book_bible_content,
+            "references": references_content
         }
+
+        # Required 5-stage fields when possible (avoid placeholders)
+        story_context = book_bible_content or context_data.get("story_so_far", "")
+        required_plot_points = context_data.get("required_plot_advancement")
+        if isinstance(required_plot_points, dict):
+            required_plot_points = list(required_plot_points.values())
+        if isinstance(required_plot_points, str):
+            required_plot_points = [required_plot_points]
+        if not isinstance(required_plot_points, list):
+            required_plot_points = []
+
+        focus_characters = []
+        character_continuity = context_data.get("character_continuity", {})
+        if isinstance(character_continuity, dict):
+            focus_characters = list(character_continuity.keys())
+
+        chapter_climax_goal = ""
+        unresolved = context_data.get("unresolved_questions", [])
+        if unresolved:
+            chapter_climax_goal = "Resolve or escalate: " + "; ".join([str(q) for q in unresolved[:2]])
+        elif required_plot_points:
+            chapter_climax_goal = str(required_plot_points[0])
+
+        context.update({
+            "genre": genre,
+            "story_context": story_context,
+            "required_plot_points": required_plot_points,
+            "focus_characters": focus_characters,
+            "chapter_climax_goal": chapter_climax_goal,
+            "vector_memory_context": "",
+            "vector_memory_guidelines": ""
+        })
         
         # Add retry-specific context if this is a retry
         if attempt > 0:
@@ -597,7 +685,14 @@ class AutoCompleteBookOrchestrator:
             
             # Run quality gate validation (check critical failures and word count)
             critical_failures = self.quality_validator.check_critical_failures(chapter_content, {'word_count': word_count})
-            word_count_result = self.quality_validator.validate_word_count(word_count)
+            target_words = max(800, int(self.config.target_word_count // max(1, self.config.target_chapter_count)))
+            target_min = int(target_words * 0.75)
+            target_max = int(target_words * 1.2)
+            word_count_result = self.quality_validator.validate_word_count(
+                word_count,
+                target_range=(target_min, target_max),
+                target_words=target_words
+            )
             
             # Build category scores for overall assessment
             category_scores = {}

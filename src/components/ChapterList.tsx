@@ -15,6 +15,7 @@ import { format } from 'date-fns'
 import { useAuthToken } from '@/lib/auth'
 import { Chapter } from '@/lib/firestore-client'
 import ChapterEditor from '@/components/ChapterEditor'
+import { fetchApi } from '@/lib/api-client'
 
 interface ChapterListProps {
   chapters: Chapter[]
@@ -52,7 +53,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
       // Fallback to API if content not available in Firestore
       const authHeaders = await getAuthHeaders()
       
-      const response = await fetch(`/api/chapters/${chapter.chapter_number}?project_id=${encodeURIComponent(projectId)}`, {
+      const response = await fetchApi(`/api/chapters/${chapter.chapter_number}?project_id=${encodeURIComponent(projectId)}`, {
         headers: {
           'Content-Type': 'application/json',
           ...authHeaders
@@ -64,9 +65,13 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
         setChapterContent(data.content)
         setSelectedChapter(chapter)
       } else {
-        console.error('Failed to load chapter:', response.status, response.statusText)
-        const errorData = await response.json().catch(() => ({}))
-        console.error('Error details:', errorData)
+        if (response.status === 403) {
+          console.warn('Access denied to this project; skipping chapter load')
+        } else {
+          console.error('Failed to load chapter:', response.status, response.statusText)
+          const errorData = await response.json().catch(() => ({}))
+          console.error('Error details:', errorData)
+        }
       }
     } catch (error) {
       console.error('Failed to load chapter:', error)
@@ -91,7 +96,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
         // Get authentication headers
         const authHeaders = await getAuthHeaders()
         
-        const response = await fetch(`/api/chapters/${chapterNumber}?project_id=${encodeURIComponent(projectId)}`, {
+        const response = await fetchApi(`/api/chapters/${chapterNumber}?project_id=${encodeURIComponent(projectId)}`, {
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
@@ -153,7 +158,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
       if (!content) {
         const authHeaders = await getAuthHeaders()
         
-        const response = await fetch(`/api/chapters/${chapter.chapter_number}?project_id=${encodeURIComponent(projectId)}`, {
+        const response = await fetchApi(`/api/chapters/${chapter.chapter_number}?project_id=${encodeURIComponent(projectId)}`, {
           headers: {
             'Content-Type': 'application/json',
             ...authHeaders
@@ -212,7 +217,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
 
   return (
     <div className="card">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
         <h2 className="text-lg font-semibold text-gray-900">
           Generated Chapters ({chapters.length})
           {loading && (
@@ -252,7 +257,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
               key={chapter.id}
               className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
             >
-              <div className="flex justify-between items-start">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div className="flex-1">
                   <div className="flex items-center space-x-3">
                     <h3 className="font-medium text-gray-900">
@@ -264,7 +269,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
                     {getQualityBadge(chapter.quality_scores)}
                   </div>
                   
-                  <div className="mt-2 grid grid-cols-2 gap-4 text-sm text-gray-600">
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm text-gray-600">
                     <div>
                       <span className="font-medium">Words:</span> {chapter.metadata?.word_count?.toLocaleString() || 'Unknown'}
                     </div>
@@ -280,7 +285,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
                   </div>
                 </div>
                 
-                <div className="flex space-x-2 ml-4">
+                <div className="flex flex-wrap gap-2 ml-0 sm:ml-4">
                   <button
                     onClick={() => viewChapter(chapter)}
                     className="p-2 text-gray-400 hover:text-gray-600"
@@ -332,8 +337,8 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
       {selectedChapter && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`bg-white rounded-lg w-full max-h-[90vh] overflow-hidden ${editMode ? 'max-w-6xl' : 'max-w-4xl'}`}>
-            <div className="px-6 py-4 border-b flex justify-between items-center">
-              <div className="flex items-center space-x-4">
+            <div className="px-4 sm:px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-lg font-semibold">
                   Chapter {selectedChapter.chapter_number}
                   {selectedChapter.title && (
@@ -370,7 +375,7 @@ export function ChapterList({ chapters, loading = false, onRefresh, projectId }:
                 ✕
               </button>
             </div>
-            <div className={`${editMode ? 'h-[80vh]' : 'p-6 overflow-y-auto max-h-[70vh]'}`}>
+            <div className={`${editMode ? 'h-[80vh]' : 'p-4 sm:p-6 overflow-y-auto max-h-[70vh]'}`}>
               {editMode ? (
                 <ChapterEditor
                   chapterId={selectedChapter.id}

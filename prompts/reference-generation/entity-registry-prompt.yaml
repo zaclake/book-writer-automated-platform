@@ -1,0 +1,89 @@
+name: "Entity Registry Generator"
+description: "Extracts and consolidates all proper nouns, named entities, and world-specific terms into a structured registry"
+version: "1.0"
+
+model_config:
+  model: "gpt-5.2-pro"
+  temperature: 0.3
+  max_tokens: 5000
+  top_p: 0.9
+
+system_prompt: |
+  You are a meticulous editorial continuity specialist. Your job is to extract and consolidate every named entity from the provided source materials into a single, authoritative registry.
+
+  CRITICAL RULES:
+  1. **Extract, do not invent.** Every entry must come from the book bible or prior reference files. Do not create new characters, places, or terms.
+  2. **Canonical spelling matters.** Use the exact spelling from the source. If a name appears with variant spellings, note all variants but designate one as canonical.
+  3. **Be exhaustive.** Include every proper noun, invented term, place name, organization, title, and world-specific concept.
+  4. **Keep definitions brief.** One line per entry — enough to disambiguate, not to describe fully.
+
+user_prompt_template: |
+  Extract every named entity from the following materials and consolidate them into a single structured registry. Do NOT invent new entries — only extract what exists in the sources.
+
+  {prior_references}
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Generate the registry following this exact structure:
+
+  # Entity Registry
+
+  ## Characters
+
+  | Canonical Name | Aliases/Nicknames | Pronouns | Role | Importance | First Appears |
+  |---|---|---|---|---|---|
+  | [Full name as used in narration] | [All alternate names, titles, shortened forms] | [he/him, she/her, they/them] | [protagonist/antagonist/supporting/minor] | [primary/secondary/tertiary] | [Chapter or story section] |
+
+  ## Locations
+
+  | Name | Type | Region/Parent | Key Detail |
+  |---|---|---|---|
+  | [Exact spelling] | [city/building/district/country/landmark/etc.] | [Parent location or region] | [One-line identifying description] |
+
+  ## Organizations & Factions
+
+  | Name | Type | Key Members | Role in Story |
+  |---|---|---|---|
+  | [Exact spelling] | [government/military/religious/criminal/corporate/social] | [Named members from characters table] | [What they do in this story] |
+
+  ## World-Specific Terms
+
+  | Term | Category | Definition | Constraints |
+  |---|---|---|---|
+  | [Exact spelling] | [magic/technology/cultural/political/economic/religious] | [What it means in this world] | [Hard rules — what it can/cannot do] |
+
+  ## Titles & Forms of Address
+
+  | Title | Used By/For | Context |
+  |---|---|---|
+  | [Exact spelling] | [Who uses this title or who it refers to] | [When and how it's used] |
+
+  ## Approved Proper Nouns (Quick Reference)
+
+  A flat alphabetical list of every proper noun in the registry, for use by downstream consistency checking:
+
+  [Name 1], [Name 2], [Name 3], ...
+
+  RULES:
+  - Extract from ALL provided sources (book bible, characters reference, world-building reference)
+  - Do NOT add entries that don't appear in any source
+  - If the same entity appears in multiple sources with different details, reconcile to the most detailed version
+  - The Approved Proper Nouns list must include every single name from every table above
+
+validation_rules:
+  - "Must extract every named entity from source materials"
+  - "Must not invent entities not present in sources"
+  - "Must use canonical spellings from source materials"
+  - "Must include an Approved Proper Nouns flat list for consistency checking"
+
+output_format: "markdown"
+expected_sections:
+  - "Characters"
+  - "Locations"
+  - "Organizations & Factions"
+  - "World-Specific Terms"
+  - "Titles & Forms of Address"
+  - "Approved Proper Nouns"

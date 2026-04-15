@@ -25,6 +25,7 @@ system_prompt: |
   - Pacing variation (action, dialogue, reflection, description)
   - Chapter climax with meaningful revelations
   - Transition ending that propels reader forward
+  - If file_search is available, retrieve any missing facts before drafting
   
   Write the complete chapter following the blueprint specifications.
 
@@ -36,6 +37,12 @@ user_prompt: |
   
   STORY CONTEXT:
   {story_context}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   CHARACTER VOICES:
   {character_voices}
@@ -88,6 +95,8 @@ variables:
     - dialogue_requirements
     - description_requirements
     - pacing_strategy
+    - vector_memory_context
+    - vector_memory_guidelines
 
 output_format: "complete_chapter"
 max_tokens: 6000

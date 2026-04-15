@@ -1,9 +1,13 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { useUser } from '@clerk/nextjs'
 import { getApps, initializeApp } from 'firebase/app'
 import { getAuth, signInWithCustomToken } from 'firebase/auth'
+
+// Auth disabled - using anonymous user
+const user = { id: 'anonymous-user', emailAddresses: [{ emailAddress: 'anonymous@localhost' }] }
+const isSignedIn = true
+const isLoaded = true
 
 interface TokenTest {
   customToken?: string
@@ -19,23 +23,14 @@ interface TokenTest {
 export default function TokenAudienceTestPage() {
   const [testResult, setTestResult] = useState<TokenTest | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const { isSignedIn, user, isLoaded } = useUser()
 
   const runAudienceTest = async () => {
-    if (!isSignedIn) {
-      setTestResult({
-        error: 'Please sign in to test token generation',
-        timestamp: new Date().toISOString()
-      })
-      return
-    }
-
     setIsLoading(true)
     setTestResult(null)
 
     try {
-      console.log('🔥 Testing Firebase custom token to ID token flow...')
-      
+      console.log('Testing Firebase custom token to ID token flow...')
+
       // Step 1: Get custom token from our API
       const response = await fetch('/api/firebase-auth', {
         method: 'POST',
@@ -49,7 +44,7 @@ export default function TokenAudienceTestPage() {
       }
 
       const { customToken } = await response.json()
-      
+
       // Step 2: Decode the custom token payload
       const customTokenParts = customToken.split('.')
       if (customTokenParts.length !== 3) {
@@ -71,32 +66,32 @@ export default function TokenAudienceTestPage() {
         appId: "1:681297692294:web:6bebc5668ea47c037cb307"
       }
 
-      console.log('🔧 [TOKEN TEST] Firebase config:', firebaseConfig)
-      console.log('🔧 [TOKEN TEST] Existing apps:', getApps().length)
+      console.log('[TOKEN TEST] Firebase config:', firebaseConfig)
+      console.log('[TOKEN TEST] Existing apps:', getApps().length)
 
       let app
       try {
         if (getApps().length === 0) {
-          console.log('🔧 [TOKEN TEST] Initializing new Firebase app...')
+          console.log('[TOKEN TEST] Initializing new Firebase app...')
           app = initializeApp(firebaseConfig, `token-test-${Date.now()}`)
-          console.log('🔧 [TOKEN TEST] App initialized successfully:', app.name)
+          console.log('[TOKEN TEST] App initialized successfully:', app.name)
         } else {
-          console.log('🔧 [TOKEN TEST] Using existing app...')
+          console.log('[TOKEN TEST] Using existing app...')
           app = getApps()[0]
         }
       } catch (initError) {
-        console.error('🔥 [TOKEN TEST] Firebase init failed:', initError)
+        console.error('[TOKEN TEST] Firebase init failed:', initError)
         throw new Error(`Firebase initialization failed: ${initError instanceof Error ? initError.message : 'Unknown error'}`)
       }
-      
-      console.log('🔧 [TOKEN TEST] Getting Firebase Auth...')
+
+      console.log('[TOKEN TEST] Getting Firebase Auth...')
       const auth = getAuth(app)
-      console.log('🔧 [TOKEN TEST] Firebase Auth instance:', !!auth)
+      console.log('[TOKEN TEST] Firebase Auth instance:', !!auth)
 
       // Step 4: Exchange custom token for ID token
-      console.log('🔄 Exchanging custom token for ID token...')
+      console.log('Exchanging custom token for ID token...')
       const userCredential = await signInWithCustomToken(auth, customToken)
-      console.log('🔧 [TOKEN TEST] Sign in successful:', !!userCredential)
+      console.log('[TOKEN TEST] Sign in successful:', !!userCredential)
       const idToken = await userCredential.user.getIdToken(true)
 
       // Step 5: Decode the ID token payload
@@ -113,7 +108,7 @@ export default function TokenAudienceTestPage() {
       // Step 6: Check audience format of ID token (this is what matters)
       const idTokenAudience = idTokenPayload.aud
       let audienceFormat = 'unknown'
-      
+
       if (idTokenAudience === 'writer-bloom') {
         audienceFormat = 'modern (project-based)'
       } else if (idTokenAudience === 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit') {
@@ -132,7 +127,7 @@ export default function TokenAudienceTestPage() {
         timestamp: new Date().toISOString()
       })
 
-      console.log('✅ Token exchange test completed:', {
+      console.log('Token exchange test completed:', {
         customTokenAudience: customTokenPayload.aud,
         idTokenAudience,
         audienceFormat,
@@ -140,7 +135,7 @@ export default function TokenAudienceTestPage() {
       })
 
     } catch (error: any) {
-      console.error('❌ Token audience test failed:', error)
+      console.error('Token audience test failed:', error)
       setTestResult({
         error: error.message,
         timestamp: new Date().toISOString()
@@ -151,55 +146,25 @@ export default function TokenAudienceTestPage() {
   }
 
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      // Auto-run the test when the user is signed in
-      runAudienceTest()
-    }
-  }, [isLoaded, isSignedIn])
-
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading authentication...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isSignedIn) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Authentication Required</h1>
-          <p className="text-gray-600 mb-6">Please sign in to test Firebase token generation.</p>
-          <a 
-            href="/sign-in" 
-            className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Sign In
-          </a>
-        </div>
-      </div>
-    )
-  }
+    // Auto-run the test
+    runAudienceTest()
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-50 py-12">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-white rounded-lg shadow-lg p-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 md:px-8">
+        <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Firebase Token Flow Test
           </h1>
           <p className="text-gray-600 mb-8">
-            Testing the complete custom token → ID token exchange flow to verify proper audience handling.
+            Testing the complete custom token to ID token exchange flow to verify proper audience handling.
           </p>
 
           <div className="mb-6">
-            <p className="text-sm text-gray-500 mb-2">Signed in as:</p>
+            <p className="text-sm text-gray-500 mb-2">User:</p>
             <p className="font-medium text-gray-900">
-              {user?.emailAddresses?.[0]?.emailAddress || user?.id}
+              anonymous-user (auth disabled)
             </p>
           </div>
 
@@ -218,7 +183,7 @@ export default function TokenAudienceTestPage() {
                   <div className="flex">
                     <div className="ml-3">
                       <h3 className={`text-sm font-medium ${testResult.success ? 'text-green-800' : 'text-red-800'}`}>
-                        {testResult.success ? '✅ SUCCESS: ID Token has correct modern audience!' : '❌ ISSUE: ID Token audience is incorrect'}
+                        {testResult.success ? 'SUCCESS: ID Token has correct modern audience!' : 'ISSUE: ID Token audience is incorrect'}
                       </h3>
                       <div className={`mt-2 text-sm ${testResult.success ? 'text-green-700' : 'text-red-700'}`}>
                         <p>
@@ -283,4 +248,4 @@ export default function TokenAudienceTestPage() {
       </div>
     </div>
   )
-} 
+}

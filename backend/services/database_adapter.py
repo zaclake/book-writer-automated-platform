@@ -10,8 +10,14 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
+import uuid
 
-from .firestore_service import FirestoreService
+try:
+    from .firestore_service import FirestoreService
+    _FIRESTORE_AVAILABLE = True
+except Exception:
+    FirestoreService = None
+    _FIRESTORE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +32,7 @@ class DatabaseAdapter:
         self.use_firestore = use_firestore
         self.local_storage_path = Path("./local_storage")
         
-        if use_firestore:
+        if use_firestore and _FIRESTORE_AVAILABLE:
             try:
                 self.firestore = FirestoreService(project_id=firestore_project_id)
                 # Check if Firestore is actually available
@@ -39,6 +45,10 @@ class DatabaseAdapter:
                 logger.error(f"Failed to initialize Firestore, falling back to local storage: {e}")
                 self.use_firestore = False
                 self.firestore = None
+        elif use_firestore and not _FIRESTORE_AVAILABLE:
+            logger.warning("Firestore dependencies not available. Falling back to local storage.")
+            self.use_firestore = False
+            self.firestore = None
         else:
             self.firestore = None
             logger.info("Database adapter initialized with local storage")
@@ -431,6 +441,95 @@ class DatabaseAdapter:
                 return False
     
     # =====================================================================
+    # STORY NOTES OPERATIONS
+    # =====================================================================
+
+    async def create_story_note(self, project_id: str, note_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
+        """Create a story note for a project."""
+        if self.use_firestore:
+            return await self.firestore.create_story_note(project_id, note_data, user_id)
+        else:
+            try:
+                notes_dir = self.local_storage_path / "projects" / project_id / "story_notes"
+                notes_dir.mkdir(parents=True, exist_ok=True)
+
+                note_id = note_data.get('note_id') or str(uuid.uuid4())
+                payload = {
+                    **note_data,
+                    'note_id': note_id,
+                    'project_id': project_id,
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'resolved': bool(note_data.get('resolved', False)),
+                    'apply_to_future': bool(note_data.get('apply_to_future', True))
+                }
+
+                with open(notes_dir / f"{note_id}.json", 'w', encoding='utf-8') as f:
+                    json.dump(payload, f, indent=2, default=str)
+                return note_id
+            except Exception as e:
+                logger.error(f"Failed to create story note locally: {e}")
+                return None
+
+    async def list_story_notes(self, project_id: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List story notes for a project."""
+        if self.use_firestore:
+            return await self.firestore.list_story_notes(project_id, user_id)
+        else:
+            notes_dir = self.local_storage_path / "projects" / project_id / "story_notes"
+            notes: List[Dict[str, Any]] = []
+            if notes_dir.exists():
+                for note_file in notes_dir.glob("*.json"):
+                    try:
+                        with open(note_file, 'r', encoding='utf-8') as f:
+                            note_data = json.load(f)
+                        notes.append(note_data)
+                    except Exception as e:
+                        logger.error(f"Failed to load story note {note_file}: {e}")
+            notes.sort(key=lambda n: n.get('created_at', ''), reverse=True)
+            return notes
+
+    async def update_story_note(self, project_id: str, note_id: str, updates: Dict[str, Any], user_id: Optional[str] = None) -> bool:
+        """Update a story note."""
+        if self.use_firestore:
+            return await self.firestore.update_story_note(project_id, note_id, updates, user_id)
+        else:
+            note_file = self.local_storage_path / "projects" / project_id / "story_notes" / f"{note_id}.json"
+            if not note_file.exists():
+                return False
+            try:
+                with open(note_file, 'r', encoding='utf-8') as f:
+                    note_data = json.load(f)
+                if user_id and note_data.get('created_by') and note_data.get('created_by') != user_id:
+                    return False
+                note_data.update(updates)
+                note_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+                with open(note_file, 'w', encoding='utf-8') as f:
+                    json.dump(note_data, f, indent=2, default=str)
+                return True
+            except Exception as e:
+                logger.error(f"Failed to update story note locally: {e}")
+                return False
+
+    async def delete_story_note(self, project_id: str, note_id: str, user_id: Optional[str] = None) -> bool:
+        """Delete a story note."""
+        if self.use_firestore:
+            return await self.firestore.delete_story_note(project_id, note_id, user_id)
+        else:
+            note_file = self.local_storage_path / "projects" / project_id / "story_notes" / f"{note_id}.json"
+            try:
+                if note_file.exists():
+                    if user_id:
+                        with open(note_file, 'r', encoding='utf-8') as f:
+                            note_data = json.load(f)
+                        if note_data.get('created_by') and note_data.get('created_by') != user_id:
+                            return False
+                    note_file.unlink()
+                return True
+            except Exception as e:
+                logger.error(f"Failed to delete story note locally: {e}")
+                return False
+
+    # =====================================================================
     # REFERENCE FILE OPERATIONS
     # =====================================================================
     
@@ -507,6 +606,117 @@ class DatabaseAdapter:
                     except Exception as e:
                         logger.error(f"Failed to load reference file {ref_file}: {e}")
             return reference_files
+
+    async def update_reference_file(self, project_id: str, filename: str, content: str, user_id: str) -> bool:
+        """Update a reference file's content for a project."""
+        normalized_name = filename if filename.endswith('.md') else f"{filename}.md"
+        now = datetime.now(timezone.utc)
+
+        if self.use_firestore:
+            if not getattr(self.firestore, 'db', None):
+                logger.error("Firestore client unavailable for reference file update")
+                return False
+
+            db = self.firestore.db
+            try:
+                from google.cloud.firestore_v1.base_query import FieldFilter
+            except Exception:
+                FieldFilter = None
+
+            users_ref = db.collection('users')
+            users = users_ref.stream()
+            for user_doc in users:
+                user_id_candidate = user_doc.id
+                project_ref = db.collection('users').document(user_id_candidate)\
+                    .collection('projects').document(project_id)
+                project_doc = project_ref.get()
+                if not project_doc.exists:
+                    continue
+
+                refs_ref = project_ref.collection('reference_files')
+                try:
+                    if FieldFilter:
+                        query = refs_ref.where(filter=FieldFilter('filename', '==', normalized_name)).limit(1)
+                    else:
+                        query = refs_ref.where('filename', '==', normalized_name).limit(1)
+                    docs = list(query.stream())
+                except Exception as e:
+                    logger.error(f"Failed to query reference files for update: {e}")
+                    return False
+
+                if not docs:
+                    return False
+
+                updates = {
+                    'content': content,
+                    'updated_at': now,
+                    'last_modified': now,
+                    'modified_by': user_id,
+                    'size': len(content),
+                    'metadata.word_count': len(content.split()),
+                    'metadata.line_count': len(content.splitlines())
+                }
+                try:
+                    docs[0].reference.update(updates)
+                    logger.info(f"Reference file {normalized_name} updated successfully for project {project_id}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to update reference file {normalized_name}: {e}")
+                    return False
+
+            logger.warning(f"Project {project_id} not found for reference file update")
+            return False
+
+        # Local storage fallback
+        project_file = self.local_storage_path / "projects" / f"{project_id}.json"
+        if not project_file.exists():
+            logger.warning(f"Local project file not found for update: {project_file}")
+            return False
+
+        try:
+            with open(project_file, 'r', encoding='utf-8') as f:
+                project_data = json.load(f)
+
+            key_name = normalized_name[:-3] if normalized_name.endswith('.md') else normalized_name
+            references = project_data.get('references', {})
+            current_entry = references.get(key_name)
+            if isinstance(current_entry, dict):
+                current_entry.update({
+                    'content': content,
+                    'last_modified': now.isoformat(),
+                    'modified_by': user_id
+                })
+                references[key_name] = current_entry
+            else:
+                references[key_name] = {
+                    'content': content,
+                    'last_modified': now.isoformat(),
+                    'modified_by': user_id
+                }
+
+            project_data['references'] = references
+
+            # Also update legacy reference_files dict if present
+            reference_files = project_data.get('reference_files', {})
+            if isinstance(reference_files, dict):
+                reference_files[normalized_name] = content
+                project_data['reference_files'] = reference_files
+
+            with open(project_file, 'w', encoding='utf-8') as f:
+                json.dump(project_data, f, indent=2, default=str)
+
+            # Update local storage reference file on disk if present
+            project_refs_dir = self.local_storage_path / "projects" / project_id / "references"
+            project_refs_dir.mkdir(parents=True, exist_ok=True)
+            ref_file_path = project_refs_dir / normalized_name
+            with open(ref_file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            logger.info(f"Reference file {normalized_name} updated locally for project {project_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update reference file locally: {e}")
+            return False
 
     # =====================================================================
     # HEALTH CHECK

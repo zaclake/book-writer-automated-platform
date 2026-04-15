@@ -8,6 +8,8 @@ import json
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 import os
+import tempfile
+from pathlib import Path
 
 # Set test environment
 os.environ['ENVIRONMENT'] = 'test'
@@ -294,6 +296,97 @@ to be a simple case.
             user_message = call_args[1]['messages'][1]['content']
             assert 'Chapter 1: Chapter 1 content about the investigation' in user_message
             assert 'Chapter 2: Chapter 2 content about finding the first' in user_message
+
+    @patch('backend.routers.chapters_v2.get_current_user')
+    @patch('backend.routers.chapters_v2.get_project')
+    @patch('backend.routers.chapters_v2.get_project_chapters')
+    @patch('backend.routers.chapters_v2.create_chapter')
+    @patch('backend.routers.chapters_v2.track_usage')
+    @patch('backend.routers.chapters_v2.asyncio.sleep', new_callable=AsyncMock)
+    def test_generate_chapter_waits_for_previous_chapter(
+        self,
+        mock_sleep,
+        mock_track_usage,
+        mock_create_chapter,
+        mock_get_project_chapters,
+        mock_get_project,
+        mock_get_current_user,
+    ):
+        """
+        Regression: Chapter N should briefly wait for Chapter N-1 to be visible rather than generating
+        without prior context (common cause of Chapter-2-as-Chapter-1).
+        """
+        mock_get_current_user.return_value = {'user_id': 'test-user-123'}
+        mock_get_project.return_value = {
+            'id': 'test-project-123',
+            'metadata': {'owner_id': 'test-user-123', 'collaborators': []},
+            'files': {'book-bible.md': 'Test content'},
+            'reference_files': {},
+            'settings': {'genre': 'fiction'}
+        }
+
+        # First call: previous chapter not yet visible. Second call: it is.
+        mock_get_project_chapters.side_effect = [
+            [],
+            [{'chapter_number': 1, 'content': 'Chapter 1 content.\n\nIt ended with an urgent consequence.'}],
+        ]
+        mock_create_chapter.return_value = 'chapter-id-123'
+        mock_track_usage.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('backend.utils.paths.get_project_workspace', return_value=Path(tmpdir)), \
+                 patch('backend.utils.paths.ensure_project_structure', return_value=None):
+
+                from backend.auto_complete.llm_orchestrator import GenerationResult
+
+                class DummyLLMOrchestrator:
+                    def __init__(self, *args, **kwargs):
+                        self.cost_per_1k_input_tokens = 0.0
+                        self.cost_per_1k_output_tokens = 0.0
+                        self.model = "gpt-4o"
+
+                    async def generate_chapter(self, *args, **kwargs):
+                        text = " ".join(["This is generated chapter two."] * 90)
+                        return GenerationResult(success=True, content=text, metadata={"tokens_used": {"total": 0}})
+
+                    async def generate_chapter_scene_by_scene(self, *args, **kwargs):
+                        return await self.generate_chapter(*args, **kwargs)
+
+                class DummyQualityOrchestrator:
+                    def __init__(self, *args, **kwargs):
+                        pass
+
+                    def _build_repetition_allowlist(self, *args, **kwargs):
+                        return []
+
+                    def _build_avoid_phrases(self, *args, **kwargs):
+                        return []
+
+                    def _build_cadence_targets(self, *args, **kwargs):
+                        return {}
+
+                    def _build_pacing_targets(self, *args, **kwargs):
+                        return {}
+
+                    async def evaluate_candidate(self, content, chapter_number, context):
+                        return {"score": 9.0, "quality_result": {"overall_score": 9.0}}
+
+                    def _passes_quality_gates(self, *args, **kwargs):
+                        return True
+
+                with patch('backend.auto_complete.llm_orchestrator.LLMOrchestrator', DummyLLMOrchestrator), \
+                     patch('backend.auto_complete.orchestrator.AutoCompleteBookOrchestrator', DummyQualityOrchestrator), \
+                     patch('backend.auto_complete.orchestrator.AutoCompletionConfig', MagicMock):
+
+                    response = client.post("/v2/chapters/generate", json={
+                        "project_id": "test-project-123",
+                        "chapter_number": 2,
+                        "target_word_count": 1200,
+                        "stage": "simple"
+                    })
+
+        assert response.status_code == 200
+        assert mock_get_project_chapters.call_count >= 2
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import { fetchApi } from '@/lib/api-client'
 
 type Visibility = 'private' | 'shared' | 'public'
 
@@ -20,8 +21,8 @@ export default function LibraryVisibilityToggle({ projectId, current, onUpdated 
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
-        method: 'PUT',
+      const res = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ visibility: next })
       })

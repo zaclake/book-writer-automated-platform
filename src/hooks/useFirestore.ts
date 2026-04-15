@@ -4,8 +4,9 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuth, useUser } from '@clerk/nextjs'
+import { useAuthToken, ANONYMOUS_USER } from '@/lib/auth'
 import { firestoreClient, Project, Chapter, GenerationJob, ensureFirebaseInitialized, authenticateWithFirebase } from '@/lib/firestore-client'
+import { fetchApi } from '@/lib/api-client'
 import { errorMonitoring } from '@/lib/errorMonitoring'
 
 // Type definitions (keeping the same interface for backward compatibility)
@@ -27,6 +28,10 @@ export interface Project {
     modified_by: string
     version: number
     word_count: number
+    book_length_tier?: string
+    estimated_chapters?: number
+    target_word_count?: number
+    source_data?: any
   }
   settings: {
     genre: string
@@ -36,6 +41,8 @@ export interface Project {
     writing_style: string
     quality_gates_enabled: boolean
     auto_completion_enabled: boolean
+    involvement_level: string
+    purpose: string
   }
   progress: {
     chapters_completed: number
@@ -130,11 +137,6 @@ const POLLING_INTERVALS = {
 // =====================================================================
 // SHARED UTILITIES
 // =====================================================================
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  // This will be implemented using the auth context
-  return {}
-}
 
 function usePolling<T>(
   fetcher: () => Promise<T>,
@@ -250,182 +252,134 @@ function useFirebaseReady() {
  * Hook to get user's projects with intelligent polling
  */
 export function useUserProjects() {
-  const { userId, isLoaded, isSignedIn, getToken } = useAuth()
+  const { getAuthHeaders, isLoaded, isSignedIn, user } = useAuthToken()
+  const userId = user?.id || ANONYMOUS_USER.id
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const firebaseReady = useFirebaseReady()
   const intervalRef = useRef<NodeJS.Timeout | undefined>()
+  const inFlightRef = useRef<AbortController | null>(null)
   // Track initial successful load to avoid UI flashing/loading-on-focus
   const hasLoadedOnce = useRef(false)
 
   const fetchProjects = useCallback(async () => {
-    if (!isSignedIn || !userId || !firebaseReady) {
+    if (!isLoaded) {
+      return
+    }
+    if (!isSignedIn) {
+      setProjects([])
       setLoading(false)
       return
     }
 
+    if (inFlightRef.current) {
+      return
+    }
+
+    const controller = new AbortController()
+    inFlightRef.current = controller
+    const timeoutId: ReturnType<typeof setTimeout> = setTimeout(() => {
+      controller.abort()
+    }, 20000)
+
     try {
-      // Only show global loading spinner on the very first load
       if (!hasLoadedOnce.current) {
         setLoading(true)
       }
       setError(null)
-      
-      // Ensure Firebase is ready before attempting Firestore operations
-      const ready = await ensureFirebaseInitialized()
-      if (!ready) {
-        console.warn('⚠️ Firebase not ready for Firestore operations')
-        setError('Offline mode - some features may be limited')
-        return
-      }
 
-      const token = await getToken()
-      if (!token) {
-        setError('Authentication required')
-        return
-      }
+      const authHeaders = await getAuthHeaders()
 
-      // Skip Firebase authentication - using Clerk only
-      console.log('🔧 Skipping Firebase authentication - using Clerk authentication only')
-      
-      // Use backend APIs to fetch projects
-      console.log('🔧 Fetching projects from backend API')
-      
       try {
-        const response = await fetch('/api/v2/projects/', {
+        const response = await fetchApi('/api/v2/projects', {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            ...authHeaders,
             'Content-Type': 'application/json'
-          }
+          },
+          signal: controller.signal
         })
         
         if (response.ok) {
           const data = await response.json()
-          console.log('📊 Raw backend response:', data)
           const backendProjects = data.projects || []
-          
-          // Debug: Log what backend is returning
-          console.log('📊 Backend projects response:', {
-            total: backendProjects.length,
-            samples: backendProjects.slice(0, 3).map(p => ({
-              id: p.id,
-              title: p.metadata?.title,
-              hasMetadata: !!p.metadata,
-              metadataKeys: p.metadata ? Object.keys(p.metadata) : []
-            }))
-          })
-          
+
           // Convert backend format to frontend format with real chapter counts
-          const formattedProjects: Project[] = await Promise.all(
-            backendProjects.map(async (project: any) => {
-              console.log('🔍 Processing project:', {
-                id: project.id,
-                backendTitle: project.metadata?.title,
-                localStorageTitle: localStorage.getItem(`projectTitle-${project.id}`)
-              })
-              
-              // Fetch real chapter count for each project using v2 endpoint
-              let chaptersCount = 0
-              try {
-                const chaptersResponse = await fetch(`/api/v2/projects/${encodeURIComponent(project.id)}/chapters`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-                })
+          const formattedProjects: Project[] = backendProjects.map((project: any) => {
+            // Prioritize backend title, fallback to localStorage, then UUID
+            const finalTitle = (project.metadata?.title && project.metadata.title.trim())
+              ? project.metadata.title.trim()
+              : localStorage.getItem(`projectTitle-${project.id}`)
+                ? localStorage.getItem(`projectTitle-${project.id}`)
+                : `Project ${project.id}`
 
-                if (chaptersResponse.ok) {
-                  const chaptersData = await chaptersResponse.json()
-                  chaptersCount = (chaptersData.chapters || []).length
-                } else {
-                  console.warn(`Failed to fetch chapters count for project ${project.id}: ${chaptersResponse.status}`)
-                  // Use backend progress data as fallback
-                  chaptersCount = project.progress?.chapters_completed || 0
-                }
-              } catch (chaptersError) {
-                console.warn(`Failed to fetch chapters count for project ${project.id}:`, chaptersError)
-                // Use backend progress data as fallback
-                chaptersCount = project.progress?.chapters_completed || 0
-              }
+            const chaptersCompleted = project.progress?.chapters_completed || 0
+            const targetChapters = project.settings?.target_chapters || 25
+            const wordsPerChapter = project.settings?.word_count_per_chapter || 3800
 
-              // Prioritize backend title, fallback to localStorage, then UUID
-              const finalTitle = (project.metadata?.title && project.metadata.title.trim()) 
-                ? project.metadata.title.trim()
-                : localStorage.getItem(`projectTitle-${project.id}`) 
-                  ? localStorage.getItem(`projectTitle-${project.id}`)
-                  : `Project ${project.id}`
-              
-              console.log('✅ Final title chosen:', {
-                projectId: project.id,
-                finalTitle,
-                source: (project.metadata?.title && project.metadata.title.trim()) 
-                  ? 'backend' 
-                  : localStorage.getItem(`projectTitle-${project.id}`) 
-                    ? 'localStorage' 
-                    : 'fallback'
-              })
-              
-              return {
-                id: project.id,
-                metadata: {
-                  project_id: project.id,
-                  title: finalTitle,
-                  owner_id: project.metadata?.owner_id || userId,
-                  collaborators: project.metadata?.collaborators || [],
-                  status: project.metadata?.status || 'active',
-                  visibility: project.metadata?.visibility || 'private',
-                  created_at: project.metadata?.created_at ? new Date(project.metadata.created_at) : new Date(),
-                  updated_at: project.metadata?.updated_at ? new Date(project.metadata.updated_at) : new Date()
-                },
-                book_bible: project.book_bible ? {
-                  content: project.book_bible.content,
-                  last_modified: project.book_bible.last_modified ? new Date(project.book_bible.last_modified) : new Date(),
-                  modified_by: project.book_bible.modified_by || userId,
-                  version: project.book_bible.version || 1,
-                  word_count: project.book_bible.word_count || 0
-                } : undefined,
-                settings: {
-                  genre: project.settings?.genre || 'Fiction',
-                  target_chapters: project.settings?.target_chapters || 25,
-                  word_count_per_chapter: project.settings?.word_count_per_chapter || 3800,
-                  target_audience: project.settings?.target_audience || 'Adult',
-                  writing_style: project.settings?.writing_style || 'Narrative',
-                  quality_gates_enabled: project.settings?.quality_gates_enabled !== false,
-                  auto_completion_enabled: project.settings?.auto_completion_enabled !== false
-                },
-                progress: {
-                  chapters_completed: chaptersCount, // Use real chapter count
-                  current_word_count: project.progress?.current_word_count || 0,
-                  target_word_count: (project.settings?.target_chapters || 25) * (project.settings?.word_count_per_chapter || 3800),
-                  completion_percentage: project.progress?.completion_percentage || Math.round((chaptersCount / (project.settings?.target_chapters || 25)) * 100),
-                  last_chapter_generated: project.progress?.last_chapter_generated || 0,
-                  quality_baseline: project.progress?.quality_baseline || {
-                    prose: 0,
-                    character: 0,
-                    story: 0,
-                    emotion: 0,
-                    freshness: 0,
-                    engagement: 0
-                  }
+            return {
+              id: project.id,
+              metadata: {
+                project_id: project.id,
+                title: finalTitle,
+                owner_id: project.metadata?.owner_id || userId,
+                collaborators: project.metadata?.collaborators || [],
+                status: project.metadata?.status || 'active',
+                visibility: project.metadata?.visibility || 'private',
+                created_at: project.metadata?.created_at ? new Date(project.metadata.created_at) : new Date(),
+                updated_at: project.metadata?.updated_at ? new Date(project.metadata.updated_at) : new Date()
+              },
+              book_bible: project.book_bible ? {
+                content: project.book_bible.content,
+                last_modified: project.book_bible.last_modified ? new Date(project.book_bible.last_modified) : new Date(),
+                modified_by: project.book_bible.modified_by || userId,
+                version: project.book_bible.version || 1,
+                word_count: project.book_bible.word_count || 0
+              } : undefined,
+              settings: {
+                genre: project.settings?.genre || 'Fiction',
+                target_chapters: targetChapters,
+                word_count_per_chapter: wordsPerChapter,
+                target_audience: project.settings?.target_audience || 'Adult',
+                writing_style: project.settings?.writing_style || 'Narrative',
+                quality_gates_enabled: project.settings?.quality_gates_enabled !== false,
+                auto_completion_enabled: project.settings?.auto_completion_enabled !== false
+              },
+              progress: {
+                chapters_completed: chaptersCompleted,
+                current_word_count: project.progress?.current_word_count || 0,
+                target_word_count: targetChapters * wordsPerChapter,
+                completion_percentage: project.progress?.completion_percentage || Math.round((chaptersCompleted / targetChapters) * 100),
+                last_chapter_generated: project.progress?.last_chapter_generated || 0,
+                quality_baseline: project.progress?.quality_baseline || {
+                  prose: 0,
+                  character: 0,
+                  story: 0,
+                  emotion: 0,
+                  freshness: 0,
+                  engagement: 0
                 }
               }
-            })
-          )
-          
-          console.log('🔧 Fetched projects from backend:', formattedProjects.length)
+            }
+          })
           setProjects(formattedProjects)
         } else {
           console.error('Failed to fetch projects from backend:', response.status, await response.text())
           setProjects([])
         }
       } catch (error) {
-        errorMonitoring.trackProjectsLoadError(error)
-        console.error('Error fetching projects from backend:', error)
-        setProjects([])
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          console.warn('Projects fetch aborted due to timeout')
+        } else {
+          errorMonitoring.trackProjectsLoadError(error)
+          console.error('Error fetching projects from backend:', error)
+          setProjects([])
+        }
       }
       
       setLoading(false)
       hasLoadedOnce.current = true
-      
+
       // Return empty unsubscribe function
       return () => {}
     } catch (err) {
@@ -434,8 +388,11 @@ export function useUserProjects() {
       setError('Failed to load projects')
       setLoading(false)
       hasLoadedOnce.current = true
+    } finally {
+      clearTimeout(timeoutId)
+      inFlightRef.current = null
     }
-  }, [isSignedIn, userId, getToken, firebaseReady])
+  }, [getAuthHeaders, isLoaded, isSignedIn, userId])
 
   useEffect(() => {
     let isPageVisible = !document.hidden
@@ -502,7 +459,8 @@ export function useUserProjects() {
  * Hook to get a specific project with real data and chapter counting
  */
 export function useProject(projectId: string | null) {
-  const { userId, isLoaded, isSignedIn, getToken } = useAuth()
+  const { getAuthHeaders, isLoaded, isSignedIn, user } = useAuthToken()
+  const userId = user?.id || ANONYMOUS_USER.id
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
   // Track whether we have completed the first successful load to avoid
@@ -510,10 +468,33 @@ export function useProject(projectId: string | null) {
   // causes annoying UI flashes every few seconds.
   const hasLoadedOnce = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const notFoundRef = useRef(false)
+  const lastProjectIdRef = useRef<string | null>(null)
 
   const fetchProject = useCallback(async () => {
-    if (!isSignedIn || !userId || !projectId) {
+    if (!projectId) {
       setProject(null)
+      setLoading(false)
+      return
+    }
+    if (!isLoaded) {
+      return
+    }
+    if (!isSignedIn) {
+      setProject(null)
+      setLoading(false)
+      return
+    }
+
+    if (lastProjectIdRef.current !== projectId) {
+      lastProjectIdRef.current = projectId
+      notFoundRef.current = false
+      hasLoadedOnce.current = false
+      setProject(null)
+      setLoading(true)
+    }
+
+    if (notFoundRef.current) {
       setLoading(false)
       return
     }
@@ -526,59 +507,44 @@ export function useProject(projectId: string | null) {
       }
       setError(null)
 
-      const token = await getToken()
-      if (!token) {
-        setError('Authentication required')
-        return
-      }
+      const authHeaders = await getAuthHeaders()
 
       // Fetch project data from backend
-      const projectResponse = await fetch('/api/v2/projects/', {
+      const projectResponse = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
           'Content-Type': 'application/json'
         }
       })
 
+      if (projectResponse.status === 404) {
+        notFoundRef.current = true
+        setProject(null)
+        setError('Project not found')
+        setLoading(false)
+        hasLoadedOnce.current = true
+        return
+      }
+
       if (!projectResponse.ok) {
-        throw new Error(`Failed to fetch projects: ${projectResponse.statusText}`)
+        throw new Error(`Failed to fetch project: ${projectResponse.statusText}`)
       }
 
       const projectData = await projectResponse.json()
-      const backendProjects = projectData.projects || []
-      
-      // Find the specific project
-      const foundProject = backendProjects.find((p: any) => p.id === projectId)
-      
+      const foundProject = projectData.project || projectData
+
       if (!foundProject) {
         setProject(null)
         setLoading(false)
         return
       }
 
-      // Fetch chapters to get real count using v2 endpoint
-      let chaptersCount = 0
-      try {
-        const chaptersResponse = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/chapters`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+      const chaptersCompleted = foundProject.progress?.chapters_completed || 0
+      const targetChapters = foundProject.settings?.target_chapters || 25
+      const wordsPerChapter = foundProject.settings?.word_count_per_chapter || 3800
 
-        if (chaptersResponse.ok) {
-          const chaptersData = await chaptersResponse.json()
-          chaptersCount = (chaptersData.chapters || []).length
-        } else {
-          console.warn(`Failed to fetch chapters count for project ${projectId}: ${chaptersResponse.status}`)
-          // Use backend progress data as fallback
-          chaptersCount = foundProject.progress?.chapters_completed || 0
-        }
-      } catch (chaptersError) {
-        console.warn('Failed to fetch chapters count:', chaptersError)
-        // Use backend progress data as fallback
-        chaptersCount = foundProject.progress?.chapters_completed || 0
-      }
-
-      // Format project with real chapter count
+      // Format project using backend progress data
       const formattedProject: Project = {
         id: foundProject.id,
         metadata: {
@@ -598,21 +564,27 @@ export function useProject(projectId: string | null) {
           last_modified: foundProject.book_bible.last_modified ? new Date(foundProject.book_bible.last_modified) : new Date(),
           modified_by: foundProject.book_bible.modified_by || userId,
           version: foundProject.book_bible.version || 1,
-          word_count: foundProject.book_bible.word_count || 0
+          word_count: foundProject.book_bible.word_count || 0,
+          book_length_tier: foundProject.book_bible.book_length_tier,
+          estimated_chapters: foundProject.book_bible.estimated_chapters,
+          target_word_count: foundProject.book_bible.target_word_count,
+          source_data: foundProject.book_bible.source_data
         } : undefined,
         settings: {
           genre: foundProject.settings?.genre || 'Fiction',
-          target_chapters: foundProject.settings?.target_chapters || 25,
-          word_count_per_chapter: foundProject.settings?.word_count_per_chapter || 3800,
+          target_chapters: targetChapters,
+          word_count_per_chapter: wordsPerChapter,
           target_audience: foundProject.settings?.target_audience || 'Adult',
           writing_style: foundProject.settings?.writing_style || 'Narrative',
           quality_gates_enabled: foundProject.settings?.quality_gates_enabled !== false,
-          auto_completion_enabled: foundProject.settings?.auto_completion_enabled !== false
+          auto_completion_enabled: foundProject.settings?.auto_completion_enabled !== false,
+          involvement_level: foundProject.settings?.involvement_level || 'balanced',
+          purpose: foundProject.settings?.purpose || 'personal'
         },
         progress: {
-          chapters_completed: chaptersCount, // Use real chapter count
+          chapters_completed: chaptersCompleted,
           current_word_count: foundProject.progress?.current_word_count || 0,
-          target_word_count: (foundProject.settings?.target_chapters || 25) * (foundProject.settings?.word_count_per_chapter || 3800),
+          target_word_count: targetChapters * wordsPerChapter,
           completion_percentage: foundProject.progress?.completion_percentage || 0,
           last_chapter_generated: foundProject.progress?.last_chapter_generated || 0,
           quality_baseline: foundProject.progress?.quality_baseline || {
@@ -637,7 +609,7 @@ export function useProject(projectId: string | null) {
       setLoading(false)
       hasLoadedOnce.current = true
     }
-  }, [isSignedIn, userId, projectId, getToken])
+  }, [projectId, getAuthHeaders, isLoaded, isSignedIn, userId])
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | undefined
@@ -696,60 +668,79 @@ export function useProject(projectId: string | null) {
 /**
  * Hook to get project chapters with polling
  */
-export function useProjectChapters(projectId: string | null) {
-  const { userId, isLoaded, isSignedIn, getToken } = useAuth()
+export function useProjectChapters(
+  projectId: string | null,
+  options: { intervalMs?: number } = {}
+) {
+  const { getAuthHeaders, user } = useAuthToken()
+  const userId = user?.id || ANONYMOUS_USER.id
 
-     const fetcher = useCallback(async (): Promise<Chapter[]> => {
-     if (!isSignedIn || !userId || !projectId) return []
+  const fetcher = useCallback(async (): Promise<Chapter[]> => {
+    if (!projectId) return []
 
-     const token = await getToken()
-     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+    const authHeaders = await getAuthHeaders()
 
-     const response = await fetch(`/api/chapters?project_id=${encodeURIComponent(projectId)}`, { headers })
-     if (!response.ok) {
-       throw new Error(`Failed to fetch chapters: ${response.statusText}`)
-     }
+    // IMPORTANT:
+    // Use Firestore-backed v2 listing, not the legacy v1 filesystem endpoint.
+    const response = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}/chapters`, { headers: authHeaders })
+    if (!response.ok) {
+      throw new Error(`Failed to fetch chapters: ${response.statusText}`)
+    }
 
-     const data = await response.json()
-     const chapters = data.chapters || []
-     
-     // Convert old format to new format
-     return chapters.map((chapter: any, index: number) => ({
-       id: `${projectId}-${chapter.chapter}`,
-       project_id: projectId,
-       chapter_number: chapter.chapter,
-       content: '', // Will be loaded on demand
-       title: `Chapter ${chapter.chapter}`,
-       metadata: {
-         word_count: chapter.word_count || 0,
-         target_word_count: chapter.target_word_count || 3800,
-         created_by: userId,
-         stage: 'complete' as const,
-         generation_time: chapter.generation_time || 0,
-         retry_attempts: 0,
-         model_used: 'gpt-4',
-         created_at: new Date(chapter.created_at),
-         updated_at: new Date(chapter.created_at)
-       },
-       quality_scores: {
-         overall_rating: chapter.quality_score || 0,
-         engagement_score: 0,
-         craft_scores: {
-           prose: 0,
-           character: 0,
-           story: 0,
-           emotion: 0,
-           freshness: 0
-         }
-       },
-       versions: []
-     }))
-   }, [isSignedIn, userId, projectId, getToken])
+    const data = await response.json()
+    const chapters = Array.isArray(data?.chapters) ? data.chapters : []
+
+    // Normalize Firestore-ish chapters into the UI Chapter shape.
+    return chapters
+      .map((chapter: any) => {
+        const chapterNumber = Number(chapter?.chapter_number ?? chapter?.metadata?.chapter_number ?? 0)
+        const title = chapter?.title || `Chapter ${chapterNumber || ''}`.trim()
+        const metadata = chapter?.metadata || {}
+        const quality = chapter?.quality_scores || {}
+
+        const resolvedId = String(chapter?.id || '') || `${projectId}-${chapterNumber || '0'}`
+        return {
+          // Prefer real Firestore chapter id so downstream v2 endpoints work correctly.
+          id: resolvedId,
+          project_id: projectId,
+          chapter_number: chapterNumber,
+          content: String(chapter?.content || ''),
+          title,
+          metadata: {
+            word_count: Number(metadata?.word_count ?? chapter?.word_count ?? 0),
+            target_word_count: Number(metadata?.target_word_count ?? chapter?.target_word_count ?? 3800),
+            created_by: String(metadata?.created_by ?? chapter?.created_by ?? userId),
+            stage: (metadata?.stage || chapter?.stage || 'draft') as 'draft' | 'revision' | 'complete',
+            generation_time: Number(metadata?.generation_time ?? chapter?.generation_time ?? 0),
+            retry_attempts: Number(metadata?.retry_attempts ?? chapter?.retry_attempts ?? 0),
+            model_used: String(metadata?.model_used ?? chapter?.model_used ?? 'unknown'),
+            created_at: metadata?.created_at ?? chapter?.created_at ?? null,
+            updated_at: metadata?.updated_at ?? chapter?.updated_at ?? null,
+            // Preserve failure metadata when present (used by Chapters UI).
+            ...(metadata?.gates_passed != null ? { gates_passed: metadata.gates_passed } : {}),
+            ...(metadata?.failure_reason ? { failure_reason: metadata.failure_reason } : {}),
+          } as any,
+          quality_scores: {
+            overall_rating: Number(quality?.overall_rating ?? 0),
+            engagement_score: Number(quality?.engagement_score ?? 0),
+            craft_scores: {
+              prose: Number(quality?.craft_scores?.prose ?? 0),
+              character: Number(quality?.craft_scores?.character ?? 0),
+              story: Number(quality?.craft_scores?.story ?? 0),
+              emotion: Number(quality?.craft_scores?.emotion ?? 0),
+              freshness: Number(quality?.craft_scores?.freshness ?? 0),
+            }
+          },
+          versions: Array.isArray(chapter?.versions) ? chapter.versions : []
+        } as Chapter
+      })
+      .filter((chapter: Chapter) => Number.isFinite(chapter.chapter_number) && chapter.chapter_number > 0)
+  }, [projectId, getAuthHeaders, userId])
 
   const { data: chapters, loading, error, refresh } = usePolling(
     fetcher,
-    POLLING_INTERVALS.chapters,
-    isLoaded && isSignedIn && !!projectId
+    options.intervalMs ?? POLLING_INTERVALS.chapters,
+    !!projectId
   )
 
   return {
@@ -764,64 +755,64 @@ export function useProjectChapters(projectId: string | null) {
  * Hook to get a specific chapter with polling
  */
 export function useChapter(chapterId: string | null) {
-  const { userId, isLoaded, isSignedIn, getToken } = useAuth()
+  const { getAuthHeaders, user } = useAuthToken()
+  const userId = user?.id || ANONYMOUS_USER.id
 
-     const fetcher = useCallback(async (): Promise<Chapter | null> => {
-     if (!isSignedIn || !userId || !chapterId) return null
+  const fetcher = useCallback(async (): Promise<Chapter | null> => {
+    if (!chapterId) return null
 
-     const token = await getToken()
-     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+    const authHeaders = await getAuthHeaders()
 
-     // Parse chapter ID to get chapter number
-     const chapterNumber = chapterId.split('-').pop()
-     if (!chapterNumber) return null
+    // Parse chapter ID to get chapter number
+    const chapterNumber = chapterId.split('-').pop()
+    if (!chapterNumber) return null
 
-     const response = await fetch(`/api/chapters/${chapterNumber}`, { headers })
-     if (!response.ok) {
-       if (response.status === 404) return null
-       throw new Error(`Failed to fetch chapter: ${response.statusText}`)
-     }
+    const response = await fetchApi(`/api/chapters/${chapterNumber}`, { headers: authHeaders })
+    if (!response.ok) {
+      if (response.status === 404) return null
+      throw new Error(`Failed to fetch chapter: ${response.statusText}`)
+    }
 
-     const data = await response.json()
-     const chapterData = data.chapter
-     
-     // Convert to new format
-     return {
-       id: chapterId,
-       project_id: chapterData.project_id || localStorage.getItem('lastProjectId') || 'unknown',
-       chapter_number: parseInt(chapterNumber),
-       content: chapterData.content || '',
-       title: chapterData.title || `Chapter ${chapterNumber}`,
-       metadata: {
-         word_count: chapterData.word_count || 0,
-         target_word_count: chapterData.target_word_count || 3800,
-         created_by: userId,
-         stage: 'complete' as const,
-         generation_time: chapterData.generation_time || 0,
-         retry_attempts: 0,
-         model_used: 'gpt-4',
-         created_at: new Date(chapterData.created_at || Date.now()),
-         updated_at: new Date(chapterData.updated_at || Date.now())
-       },
-       quality_scores: {
-         overall_rating: chapterData.quality_score || 0,
-         engagement_score: 0,
-         craft_scores: {
-           prose: 0,
-           character: 0,
-           story: 0,
-           emotion: 0,
-           freshness: 0
-         }
-       },
-       versions: []
-     }
-   }, [isSignedIn, userId, chapterId, getToken])
+    const data = await response.json()
+    const chapterData = data.chapter
+
+    // Convert to new format
+    return {
+      id: chapterId,
+      project_id: chapterData.project_id || localStorage.getItem('lastProjectId') || 'unknown',
+      chapter_number: parseInt(chapterNumber),
+      content: chapterData.content || '',
+      title: chapterData.title || `Chapter ${chapterNumber}`,
+      metadata: {
+        word_count: chapterData.word_count || 0,
+        target_word_count: chapterData.target_word_count || 3800,
+        created_by: userId,
+        stage: 'complete' as const,
+        generation_time: chapterData.generation_time || 0,
+        retry_attempts: 0,
+        model_used: 'gpt-4o',
+        created_at: new Date(chapterData.created_at || Date.now()),
+        updated_at: new Date(chapterData.updated_at || Date.now())
+      },
+      quality_scores: {
+        overall_rating: chapterData.quality_score || 0,
+        engagement_score: 0,
+        craft_scores: {
+          prose: 0,
+          character: 0,
+          story: 0,
+          emotion: 0,
+          freshness: 0
+        }
+      },
+      versions: []
+    }
+  }, [chapterId, getAuthHeaders, userId])
 
   const { data: chapter, loading, error, refresh } = usePolling(
     fetcher,
     POLLING_INTERVALS.chapters,
-    isLoaded && isSignedIn && !!chapterId
+    !!chapterId
   )
 
   return {
@@ -830,7 +821,7 @@ export function useChapter(chapterId: string | null) {
     error,
     refreshChapter: refresh
   }
- }
+}
 
 // =====================================================================
 // GENERATION JOB HOOKS
@@ -839,17 +830,15 @@ export function useChapter(chapterId: string | null) {
 /**
  * Hook to get user's generation jobs with adaptive polling
  */
-export function useUserJobs(limit: number = 10) {
-  const { userId, isLoaded, isSignedIn, getToken } = useAuth()
+export function useUserJobs(limit: number = 10, options: { enabled?: boolean } = {}) {
+  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
+  const enabled = (options.enabled ?? true) && isLoaded && isSignedIn
 
   const fetcher = useCallback(async (): Promise<GenerationJob[]> => {
-    if (!isSignedIn || !userId) return []
-
-    const token = await getToken()
-    if (!token) return []
+    const authHeaders = await getAuthHeaders()
     // Call backend directly to avoid Vercel timeouts during long jobs
-    const response = await fetch(`/api/auto-complete/jobs?limit=${limit}`, {
-      headers: { Authorization: `Bearer ${token}` }
+    const response = await fetchApi(`/api/auto-complete/jobs?limit=${limit}`, {
+      headers: authHeaders
     })
     if (!response.ok) {
       const txt = await response.text().catch(() => '')
@@ -857,18 +846,18 @@ export function useUserJobs(limit: number = 10) {
     }
     const data = await response.json()
     return (data?.jobs as any[]) || []
-  }, [isSignedIn, userId, limit, getToken])
+  }, [limit, getAuthHeaders])
 
   const { data: jobs, loading, error } = usePolling(
     fetcher,
     POLLING_INTERVALS.activeJobs, // fast polling for active jobs
-    isLoaded && isSignedIn
+    enabled
   )
 
   return {
-    jobs: jobs || [],
-    loading,
-    error
+    jobs: enabled ? (jobs || []) : [],
+    loading: enabled ? loading : false,
+    error: enabled ? error : null
   }
 }
 
@@ -876,26 +865,25 @@ export function useUserJobs(limit: number = 10) {
  * Hook to get a specific generation job with frequent polling
  */
 export function useGenerationJob(jobId: string | null) {
-  const { userId, isLoaded, isSignedIn, getToken } = useAuth()
+  const { getAuthHeaders } = useAuthToken()
 
   const fetcher = useCallback(async (): Promise<GenerationJob | null> => {
-    if (!isSignedIn || !userId || !jobId) return null
+    if (!jobId) return null
 
-    const token = await getToken()
-    if (!token) return null
-    const response = await fetch(`/api/auto-complete/${jobId}/status`, { headers: { Authorization: `Bearer ${token}` } })
+    const authHeaders = await getAuthHeaders()
+    const response = await fetchApi(`/api/auto-complete/${jobId}/status`, { headers: authHeaders })
     if (!response.ok) {
       if (response.status === 404) return null
       const txt = await response.text().catch(() => '')
       throw new Error(`Failed to fetch job: ${response.status} ${txt}`)
     }
     return (await response.json()) as any
-  }, [isSignedIn, userId, jobId, getToken])
+  }, [jobId, getAuthHeaders])
 
   const { data: job, loading, error } = usePolling(
     fetcher,
     POLLING_INTERVALS.activeJobs,
-    isLoaded && isSignedIn && !!jobId
+    !!jobId
   )
 
   return {

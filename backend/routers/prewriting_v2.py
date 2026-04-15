@@ -14,11 +14,13 @@ from pydantic import BaseModel, Field
 try:
     from backend.auth_middleware import get_current_user
     from backend.services.prewriting_summary_service import PrewritingSummaryService, PrewritingSummary
+    from backend.services.story_intake_service import StoryIntakeService
     from backend.database_integration import get_project
 except ImportError:
     # Fallback when running from backend directory
     from backend.auth_middleware import get_current_user
     from backend.services.prewriting_summary_service import PrewritingSummaryService, PrewritingSummary
+    from backend.services.story_intake_service import StoryIntakeService
     from backend.database_integration import get_project
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,17 @@ class PrewritingSummaryResponse(BaseModel):
     success: bool
     summary: Optional[PrewritingSummary]
     message: str
+
+class StoryClarifyRequest(BaseModel):
+    idea: str = Field(..., min_length=50, description="Raw story idea")
+    mode: str = Field("brief", description="brief | extended")
+    previous_answers: Dict[str, str] = Field(default_factory=dict)
+    round_index: int = Field(1, description="Clarification round number")
+
+class StoryRefineRequest(BaseModel):
+    idea: str = Field(..., min_length=50, description="Raw story idea")
+    mode: str = Field("brief", description="brief | extended")
+    answers: Dict[str, str] = Field(default_factory=dict)
 
 @router.post("/summary", response_model=PrewritingSummaryResponse)
 async def generate_prewriting_summary(
@@ -114,3 +127,58 @@ async def get_prewriting_summary(
             status_code=500,
             detail=f"Failed to retrieve prewriting summary: {str(e)}"
         ) 
+
+@router.post("/clarify", response_model=dict)
+async def generate_story_clarification_questions(
+    request: StoryClarifyRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Generate clarifying questions for paste-idea intake."""
+    try:
+        user_id = current_user.get('user_id') or current_user.get('uid')
+        intake_service = StoryIntakeService(user_id=user_id)
+        result = await intake_service.generate_questions(
+            idea=request.idea,
+            mode=request.mode,
+            previous_answers=request.previous_answers,
+            round_index=request.round_index
+        )
+        return {
+            'success': True,
+            'questions': result.questions,
+            'mode': result.mode,
+            'round_index': result.round_index
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate story clarification questions: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate questions: {str(e)}"
+        )
+
+@router.post("/refine", response_model=dict)
+async def refine_story_intake(
+    request: StoryRefineRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Refine raw story idea + answers into a clean story brief."""
+    try:
+        user_id = current_user.get('user_id') or current_user.get('uid')
+        intake_service = StoryIntakeService(user_id=user_id)
+        result = await intake_service.refine_story(
+            idea=request.idea,
+            answers=request.answers,
+            mode=request.mode
+        )
+        return {
+            'success': True,
+            'summary': result.summary,
+            'refined_content': result.refined_content,
+            'followup_questions': result.followup_questions
+        }
+    except Exception as e:
+        logger.error(f"Failed to refine story intake: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to refine story intake: {str(e)}"
+        )

@@ -19,7 +19,7 @@ Add to your `backend/.env` file:
 OPENAI_API_KEY=sk-your-openai-api-key-here
 
 # Optional customization
-DEFAULT_AI_MODEL=gpt-4o
+DEFAULT_AI_MODEL=gpt-5.2-pro
 DEFAULT_AI_TEMPERATURE=0.7
 DEFAULT_AI_MAX_TOKENS=4000
 REFERENCE_PROMPTS_DIR=./prompts/reference-generation
@@ -53,6 +53,7 @@ Each reference type has a YAML prompt file in `prompts/reference-generation/`:
 - `world-building-prompt.yaml` - Setting and environmental details
 - `style-guide-prompt.yaml` - Writing voice and tone guidelines
 - `plot-timeline-prompt.yaml` - Chronological and thematic tracking
+- `director-guide-prompt.yaml` - Director guide for natural first drafts
 
 ### YAML Prompt Format
 
@@ -62,7 +63,7 @@ description: "What this prompt generates"
 version: "1.0"
 
 model_config:
-  model: "gpt-4o"           # OpenAI model to use
+  model: "gpt-5.2-pro"      # OpenAI model to use
   temperature: 0.7          # Creativity level (0.0-1.0)
   max_tokens: 4000          # Maximum response length
   top_p: 0.9               # Response diversity
@@ -174,7 +175,7 @@ curl -X POST http://localhost:8000/references/characters.md/regenerate \
 from openai import OpenAI
 client = OpenAI(api_key="your-key")
 response = client.chat.completions.create(
-    model="gpt-4o",
+    model="gpt-5.2-pro",
     messages=[{"role": "user", "content": "Test"}]
 )
 print(response.choices[0].message.content)

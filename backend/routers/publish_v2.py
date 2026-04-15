@@ -23,7 +23,7 @@ try:
     from backend.database_integration import get_project
     from backend.auth_middleware import get_current_user
     from backend.services.firestore_service import get_firestore_client
-except ImportError:
+except Exception:
     from database_integration import get_project
     from auth_middleware import get_current_user
     from services.firestore_service import get_firestore_client
@@ -42,27 +42,59 @@ def get_job_processor() -> BackgroundJobProcessor:
     return job_processor
 
 
-def _persist_publish_result(project_id: str, result: PublishResult):
-    """Persist publish result to Firestore under projects/{project_id}.publishing.{history,latest}."""
+def _persist_publish_result(project_id: str, result: PublishResult, user_id: Optional[str] = None):
+    """Persist publish result to Firestore on the user-scoped project document."""
     try:
         db = get_firestore_client()
-        project_doc = db.collection('projects').document(project_id)
-        snapshot = project_doc.get()
-        current_publishing = {}
-        if snapshot.exists:
-            data = snapshot.to_dict() or {}
-            current_publishing = data.get('publishing', {})
-        # Append to history
-        history = current_publishing.get('history', [])
-        history.append(result.dict())
-        # Latest only if completed
         from backend.models.firestore_models import PublishJobStatus
-        publishing_data = {
-            'history': history,
-            'latest': result.dict() if result.status == PublishJobStatus.COMPLETED else current_publishing.get('latest')
+
+        publishing_update = {
+            'latest': result.dict() if result.status == PublishJobStatus.COMPLETED else None
         }
-        project_doc.set({'publishing': publishing_data, 'updated_at': datetime.now(timezone.utc)}, merge=True)
-        logger.info(f"📦 Persisted publish result to projects/{project_id}")
+
+        # Write to user-scoped path (primary)
+        persisted = False
+        if user_id:
+            try:
+                user_project_doc = db.collection('users').document(user_id)\
+                    .collection('projects').document(project_id)
+                snapshot = user_project_doc.get()
+                if snapshot.exists:
+                    current_publishing = (snapshot.to_dict() or {}).get('publishing', {})
+                    history = current_publishing.get('history', [])
+                    history.append(result.dict())
+                    publishing_update['history'] = history
+                    if publishing_update['latest'] is None:
+                        publishing_update['latest'] = current_publishing.get('latest')
+                    user_project_doc.set({
+                        'publishing': publishing_update,
+                        'metadata': {'updated_at': datetime.now(timezone.utc)},
+                    }, merge=True)
+                    persisted = True
+                    logger.info(f"Persisted publish result to users/{user_id}/projects/{project_id}")
+            except Exception as e:
+                logger.warning(f"User-scoped publish persist failed: {e}")
+
+        # Fallback: also write to root projects/ for legacy compatibility
+        if not persisted:
+            try:
+                project_doc = db.collection('projects').document(project_id)
+                snapshot = project_doc.get()
+                current_publishing = {}
+                if snapshot.exists:
+                    current_publishing = (snapshot.to_dict() or {}).get('publishing', {})
+                history = current_publishing.get('history', [])
+                history.append(result.dict())
+                publishing_update['history'] = history
+                if publishing_update['latest'] is None:
+                    publishing_update['latest'] = current_publishing.get('latest')
+                project_doc.set({
+                    'publishing': publishing_update,
+                    'updated_at': datetime.now(timezone.utc)
+                }, merge=True)
+                logger.info(f"Persisted publish result to projects/{project_id} (fallback)")
+            except Exception as e2:
+                logger.error(f"Failed to persist publish result for {project_id}: {e2}")
     except Exception as e:
         logger.error(f"Failed to persist publish result for {project_id}: {e}")
 
@@ -165,10 +197,10 @@ async def start_publish_job(
                 except Exception as pe:
                     logger.warning(f"Failed to persist publish progress: {pe}")
 
-            result = await service.publish_book(project_id, config, progress_callback=_progress)
+            result = await service.publish_book(project_id, config, progress_callback=_progress, job_id_override=publish_job_id)
             # Persist publish result for Library access
             try:
-                _persist_publish_result(project_id, result)
+                _persist_publish_result(project_id, result, user_id=user_id)
             except Exception as persist_err:
                 logger.error(f"Publish result persistence failed: {persist_err}")
             
@@ -183,6 +215,8 @@ async def start_publish_job(
                 download_urls["pdf"] = result.pdf_url
             if result.html_url:
                 download_urls["html"] = result.html_url
+            if result.kdp_kit_url:
+                download_urls["kdp_kit"] = result.kdp_kit_url
             
             # Persist final job status
             try:
@@ -190,7 +224,8 @@ async def start_publish_job(
                 download_urls_safe = {
                     'epub': download_urls.get('epub'),
                     'pdf': download_urls.get('pdf'),
-                    'html': download_urls.get('html')
+                    'html': download_urls.get('html'),
+                    'kdp_kit': download_urls.get('kdp_kit')
                 }
                 db.collection('publish_jobs').document(publish_job_id).set({
                     'status': result.status.value,
@@ -205,6 +240,14 @@ async def start_publish_job(
                         'error_message': result.error_message
                     }
                 }, merge=True)
+                # Mirror flat urls for convenience
+                if result.status == PublishJobStatus.COMPLETED:
+                    db.collection('publish_jobs').document(publish_job_id).set({
+                        'epub_url': download_urls_safe.get('epub'),
+                        'pdf_url': download_urls_safe.get('pdf'),
+                        'html_url': download_urls_safe.get('html'),
+                        'kdp_kit_url': download_urls_safe.get('kdp_kit'),
+                    }, merge=True)
             except Exception as _final_err:
                 logger.warning(f"Failed to persist final publish job result: {_final_err}")
 
@@ -260,7 +303,21 @@ async def get_publish_job_status(
                 data = doc.to_dict() or {}
                 progress = data.get('progress', {}) or {}
                 result = data.get('result', {}) or {}
-                return {
+                # If result has nested download_urls, expose flat fields as well
+                try:
+                    dl = result.get('download_urls') or {}
+                    if isinstance(dl, dict):
+                        # Do not mutate original; build a merged copy
+                        result = {
+                            **result,
+                            'epub_url': dl.get('epub'),
+                            'pdf_url': dl.get('pdf'),
+                            'html_url': dl.get('html'),
+                            'kdp_kit_url': dl.get('kdp_kit'),
+                        }
+                except Exception:
+                    pass
+                response_data = {
                     "job_id": job_id,
                     "status": data.get('status', 'pending'),
                     "progress": {
@@ -272,6 +329,11 @@ async def get_publish_job_status(
                     "started_at": data.get('started_at'),
                     "completed_at": data.get('completed_at')
                 }
+                # Surface error_message as top-level error so the frontend can display it
+                error_msg = result.get('error_message') or data.get('error_message')
+                if error_msg and data.get('status') == 'failed':
+                    response_data["error"] = error_msg
+                return response_data
         except Exception as _fs_err:
             logger.warning(f"Publish job Firestore read failed: {_fs_err}")
 
@@ -295,6 +357,7 @@ async def get_publish_job_status(
                     response["result"]["epub_url"] = job.result["download_urls"].get("epub")
                     response["result"]["pdf_url"] = job.result["download_urls"].get("pdf")
                     response["result"]["html_url"] = job.result["download_urls"].get("html")
+                    response["result"]["kdp_kit_url"] = job.result["download_urls"].get("kdp_kit")
         if job.status == JobStatus.FAILED and job.error_message:
             response["error"] = job.error_message
         return response
@@ -447,8 +510,11 @@ async def startup_event():
     """Initialize the job processor on startup."""
     try:
         processor = get_job_processor()
-        await processor.start()
-        logger.info("✅ Publishing job processor started")
+        if hasattr(processor, "start"):
+            await processor.start()
+            logger.info("✅ Publishing job processor started")
+        else:
+            logger.info("Publishing job processor ready (no start hook)")
     except Exception as e:
         logger.error(f"Failed to start job processor: {e}")
 
@@ -458,7 +524,10 @@ async def shutdown_event():
     """Cleanup the job processor on shutdown."""
     try:
         processor = get_job_processor()
-        await processor.shutdown()
-        logger.info("✅ Publishing job processor shutdown")
+        if hasattr(processor, "shutdown"):
+            await processor.shutdown()
+            logger.info("✅ Publishing job processor shutdown")
+        else:
+            logger.info("Publishing job processor shutdown skipped (no shutdown hook)")
     except Exception as e:
         logger.error(f"Failed to shutdown job processor: {e}") 

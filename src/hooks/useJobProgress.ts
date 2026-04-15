@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuthToken } from '@/lib/auth'
+import { fetchApi } from '@/lib/api-client'
 
 interface JobProgress {
   id: string
@@ -40,7 +41,7 @@ export function useJobProgress(
   const pollProgress = useCallback(async (id: string) => {
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch(`/api/v2/projects/${id}/references/progress`, {
+      const response = await fetchApi(`/api/v2/projects/${id}/references/progress`, {
         headers: authHeaders
       })
       

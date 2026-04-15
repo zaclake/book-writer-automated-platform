@@ -15,8 +15,6 @@ sys.path.append(str(Path(__file__).parent))
 
 from services.cover_art_service import CoverArtService
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def debug_cover_art_service():

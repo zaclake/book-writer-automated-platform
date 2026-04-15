@@ -16,6 +16,7 @@ system_prompt: |
   - Follow character development toolkit requirements
   - Include research accuracy planning for technical elements
   - Stay within theme repetition limits
+  - If file_search is available, retrieve missing facts before finalizing the blueprint
   
   OUTPUT FORMAT:
   Provide a structured blueprint with these sections:
@@ -32,6 +33,12 @@ user_prompt: |
   
   STORY CONTEXT:
   {story_context}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   PREVIOUS CHAPTER SUMMARY:
   {previous_chapter_summary}
@@ -82,6 +89,8 @@ variables:
     - character_requirements
     - plot_requirements
     - theme_repetition_limits
+    - vector_memory_context
+    - vector_memory_guidelines
 
 output_format: "structured_blueprint"
 max_tokens: 2000

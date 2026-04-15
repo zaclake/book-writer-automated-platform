@@ -307,6 +307,12 @@ All recommended improvements from the brutal critique have been implemented with
 - ✅ Plot advancement tracker
 - ✅ Word count planning calculator
 - ✅ Series balance guidelines
+- ✅ Scene integrity engine
+- ✅ Consistency and redundancy gate
+- ✅ Distinctiveness and specificity tests
+- ✅ Show-vs-summary balancer
+- ✅ Hook and promise reinforcement
+- ✅ Director system
 - ✅ Implementation guide
 
 #### **NO OPTIONAL ELEMENTS:**
@@ -329,6 +335,26 @@ Every component addresses a specific critical failure. Skipping any element risk
 
 #### **EMERGENCY PROTOCOLS ONLY:**
 Emergency procedures defined for word count shortfalls and research gaps, but core requirements remain mandatory.
+
+---
+
+## ADDITIONAL UNIVERSAL CRAFT CONTROLS (GLOBAL)
+
+### **New Failure Modes Eliminated:**
+- ❌ Consequence-free scenes
+- ❌ POV or identity drift within chapters
+- ❌ Redundant onboarding or repeated scene functions
+- ❌ Generic world texture and stock genre language
+- ❌ Summary-dominant prose without action grounding
+- ❌ Chapter endings without explicit hooks
+
+### **New Controls Implemented:**
+- ✅ Scene Integrity Engine (Goal → Obstacle → Choice → Result + consequence)
+- ✅ Consistency & Redundancy Gate (identity stability and beat deduplication)
+- ✅ Distinctiveness & Specificity Tests (unique world markers every scene)
+- ✅ Show-vs-Summary Balancer (action-grounded prose ratios)
+- ✅ Hook & Promise Reinforcement (explicit chapter promise and exit hook)
+- ✅ Director System (scene payloads + onramp + freedom levers)
 
 ---
 

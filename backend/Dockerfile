@@ -29,6 +29,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy backend code and prompts explicitly from repo root
 COPY backend /app/backend
 COPY prompts /app/prompts
+COPY quality-gates.yml /app/quality-gates.yml
+
+# Ensure system tools are present at stable paths
+COPY backend/system /app/backend/system
+COPY backend/system /app/system
 
 EXPOSE 8000
 

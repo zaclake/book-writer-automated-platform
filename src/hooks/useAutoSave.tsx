@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useEffect, useRef, useCallback, useState } from 'react'
-import { useUser } from '@clerk/nextjs'
-import { toast } from '@/components/ui/use-toast'
+import { ANONYMOUS_USER, useAuthToken } from '@/lib/auth'
+import { toast } from '@/hooks/useAppToast'
 
 interface AutoSaveOptions {
   interval?: number // Auto-save interval in milliseconds (default: 30 seconds)
@@ -10,6 +10,7 @@ interface AutoSaveOptions {
   key: string // Unique key for the data being saved
   enableLocalStorage?: boolean // Enable localStorage backup (default: true)
   enableFirestore?: boolean // Enable Firestore sync (default: true)
+  onConflict?: (args: { local: any; error: unknown }) => Promise<'use_local' | 'discard'> | ('use_local' | 'discard')
 }
 
 interface AutoSaveState {
@@ -26,7 +27,8 @@ export function useAutoSave<T>(
   saveFunction: (data: T) => Promise<void>,
   options: AutoSaveOptions
 ) {
-  const { user, isLoaded } = useUser()
+  const { user: authUser, isLoaded } = useAuthToken()
+  const user = authUser || ANONYMOUS_USER
   const [state, setState] = useState<AutoSaveState>({
     isSaving: false,
     lastSaved: null,
@@ -41,7 +43,8 @@ export function useAutoSave<T>(
     debounceDelay = 2000, // 2 seconds
     key,
     enableLocalStorage = true,
-    enableFirestore = true
+    enableFirestore = true,
+    onConflict
   } = options
 
   // Refs to store mutable values
@@ -125,13 +128,20 @@ export function useAutoSave<T>(
       const savedData = loadFromLocalStorage()
       
       if (savedData) {
-        // Show conflict resolution UI (simplified for now)
-        const useLocal = confirm(
-          'There was a conflict saving your changes. Would you like to use your local version? ' +
-          'Click OK to use local version, Cancel to discard changes.'
-        )
-        
-        if (useLocal) {
+        let decision: 'use_local' | 'discard' = 'discard'
+        try {
+          if (onConflict) {
+            const res = await onConflict({ local: savedData, error: conflictError })
+            decision = res === 'use_local' ? 'use_local' : 'discard'
+          } else {
+            // No UI resolver provided: fail safe by discarding to avoid silent overwrite.
+            decision = 'discard'
+          }
+        } catch {
+          decision = 'discard'
+        }
+
+        if (decision === 'use_local') {
           // Force save with conflict resolution
           await saveFunction(data)
           setState(prev => ({ ...prev, isRecovering: false }))
@@ -147,7 +157,7 @@ export function useAutoSave<T>(
       setState(prev => ({ ...prev, isRecovering: false }))
       return false
     }
-  }, [loadFromLocalStorage, saveFunction])
+  }, [loadFromLocalStorage, saveFunction, onConflict])
 
   // Perform the actual save operation with retry logic
   const performSaveAttempt = useCallback(async (data: T, isManual = false, retryCount = 0) => {
@@ -339,7 +349,8 @@ export function useSessionRecovery<T>(
   defaultValue: T,
   onRecover?: (data: T) => void
 ) {
-  const { user, isLoaded } = useUser()
+  const { user: authUser, isLoaded } = useAuthToken()
+  const user = authUser || ANONYMOUS_USER
   const [hasRecoverableData, setHasRecoverableData] = useState(false)
   const [recoveredData, setRecoveredData] = useState<T | null>(null)
 

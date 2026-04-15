@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -11,45 +10,30 @@ export async function GET(request: NextRequest) {
   console.log('[v2/projects] GET request started')
   
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    const backendBaseUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
     if (!backendBaseUrl) {
       console.error('[v2/projects] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL/BACKEND_URL missing)' },
         { status: 500 }
       )
     }
 
-    // Get Clerk auth and JWT token
-    const { getToken } = await auth()
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-    
-    try {
-      const token = await getToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-        console.log('[v2/projects] Auth token added to request')
-      } else {
-        console.warn('[v2/projects] No auth token available')
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        )
-      }
-    } catch (error) {
-      console.error('[v2/projects] Failed to get Clerk token:', error)
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 }
-      )
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     }
 
     // Forward query parameters
     const url = new URL(request.url)
     const queryParams = url.searchParams.toString()
-    const targetUrl = `${backendBaseUrl}/v2/projects/`
+    const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/v2/projects`
     const fullTargetUrl = queryParams ? `${targetUrl}?${queryParams}` : targetUrl
     
     console.log('[v2/projects] Forwarding to:', fullTargetUrl)
@@ -60,7 +44,15 @@ export async function GET(request: NextRequest) {
       cache: 'no-store'
     })
 
-    const data = await backendResponse.json()
+    const rawText = await backendResponse.text()
+    let data: any = {}
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        data = { message: rawText }
+      }
+    }
     
     if (!backendResponse.ok) {
       console.error('[v2/projects] Backend error:', backendResponse.status, data)
@@ -72,6 +64,67 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('[v2/projects] Error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: NextRequest) {
+  console.log('[v2/projects] POST request started')
+
+  try {
+    const backendBaseUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      console.error('[v2/projects] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL/BACKEND_URL missing)' },
+        { status: 500 }
+      )
+    }
+
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
+    }
+
+    const body = await request.text()
+    const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/v2/projects`
+
+    console.log('[v2/projects] Forwarding POST to:', targetUrl)
+
+    const backendResponse = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body,
+      cache: 'no-store'
+    })
+
+    const rawText = await backendResponse.text()
+    let data: any = {}
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        data = { message: rawText }
+      }
+    }
+    if (!backendResponse.ok) {
+      console.error('[v2/projects] Backend error:', backendResponse.status, data)
+      return NextResponse.json(data, { status: backendResponse.status })
+    }
+
+    console.log('[v2/projects] POST completed successfully')
+    return NextResponse.json(data)
+  } catch (error) {
+    console.error('[v2/projects] POST error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

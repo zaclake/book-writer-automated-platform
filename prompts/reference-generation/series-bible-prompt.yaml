@@ -1,5 +1,6 @@
 name: "Series Bible Reference Generator"
 description: "Generates comprehensive series continuity and overarching narrative documentation from book bible content"
+version: "2.1"
 
 system_prompt: |
   You are a series development specialist and continuity expert who helps authors maintain consistency and plan long-term storytelling across multiple books. Your role is to extract series potential from book bible content and create systematic approaches for multi-book narrative management.
@@ -96,27 +97,27 @@ user_prompt_template: |
   Provide specific, actionable guidance that helps maintain series coherence while allowing for creative evolution. Focus on practical continuity management and long-term planning.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.7
   max_tokens: 4000
   top_p: 0.9
 
-validation:
-  required_sections:
-    - "Series Overview"
-    - "Book-by-Book Breakdown"
-    - "Character Evolution Across Series"
-    - "World Building Expansion"
-    - "Continuity Tracking System"
-    - "Series-Specific Plot Elements"
-    - "Reader Experience Across Series"
-    - "Publishing Strategy"
-    - "Quality Control Across Series"
-    - "Flexibility and Adaptation"
-  
-  quality_checks:
-    - "Series concept is compelling and sustainable"
-    - "Book breakdown shows clear progression"
-    - "Character evolution is realistic and engaging"
-    - "Continuity system is detailed and practical"
-    - "Reader experience considerations are thorough" 
+validation_rules:
+  - "Series concept is compelling and sustainable"
+  - "Book breakdown shows clear progression"
+  - "Character evolution is realistic and engaging"
+  - "Continuity system is detailed and practical"
+  - "Reader experience considerations are thorough"
+
+output_format: "markdown"
+expected_sections:
+  - "Series Overview"
+  - "Book-by-Book Breakdown"
+  - "Character Evolution Across Series"
+  - "World Building Expansion"
+  - "Continuity Tracking System"
+  - "Series-Specific Plot Elements"
+  - "Reader Experience Across Series"
+  - "Publishing Strategy"
+  - "Quality Control Across Series"
+  - "Flexibility and Adaptation"

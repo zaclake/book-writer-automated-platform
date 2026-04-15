@@ -1,11 +1,11 @@
 import { renderHook, act } from '@testing-library/react'
 import { useUser } from '@clerk/nextjs'
 import { useAutoSave } from '../../hooks/useAutoSave'
-import { toast } from '../../components/ui/use-toast'
+import { toast } from '../../hooks/useAppToast'
 
 // Mock dependencies
 jest.mock('@clerk/nextjs')
-jest.mock('../../components/ui/use-toast')
+jest.mock('../../hooks/useAppToast')
 
 // Mock localStorage
 const localStorageMock = {

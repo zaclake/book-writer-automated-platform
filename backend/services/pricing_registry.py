@@ -58,6 +58,14 @@ class PricingRegistry:
                 'gpt-4o': ModelPricing('openai', 'gpt-4o', 0.005, 0.015),
                 'gpt-4o-mini': ModelPricing('openai', 'gpt-4o-mini', 0.00015, 0.0006),
                 'gpt-4-turbo': ModelPricing('openai', 'gpt-4-turbo', 0.01, 0.03),
+                # Pricing per OpenAI docs (Standard tier) as of 2026-01:
+                # gpt-4.1: $2.00 / 1M input, $8.00 / 1M output
+                'gpt-4.1': ModelPricing('openai', 'gpt-4.1', 0.002, 0.008),
+                # gpt-4.1-mini: $0.40 / 1M input, $1.60 / 1M output
+                'gpt-4.1-mini': ModelPricing('openai', 'gpt-4.1-mini', 0.0004, 0.0016),
+                # gpt-4.1-nano: $0.10 / 1M input, $0.40 / 1M output
+                'gpt-4.1-nano': ModelPricing('openai', 'gpt-4.1-nano', 0.0001, 0.0004),
+                'gpt-image-1': ModelPricing('openai', 'gpt-image-1', job_usd=0.25),  # High quality 1024x1536
                 'dall-e-3': ModelPricing('openai', 'dall-e-3', job_usd=0.04),  # Standard quality
                 'dall-e-2': ModelPricing('openai', 'dall-e-2', job_usd=0.02)
             },
@@ -191,7 +199,17 @@ class PricingRegistry:
         cache_key = f"{provider}:{model}"
         
         with self._cache_lock:
-            return self._pricing_cache.get(cache_key)
+            pricing = self._pricing_cache.get(cache_key)
+            if pricing:
+                return pricing
+
+            # Fallback for snapshot model ids (e.g. gpt-4.1-2025-04-14)
+            # so pricing works even if Firestore/defaults only store the alias.
+            if isinstance(model, str) and "-" in model:
+                base = model.split("-", 1)[0]
+                base_key = f"{provider}:{base}"
+                return self._pricing_cache.get(base_key)
+            return None
     
     def get_markup_multiplier(self, provider: str = None) -> float:
         """Get markup multiplier for a provider."""
@@ -214,7 +232,9 @@ class PricingRegistry:
         """
         pricing = self.get_model_pricing(provider, model)
         if not pricing:
-            logger.error(f"No pricing found for {provider}:{model}")
+            # This happens during development / model rollouts when pricing tables lag behind.
+            # Keep it at debug level to avoid noisy production logs when billing is not in use.
+            logger.debug(f"No pricing found for {provider}:{model}")
             return 0.0
         
         try:
@@ -307,6 +327,10 @@ class PricingRegistry:
                         'input_usd_per_1k': 0.00015,
                         'output_usd_per_1k': 0.0006,
                         'description': 'GPT-4o mini pricing'
+                    },
+                    'gpt-image-1': {
+                        'job_usd': 0.25,
+                        'description': 'GPT-image-1 high quality 1024x1536'
                     },
                     'dall-e-3': {
                         'job_usd': 0.04,

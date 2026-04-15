@@ -19,8 +19,12 @@ export interface CreditError {
  */
 export function useCreditsErrorHandler() {
   const router = useRouter()
+  const creditsEnabled = process.env.NEXT_PUBLIC_CREDITS_ENABLED !== 'false'
 
   const handleCreditsError = useCallback((error: any) => {
+    if (!creditsEnabled) {
+      return false
+    }
     // Check if this is a 402 Payment Required error
     if (error?.status === 402 || error?.response?.status === 402) {
       const errorData = error?.data || error?.response?.data
@@ -61,7 +65,7 @@ export function useCreditsErrorHandler() {
     
     // Not a credits error
     return false
-  }, [router])
+  }, [creditsEnabled, router])
 
   const handleApiError = useCallback((error: any) => {
     // Try to handle as credits error first

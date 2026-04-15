@@ -25,14 +25,10 @@ from fastapi.exception_handlers import RequestValidationError
 from fastapi import status
 import platform
 
-# Configure structured logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(pathname)s:%(lineno)d',
-    handlers=[
-        logging.StreamHandler(),
-    ]
-)
+# Configure logging once (prevents duplicate handlers / spam)
+from backend.utils.logging_config import setup_logging, request_id_contextvar
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------
@@ -51,9 +47,7 @@ if _os.getcwd().endswith('/backend'):
 # END early path correction
 # ---------------------------------------------------------------------
 
-# Add request ID for tracing
-import contextvars
-request_id_contextvar = contextvars.ContextVar('request_id', default=None)
+# request_id_contextvar imported from backend.utils.logging_config
 
 # Models
 class AutoCompleteRequest(BaseModel):
@@ -90,7 +84,7 @@ class ChapterGenerationRequest(BaseModel):
     project_data: Dict[str, Any] = Field(default_factory=dict, max_length=10000)
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "project_id": "project-123",
                 "chapter_number": 1,
@@ -111,8 +105,11 @@ class BookBibleInitializeRequest(BaseModel):
     project_id: str = Field(..., min_length=1, max_length=100, description="Unique project identifier")
     content: str = Field(..., min_length=100, max_length=50000, description="Book bible markdown content")
 
-# Import Firestore client
-from firestore_client import firestore_client
+# Import Firestore client (robust to both local and container package layout)
+try:
+    from backend.firestore_client import firestore_client
+except Exception:
+    from firestore_client import firestore_client
 
 # Import path utilities
 # Robust import for utils.paths. When running **inside** ./backend, the parent
@@ -196,6 +193,42 @@ async def lifespan(app: FastAPI):
             logger.info("Periodic cleanup task started")
         except Exception as e:
             logger.warning(f"Failed to start periodic cleanup: {e}")
+
+        # Startup recovery: rehydrate jobs claimed by this worker (best-effort).
+        try:
+            from backend.database_integration import get_database_adapter
+            db_adapter = get_database_adapter()
+            job_processor = getattr(app.state, "job_processor", None)
+            worker_id = getattr(job_processor, "worker_id", None)
+            if (
+                job_processor
+                and worker_id
+                and db_adapter
+                and getattr(db_adapter, "use_firestore", False)
+                and getattr(db_adapter, "firestore", None)
+            ):
+                async def _recover_claimed_jobs():
+                    try:
+                        locks = await db_adapter.firestore.list_generation_locks_for_worker(str(worker_id), limit=25)
+                        for lock in locks or []:
+                            if not isinstance(lock, dict):
+                                continue
+                            job_id = lock.get("job_id")
+                            status = str(lock.get("status") or "").lower()
+                            if not job_id:
+                                continue
+                            if status and status not in {"initializing", "running", "generating", "paused"}:
+                                continue
+                            try:
+                                await job_processor.recover_job(job_id)
+                            except Exception as e:
+                                logger.warning(f"Startup recovery failed for job {job_id}: {e}")
+                    except Exception as e:
+                        logger.warning(f"Startup recovery scan failed: {e}")
+                asyncio.create_task(_recover_claimed_jobs())
+                logger.info("Startup auto-complete recovery scheduled")
+        except Exception as e:
+            logger.warning(f"Startup recovery initialization failed: {e}")
         
         logger.info("Backend startup completed (some services may be degraded)")
         
@@ -208,7 +241,18 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Auto-Complete Book Backend...")
 
 # Create rate limiter
-limiter = Limiter(key_func=get_remote_address)
+def _rate_limit_key(request: Request) -> str:
+    """Prefer forwarded client IPs for rate limiting in production."""
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        # Use the first IP in the chain (original client)
+        return forwarded_for.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_limit_key)
 
 # Create FastAPI app
 app = FastAPI(
@@ -276,7 +320,7 @@ app.add_middleware(
     allow_origins=[o.strip() for o in cors_origins if o.strip()],
     allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
     expose_headers=["Content-Type", "Authorization"],
 )
@@ -284,23 +328,25 @@ app.add_middleware(
 # Add security headers and logging middleware
 @app.middleware("http")
 async def add_security_headers_and_logging(request, call_next):
-    """Add basic security headers and log request/response."""
-    
     """Add security headers and request logging to all responses."""
     # Generate request ID for tracing
     req_id = str(uuid.uuid4())[:8]
     request_id_contextvar.set(req_id)
     
-    # Log request
-    logger.info(
-        f"Request started",
-        extra={
-            "request_id": req_id,
-            "method": request.method,
-            "url": str(request.url),
-            "client_ip": request.client.host if request.client else "unknown"
-        }
-    )
+    log_mode = os.getenv("REQUEST_LOG_MODE", "errors").strip().lower()
+    log_threshold_seconds = float(os.getenv("REQUEST_LOG_THRESHOLD_SECONDS", "1.0"))
+    log_start = log_mode == "all"
+
+    if log_start:
+        logger.info(
+            "Request started",
+            extra={
+                "request_id": req_id,
+                "method": request.method,
+                "url": str(request.url),
+                "client_ip": request.client.host if request.client else "unknown"
+            }
+        )
     
     start_time = datetime.utcnow()
     
@@ -310,15 +356,17 @@ async def add_security_headers_and_logging(request, call_next):
         # Calculate request duration
         duration = (datetime.utcnow() - start_time).total_seconds()
         
-        # Log response
-        logger.info(
-            f"Request completed",
-            extra={
-                "request_id": req_id,
-                "status_code": response.status_code,
-                "duration_seconds": duration
-            }
-        )
+        # Log response with reduced noise by default
+        if log_mode not in ("none", "errors"):
+            if log_mode == "all" or response.status_code >= 400 or duration >= log_threshold_seconds:
+                logger.info(
+                    "Request completed",
+                    extra={
+                        "request_id": req_id,
+                        "status_code": response.status_code,
+                        "duration_seconds": duration
+                    }
+                )
         
         # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -337,14 +385,15 @@ async def add_security_headers_and_logging(request, call_next):
     except Exception as e:
         # Log error
         duration = (datetime.utcnow() - start_time).total_seconds()
-        logger.error(
-            f"Request failed",
-            extra={
-                "request_id": req_id,
-                "error": str(e),
-                "duration_seconds": duration
-            }
-        )
+        if log_mode != "none":
+            logger.error(
+                "Request failed",
+                extra={
+                    "request_id": req_id,
+                    "error": str(e),
+                    "duration_seconds": duration
+                }
+            )
         raise
 
 # Security
@@ -360,14 +409,17 @@ async def enforce_https_in_redirects(request, call_next):
         response.headers["location"] = location.replace("http://", "https://", 1)
     return response
 
-security = HTTPBearer()
+# Initialize security dependency and imports robustly for both layouts
+try:
+    from backend.auth_middleware import get_current_user, security as _security, auth_middleware as _auth_middleware
+except Exception:
+    from auth_middleware import get_current_user, security as _security, auth_middleware as _auth_middleware
 
-from auth_middleware import get_current_user, security
+security = _security
 
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verify JWT token using Clerk authentication."""
-    from auth_middleware import auth_middleware
-    return auth_middleware.verify_token(credentials)
+    return _auth_middleware.verify_token(credentials)
 
 # Include routers with explicit error handling
 try:
@@ -395,11 +447,13 @@ try:
             sys.path.insert(0, '/app')
         logger.info(f"Updated Python path: {sys.path[:3]}...")
     
+    chapters_v2_import_error = None
     try:
         # Attempt absolute imports, but guard each to avoid one failure disabling all v2 routers
         projects_v2 = None
         chapters_v2 = None
         users_v2 = None
+        auth_v2 = None
         prewriting_v2 = None
         publish_v2 = None
         credits_v2 = None
@@ -414,11 +468,18 @@ try:
             logger.info("✅ chapters_v2 imported via backend.* path")
         except Exception as e:
             logger.warning(f"chapters_v2 import via backend.* failed: {e}")
+            if chapters_v2_import_error is None:
+                chapters_v2_import_error = e
         try:
             users_v2 = importlib.import_module("backend.routers.users_v2")
             logger.info("✅ users_v2 imported via backend.* path")
         except Exception as e:
             logger.warning(f"users_v2 import via backend.* failed: {e}")
+        try:
+            auth_v2 = importlib.import_module("backend.routers.auth_v2")
+            logger.info("✅ auth_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"auth_v2 import via backend.* failed: {e}")
 
         # Optional routers
         try:
@@ -438,7 +499,7 @@ try:
             logger.warning(f"credits_v2 import via backend.* failed: {e}")
 
         # If any core router is still None, fall back to relative imports
-        if not (projects_v2 and chapters_v2 and users_v2):
+        if not (projects_v2 and chapters_v2 and users_v2 and auth_v2):
             logger.info("Falling back to routers.* imports for any missing routers")
             if projects_v2 is None:
                 try:
@@ -452,12 +513,20 @@ try:
                     logger.info("✅ chapters_v2 imported via routers.* path")
                 except Exception as e:
                     logger.error(f"❌ chapters_v2 import via routers.* failed: {e}")
+                    if chapters_v2_import_error is None:
+                        chapters_v2_import_error = e
             if users_v2 is None:
                 try:
                     users_v2 = importlib.import_module("routers.users_v2")
                     logger.info("✅ users_v2 imported via routers.* path")
                 except Exception as e:
                     logger.error(f"❌ users_v2 import via routers.* failed: {e}")
+            if auth_v2 is None:
+                try:
+                    auth_v2 = importlib.import_module("routers.auth_v2")
+                    logger.info("✅ auth_v2 imported via routers.* path")
+                except Exception as e:
+                    logger.error(f"❌ auth_v2 import via routers.* failed: {e}")
 
             # Optional fallbacks
             if prewriting_v2 is None:
@@ -486,6 +555,7 @@ try:
             projects_v2 = importlib.import_module("routers.projects_v2")
             chapters_v2 = importlib.import_module("routers.chapters_v2")
             users_v2 = importlib.import_module("routers.users_v2")
+            auth_v2 = importlib.import_module("routers.auth_v2")
             logger.info("✅ Core routers imported via relative routers.* path")
             
             # Try to import prewriting router (optional)
@@ -515,14 +585,196 @@ try:
         app.include_router(projects_v2.router)
     else:
         logger.error("projects_v2 not imported; skipping include")
+        try:
+            from fastapi import APIRouter, Depends, HTTPException, status
+            from pydantic import BaseModel
+            from typing import Optional, List
+            try:
+                from backend.auth_middleware import get_current_user
+                from backend.database_integration import (
+                    get_user_projects,
+                    create_project,
+                    get_project,
+                    get_project_chapters,
+                )
+            except Exception:
+                from auth_middleware import get_current_user
+                from database_integration import (
+                    get_user_projects,
+                    create_project,
+                    get_project,
+                    get_project_chapters,
+                )
+
+            fallback_router = APIRouter(prefix="/v2/projects", tags=["projects-v2-fallback"])
+
+            class FallbackCreateProjectRequest(BaseModel):
+                title: str
+                genre: str = "Fiction"
+                target_chapters: int = 25
+                word_count_per_chapter: int = 2000
+                book_bible_content: Optional[str] = None
+                include_series_bible: bool = False
+                must_include_sections: List[str] = []
+                creation_mode: str = "quickstart"
+                book_length_tier: Optional[str] = None
+                estimated_chapters: Optional[int] = None
+                target_word_count: Optional[int] = None
+                source_data: Optional[dict] = None
+
+            @fallback_router.get("/")
+            async def list_projects_fallback(current_user: dict = Depends(get_current_user)):
+                user_id = current_user.get("user_id")
+                if not user_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid user authentication"
+                    )
+                projects_data = await get_user_projects(user_id)
+                return {
+                    "projects": projects_data,
+                    "total": len(projects_data),
+                    "warning": "projects_v2 failed to load; fallback router in use"
+                }
+
+            @fallback_router.post("/")
+            async def create_project_fallback(
+                request: FallbackCreateProjectRequest,
+                current_user: dict = Depends(get_current_user)
+            ):
+                user_id = current_user.get("user_id")
+                if not user_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid user authentication"
+                    )
+                project_data = {
+                    "metadata": {
+                        "title": request.title,
+                        "owner_id": user_id,
+                        "collaborators": [],
+                        "status": "active",
+                        "visibility": "private",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "updated_at": datetime.utcnow().isoformat(),
+                    },
+                    "settings": {
+                        "genre": request.genre,
+                        "target_chapters": request.target_chapters,
+                        "word_count_per_chapter": request.word_count_per_chapter,
+                        "target_audience": "General",
+                        "writing_style": "Professional",
+                        "quality_gates_enabled": True,
+                        "auto_completion_enabled": False,
+                        "include_series_bible": request.include_series_bible,
+                    }
+                }
+                if request.book_bible_content:
+                    project_data["book_bible"] = {
+                        "content": request.book_bible_content,
+                        "must_include_sections": request.must_include_sections or [],
+                        "book_length_tier": request.book_length_tier,
+                        "estimated_chapters": request.estimated_chapters,
+                        "target_word_count": request.target_word_count,
+                        "last_modified": datetime.utcnow().isoformat(),
+                        "modified_by": user_id,
+                        "version": 1,
+                        "word_count": len(request.book_bible_content.split())
+                    }
+
+                project_id = await create_project(project_data)
+                if not project_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to create project"
+                    )
+
+                return {
+                    "project": {
+                        "id": project_id,
+                        "title": request.title,
+                        "genre": request.genre,
+                        "status": "active",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "settings": {
+                            "target_chapters": request.target_chapters,
+                            "word_count_per_chapter": request.word_count_per_chapter,
+                            "genre": request.genre,
+                            "include_series_bible": request.include_series_bible
+                        }
+                    },
+                    "references_generated": False,
+                    "message": "Project created (fallback router)"
+                }
+
+            @fallback_router.get("/{project_id}/chapters")
+            async def list_project_chapters_fallback(
+                project_id: str,
+                current_user: dict = Depends(get_current_user)
+            ):
+                user_id = current_user.get("user_id")
+                if not user_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid user authentication"
+                    )
+
+                project = await get_project(project_id)
+                if not project:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Project not found"
+                    )
+
+                owner_id = project.get("metadata", {}).get("owner_id")
+                collaborators = project.get("metadata", {}).get("collaborators", [])
+                if owner_id != user_id and user_id not in collaborators and user_id != "anonymous-user":
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied"
+                    )
+
+                chapters = await get_project_chapters(project_id)
+                return {
+                    "chapters": chapters,
+                    "total": len(chapters),
+                    "warning": "projects_v2 failed to load; fallback router in use"
+                }
+
+            app.include_router(fallback_router)
+            logger.warning("⚠️ Using fallback /v2/projects router")
+        except Exception as fallback_err:
+            logger.error(f"❌ Failed to initialize fallback /v2/projects router: {fallback_err}")
     if chapters_v2:
         app.include_router(chapters_v2.router)
     else:
         logger.error("chapters_v2 not imported; skipping include")
+        try:
+            from fastapi import APIRouter
+
+            fallback_chapters_router = APIRouter(prefix="/v2/chapters", tags=["chapters-v2-fallback"])
+
+            @fallback_chapters_router.post("/generate")
+            async def chapters_generate_unavailable():
+                detail = "chapters_v2 router unavailable; check backend logs for import errors"
+                if chapters_v2_import_error:
+                    detail = f"{detail}: {chapters_v2_import_error}"
+                raise HTTPException(
+                    status_code=503,
+                    detail=detail
+                )
+
+            app.include_router(fallback_chapters_router)
+        except Exception as fallback_err:
+            logger.error(f"Failed to register chapters_v2 fallback route: {fallback_err}")
     if users_v2:
         app.include_router(users_v2.router)
     else:
         logger.error("users_v2 not imported; skipping include")
+    if auth_v2:
+        app.include_router(auth_v2.router)
+    else:
+        logger.error("auth_v2 not imported; skipping include")
     
     if prewriting_v2:
         app.include_router(prewriting_v2.router)
@@ -556,6 +808,7 @@ try:
     if projects_v2: included_routers.append('projects_v2')
     if chapters_v2: included_routers.append('chapters_v2')
     if users_v2: included_routers.append('users_v2')
+    if auth_v2: included_routers.append('auth_v2')
     if prewriting_v2: included_routers.append('prewriting_v2')
     if publish_v2: included_routers.append('publish_v2')
     if credits_v2: included_routers.append('credits_v2')
@@ -567,6 +820,301 @@ except Exception as e:
     import traceback
     logger.error(f"Full traceback: {traceback.format_exc()}")
 
+# Ensure essential v2 routes exist even if router import failed
+try:
+    from fastapi.routing import APIRoute
+    from fastapi import Depends, HTTPException, status, BackgroundTasks
+    from fastapi.encoders import jsonable_encoder
+    try:
+        from backend.auth_middleware import get_current_user
+        from backend.database_integration import (
+            get_project,
+            get_project_chapters,
+            get_project_reference_files,
+            create_reference_file,
+            get_database_adapter,
+        )
+    except Exception:
+        from auth_middleware import get_current_user
+        from database_integration import (
+            get_project,
+            get_project_chapters,
+            get_project_reference_files,
+            create_reference_file,
+            get_database_adapter,
+        )
+except Exception as e:
+    logger.error(f"❌ Failed to load fallback route dependencies: {e}")
+else:
+    def _has_route(path: str, method: str) -> bool:
+        for route in app.routes:
+            if isinstance(route, APIRoute) and route.path == path and method in route.methods:
+                return True
+        return False
+
+    if not _has_route("/v2/projects/{project_id}/chapters", "GET"):
+        @app.get("/v2/projects/{project_id}/chapters")
+        async def get_project_chapters_fallback(
+            project_id: str,
+            current_user: dict = Depends(get_current_user)
+        ):
+            user_id = current_user.get("user_id")
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid user authentication"
+                )
+
+            project = await get_project(project_id)
+            if not project:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Project not found"
+                )
+
+            owner_id = project.get("metadata", {}).get("owner_id")
+            collaborators = project.get("metadata", {}).get("collaborators", [])
+            if owner_id != user_id and user_id not in collaborators and user_id != "anonymous-user":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied"
+                )
+
+            chapters = await get_project_chapters(project_id)
+            return {
+                "chapters": chapters,
+                "total": len(chapters),
+                "warning": "fallback handler active"
+            }
+
+    if not _has_route("/v2/projects/{project_id}", "GET"):
+        @app.get("/v2/projects/{project_id}")
+        async def get_project_fallback(
+            project_id: str,
+            current_user: dict = Depends(get_current_user)
+        ):
+            user_id = current_user.get("user_id")
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid user authentication"
+                )
+
+            project_data = await get_project(project_id)
+            if not project_data or not (isinstance(project_data, dict) and project_data.get("metadata")):
+                try:
+                    db = get_database_adapter()
+                    if db.use_firestore and db.firestore:
+                        repaired = await db.firestore.repair_project_document(project_id, owner_id_hint=user_id)
+                        if repaired:
+                            project_data = await get_project(project_id)
+                except Exception as repair_error:
+                    logger.warning(f"[fallback] repair attempt failed for {project_id}: {repair_error}")
+
+            if not project_data or not (isinstance(project_data, dict) and project_data.get("metadata")):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Project not found"
+                )
+
+            metadata = project_data.get("metadata", {}) or {}
+            owner_id = metadata.get("owner_id")
+            collaborators = metadata.get("collaborators", []) or []
+            if owner_id and user_id != "anonymous-user" and user_id != owner_id and user_id not in collaborators:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied"
+                )
+
+            return JSONResponse(jsonable_encoder(project_data))
+
+    async def _fallback_generate_references_background(
+        project_id: str,
+        book_bible_content: str,
+        include_series_bible: bool,
+        user_id: str
+    ):
+        try:
+            try:
+                from backend.utils.reference_content_generator import ReferenceContentGenerator
+                from backend.utils.paths import get_project_workspace
+            except Exception:
+                from utils.reference_content_generator import ReferenceContentGenerator
+                from utils.paths import get_project_workspace
+
+            generator = ReferenceContentGenerator()
+            if not generator.is_available():
+                raise RuntimeError("AI service not available")
+
+            reference_types = [
+                'characters', 'outline', 'world-building', 'style-guide', 'plot-timeline',
+                'themes-and-motifs', 'research-notes', 'target-audience-profile', 'director-guide'
+            ]
+            if include_series_bible and 'series-bible' not in reference_types:
+                reference_types.append('series-bible')
+
+            filename_map = {
+                'characters': 'characters.md',
+                'outline': 'outline.md',
+                'world-building': 'world-building.md',
+                'style-guide': 'style-guide.md',
+                'plot-timeline': 'plot-timeline.md',
+                'themes-and-motifs': 'themes-and-motifs.md',
+                'research-notes': 'research-notes.md',
+                'target-audience-profile': 'target-audience-profile.md',
+                'director-guide': 'director-guide.md',
+                'series-bible': 'series-bible.md'
+            }
+
+            project_workspace = get_project_workspace(project_id)
+            references_dir = project_workspace / "references"
+            references_dir.mkdir(parents=True, exist_ok=True)
+
+            loop = asyncio.get_event_loop()
+            for ref_type in reference_types:
+                content = await loop.run_in_executor(
+                    None,
+                    lambda: generator.generate_content(ref_type, book_bible_content)
+                )
+                filename = filename_map.get(ref_type, f"{ref_type}.md")
+                try:
+                    (references_dir / filename).write_text(content, encoding='utf-8')
+                except Exception:
+                    pass
+
+                await create_reference_file(
+                    project_id=project_id,
+                    filename=filename,
+                    content=content,
+                    user_id=user_id
+                )
+
+                try:
+                    try:
+                        from backend.services.vector_store_service import VectorStoreService
+                    except Exception:
+                        from services.vector_store_service import VectorStoreService
+                    vector_service = VectorStoreService()
+                    await vector_service.upsert_reference_file(
+                        project_id=project_id,
+                        user_id=user_id,
+                        filename=filename,
+                        content=content,
+                        file_type=ref_type.replace("-", "_")
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Fallback reference generation failed: {e}")
+
+    if not _has_route("/v2/projects/{project_id}/references/generate", "POST"):
+        @app.post("/v2/projects/{project_id}/references/generate")
+        async def generate_references_fallback(
+            project_id: str,
+            background_tasks: BackgroundTasks,
+            current_user: dict = Depends(get_current_user)
+        ):
+            user_id = current_user.get("user_id")
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid user authentication"
+                )
+
+            project = await get_project(project_id)
+            if not project:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Project not found"
+                )
+
+            owner_id = project.get("metadata", {}).get("owner_id")
+            collaborators = project.get("metadata", {}).get("collaborators", [])
+            if owner_id != user_id and user_id not in collaborators and user_id != "anonymous-user":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied"
+                )
+
+            book_bible = project.get("book_bible", {}) if isinstance(project, dict) else {}
+            book_bible_content = book_bible.get("content")
+            if not book_bible_content:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No book bible content found for this project"
+                )
+
+            try:
+                from backend.routers.projects_v2 import generate_references_background
+            except Exception:
+                try:
+                    from routers.projects_v2 import generate_references_background
+                except Exception:
+                    generate_references_background = _fallback_generate_references_background
+
+            include_series_bible = bool(project.get("settings", {}).get("include_series_bible", False))
+            background_tasks.add_task(
+                generate_references_background,
+                project_id,
+                book_bible_content,
+                include_series_bible,
+                user_id
+            )
+            return {
+                "success": True,
+                "message": "Reference generation started (fallback handler)",
+                "project_id": project_id
+            }
+
+    if not _has_route("/v2/projects/{project_id}/references/progress", "GET"):
+        @app.get("/v2/projects/{project_id}/references/progress")
+        async def references_progress_fallback(
+            project_id: str,
+            current_user: dict = Depends(get_current_user)
+        ):
+            user_id = current_user.get("user_id")
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid user authentication"
+                )
+
+            project = await get_project(project_id)
+            if not project:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Project not found"
+                )
+
+            owner_id = project.get("metadata", {}).get("owner_id")
+            collaborators = project.get("metadata", {}).get("collaborators", [])
+            if owner_id != user_id and user_id not in collaborators and user_id != "anonymous-user":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied"
+                )
+
+            try:
+                reference_files = await get_project_reference_files(project_id)
+            except Exception:
+                reference_files = []
+
+            if reference_files:
+                return {
+                    "status": "completed",
+                    "progress": 100,
+                    "stage": "Complete",
+                    "message": f"{len(reference_files)} reference files available",
+                    "completed": True
+                }
+
+            return {
+                "status": "running",
+                "progress": 0,
+                "stage": "Queued",
+                "message": "Reference generation queued",
+                "completed": False
+            }
 # Configuration endpoint
 @app.get("/config")
 async def get_config():
@@ -994,6 +1542,66 @@ async def detailed_health_check(user: Dict = Depends(verify_token)):
             "error": str(e)
         }
 
+# Admin diagnostics endpoint (requires authentication)
+@app.get("/admin/status")
+async def admin_status(user: Dict = Depends(verify_token)):
+    """Admin diagnostics for OpenAI + vector memory availability."""
+    try:
+        api_key_present = bool(os.getenv("OPENAI_API_KEY"))
+        try:
+            import openai as _openai
+            openai_version = getattr(_openai, "__version__", None)
+            openai_available = True
+        except Exception:
+            _openai = None
+            openai_version = None
+            openai_available = False
+
+        responses_available = False
+        if openai_available and api_key_present:
+            try:
+                from openai import OpenAI as _OpenAI
+                client = _OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                responses_available = hasattr(client, "responses")
+            except Exception:
+                responses_available = False
+
+        vector_available = False
+        vector_reason = "Vector store service unavailable"
+        vector_enabled = os.getenv("ENABLE_VECTOR_MEMORY", "true").lower() == "true"
+        try:
+            from backend.services.vector_store_service import VectorStoreService
+            vector_service = VectorStoreService()
+            vector_available = bool(getattr(vector_service, "available", False))
+            vector_reason = getattr(vector_service, "unavailable_reason", None) or (
+                "available" if vector_available else "Vector store service unavailable"
+            )
+        except Exception as exc:
+            vector_reason = str(exc)
+
+        return {
+            "status": "ok",
+            "timestamp": datetime.utcnow().isoformat(),
+            "openai": {
+                "sdk_available": openai_available,
+                "sdk_version": openai_version,
+                "api_key_present": api_key_present,
+                "responses_available": responses_available
+            },
+            "vector_store": {
+                "enabled": vector_enabled,
+                "available": vector_available,
+                "reason": vector_reason
+            }
+        }
+    except Exception as e:
+        logger.error(f"Admin status check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
 # Helper function to convert request to orchestrator config
 def convert_request_to_config(request: AutoCompleteRequest) -> Dict[str, Any]:
     """Convert AutoCompleteRequest to AutoCompletionConfig parameters."""
@@ -1006,6 +1614,7 @@ def convert_request_to_config(request: AutoCompleteRequest) -> Dict[str, Any]:
         "target_chapter_count": target_chapters,
         "words_per_chapter": request.words_per_chapter,
         "minimum_quality_score": request.quality_threshold,  # 0-10 scale
+        "starting_chapter": request.starting_chapter,
         "max_retries_per_chapter": 3,  # Default value
         "auto_pause_on_failure": True,  # Default value
         "context_improvement_enabled": True,  # Default value
@@ -1076,9 +1685,48 @@ async def start_auto_complete(
         except Exception as e:
             logger.warning(f"Budget check failed, proceeding with caution: {e}")
             # Don't block on budget check failures, but log them
-        
-        # Generate unique job ID
+
+        # Generate unique job ID early so we can lock the project.
         job_id = str(uuid.uuid4())
+
+        # Transactional per-project lock: guarantees single active auto-complete job per project
+        # without relying on composite generation_jobs queries.
+        try:
+            from backend.database_integration import get_database_adapter
+            db = get_database_adapter()
+            if getattr(db, "use_firestore", False) and getattr(db, "firestore", None):
+                worker_id = getattr(getattr(app.state, "job_processor", None), "worker_id", None) or os.getenv("HOSTNAME") or "api"
+                acquire = getattr(db.firestore, "acquire_generation_lock", None)
+                if callable(acquire):
+                    lock_result = await acquire(
+                        auto_complete_request.project_id,
+                        job_id=job_id,
+                        worker_id=str(worker_id),
+                        lease_seconds=1800,
+                        status="initializing",
+                    )
+                    if not (lock_result or {}).get("acquired"):
+                        active_job = (lock_result or {}).get("active_job_id")
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail={
+                                "error": "AUTO_COMPLETE_JOB_ALREADY_RUNNING",
+                                "job_id": active_job,
+                                "message": "An auto-complete job is already active for this project.",
+                            },
+                        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            # If lock acquisition fails due to Firestore trouble, fail closed to prevent duplicates.
+            logger.error(f"Failed to acquire project generation lock: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "AUTO_COMPLETE_LOCK_UNAVAILABLE",
+                    "message": "Unable to acquire project lock. Please try again shortly.",
+                },
+            )
         
         # Provisional credit debit for the estimated job cost
         provisional_txn_id = None
@@ -1109,17 +1757,17 @@ async def start_auto_complete(
                             balance_info = await credits_service.get_balance(user["user_id"])
                         
                         available_credits = balance_info.balance - balance_info.pending_debits
-                        
-                        if available_credits < estimated_credits:
-                            raise HTTPException(
-                                status_code=402,
-                                detail={
-                                    "error": "INSUFFICIENT_CREDITS",
-                                    "required": estimated_credits,
-                                    "available": available_credits,
-                                    "message": f"Insufficient credits for auto-completion: need {estimated_credits}, have {available_credits}"
-                                }
-                            )
+                        if credits_service.limits_enabled():
+                            if available_credits < estimated_credits:
+                                raise HTTPException(
+                                    status_code=402,
+                                    detail={
+                                        "error": "INSUFFICIENT_CREDITS",
+                                        "required": estimated_credits,
+                                        "available": available_credits,
+                                        "message": f"Insufficient credits for auto-completion: need {estimated_credits}, have {available_credits}"
+                                    }
+                                )
                         
                         # Create provisional debit
                         provisional_txn_id = await credits_service.provisional_debit(
@@ -1389,11 +2037,18 @@ async def control_job(
         if hasattr(app.state, 'job_processor'):
             app.state.job_processor.pause_job(job_id)
     elif request.action == "resume":
-        if job_data["status"] == "paused":
+        if job_data["status"] not in ["completed", "failed", "cancelled"]:
             job_data["status"] = "generating"
             # Try to resume in background processor
             if hasattr(app.state, 'job_processor'):
-                app.state.job_processor.resume_job(job_id)
+                try:
+                    recover = getattr(app.state.job_processor, "recover_job", None)
+                    if callable(recover):
+                        await recover(job_id)
+                    else:
+                        app.state.job_processor.resume_job(job_id)
+                except Exception as e:
+                    logger.warning(f"Failed to resume/recover job {job_id}: {e}")
     elif request.action == "cancel":
         job_data["status"] = "cancelled"
         # Try to cancel in background processor
@@ -1417,28 +2072,31 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Verify user access - try token from query param first, then header
+    # Verify user access with the same strategy as other auto-complete endpoints:
+    # - Allow anonymous fallback (for local harness / non-browser clients)
+    # - Accept token via query param OR Authorization header when provided
     user = None
-    if token:
-        try:
+    resolved_token = token
+    try:
+        if not resolved_token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                resolved_token = auth_header.split(" ")[1]
+    except Exception:
+        resolved_token = resolved_token or None
+
+    try:
+        if resolved_token:
             from fastapi.security import HTTPAuthorizationCredentials
-            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=resolved_token)
             user = await verify_token(creds)
-        except:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    else:
-        # Try header auth
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-            try:
-                from fastapi.security import HTTPAuthorizationCredentials
-                creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-                user = await verify_token(creds)
-            except:
-                raise HTTPException(status_code=401, detail="Invalid token")
         else:
-            raise HTTPException(status_code=401, detail="Authentication required")
+            # Anonymous fallback (matches verify_token(None) behavior)
+            user = await verify_token(None)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
     
     # Check if user owns this job
     if job_data["user_id"] != user["user_id"]:
@@ -1490,9 +2148,11 @@ async def get_job_progress_stream(job_id: str, request: Request, token: Optional
                 now = datetime.utcnow()
                 if (now - last_token_check).total_seconds() > 300:  # 5 minutes
                     try:
-                        from fastapi.security import HTTPAuthorizationCredentials
-                        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-                        await verify_token(creds)
+                        # Only re-validate when a token is present; anonymous sessions stay open.
+                        if resolved_token:
+                            from fastapi.security import HTTPAuthorizationCredentials
+                            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=resolved_token)
+                            await verify_token(creds)
                         last_token_check = now
                     except:
                         logger.warning(f"SSE stream for job {job_id} closed due to token expiry")
@@ -1568,22 +2228,40 @@ async def list_jobs(
     offset: int = 0
 ):
     """List user's auto-complete jobs."""
-    user_jobs = await firestore_client.list_user_jobs(user["user_id"], limit=limit + offset, offset=0)
-    
-    # Filter by status if provided
-    if status:
-        user_jobs = [job for job in user_jobs if job["status"] == status]
-    
-    # Apply pagination
-    total = len(user_jobs)
-    user_jobs = user_jobs[offset:offset + limit]
-    
-    return {
-        "jobs": user_jobs,
-        "total": total,
-        "limit": limit,
-        "offset": offset
-    }
+    try:
+        if not user or not user.get("user_id"):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        if not firestore_client:
+            return {
+                "jobs": [],
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+                "message": "Job storage unavailable"
+            }
+
+        user_jobs = await firestore_client.list_user_jobs(user["user_id"], limit=limit + offset, offset=0)
+        user_jobs = user_jobs or []
+
+        # Filter by status if provided
+        if status:
+            user_jobs = [job for job in user_jobs if job.get("status") == status]
+
+        # Apply pagination
+        total = len(user_jobs)
+        user_jobs = user_jobs[offset:offset + limit]
+
+        return {
+            "jobs": user_jobs,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list auto-complete jobs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list auto-complete jobs")
 
 # Cost estimation endpoint
 @app.post("/v1/estimate")
@@ -1807,16 +2485,52 @@ async def generate_chapter(
                 "character_voices": reference_files.get("style-guide.md", "")[:300],
                 "scene_requirements": reference_files.get("world-building.md", "")[:400],
                 "dialogue_requirements": reference_files.get("style-guide.md", "")[:200],
-                "description_requirements": reference_files.get("world-building.md", "")[:300],
+                "description_requirements": (
+                    reference_files.get("world-building.md", "")[:300]
+                    + "\n\nCRITICAL: Description must be embedded through action/dialogue/POV attention. Do not open with a standalone description block; start with immediate pressure in-scene."
+                ),
                 "pacing_strategy": "Build tension through reveals and character interaction",
                 "book_bible": book_bible_content,
-                "reference_files": reference_files
+                "reference_files": reference_files,
+                "vector_memory_context": "",
+                "vector_memory_guidelines": ""
             }
             
             logger.info(f"Built comprehensive context with {len(reference_files)} reference files")
             
-            # Use sophisticated 5-stage generation if stage is "5-stage", otherwise use basic method
-            if chapter_request.stage == "5-stage":
+            # Resolve requested stage; gate legacy 5-stage behind ENABLE_5_STAGE_WRITING.
+            requested_stage_raw = chapter_request.stage
+            requested_stage = (requested_stage_raw or "").strip()
+            effective_stage = requested_stage
+            allow_5_stage = False
+            try:
+                try:
+                    from backend.utils.generation_stage import resolve_generation_stage
+                except Exception:
+                    from utils.generation_stage import resolve_generation_stage  # type: ignore
+                stage_res = resolve_generation_stage(requested_stage_raw)
+                requested_stage = stage_res.requested
+                effective_stage = stage_res.effective
+                allow_5_stage = bool(stage_res.allow_5_stage)
+                if requested_stage == "5-stage" and effective_stage != "5-stage":
+                    logger.warning(
+                        "5-stage requested but disabled; falling back to simple. "
+                        "Set ENABLE_5_STAGE_WRITING=true to enable legacy 5-stage generation."
+                    )
+            except Exception:
+                # Fail closed: default to simple.
+                lower = (requested_stage_raw or "").strip().lower()
+                if lower in ("", "simple"):
+                    requested_stage = "complete"
+                    effective_stage = "complete"
+                elif lower in ("5-stage", "5stage", "5_stage", "five-stage", "five_stage"):
+                    requested_stage = "5-stage"
+                    effective_stage = "complete"
+                else:
+                    effective_stage = requested_stage_raw or "complete"
+
+            # Use 5-stage generation only when explicitly enabled.
+            if effective_stage == "5-stage":
                 logger.info("Using 5-stage sophisticated generation method")
                 stage_results = orchestrator.generate_chapter_5_stage(
                     chapter_number=chapter_request.chapter_number,
@@ -1845,11 +2559,11 @@ async def generate_chapter(
                     })
                 
             else:
-                logger.info(f"Using basic generation method for stage: {chapter_request.stage}")
+                logger.info(f"Using basic generation method for stage: {effective_stage}")
                 result = orchestrator.generate_chapter(
                     chapter_number=chapter_request.chapter_number,
                     target_words=chapter_request.words,
-                    stage=chapter_request.stage
+                    stage=effective_stage
                 )
                 stages_metadata = None
             
@@ -1891,13 +2605,15 @@ async def generate_chapter(
             metadata = {
                 "chapter_number": chapter_request.chapter_number,
                 "word_count": result.metadata.get("word_count", len(result.content.split())),
-                "stage": chapter_request.stage,
+                "requested_stage": requested_stage,
+                "stage": effective_stage,
+                "allow_5_stage": allow_5_stage,
                 "generated_at": datetime.utcnow().isoformat(),
                 "api_version": "v1",
                 "tokens_used": result.tokens_used,
                 "cost_estimate": result.cost_estimate,
                 "generation_metadata": result.metadata,
-                "sophisticated_generation": chapter_request.stage == "5-stage",
+                "sophisticated_generation": effective_stage == "5-stage",
                 "stages_metadata": stages_metadata,
                 "context_used": {
                     "reference_files_loaded": list(reference_files.keys()),
@@ -2014,7 +2730,7 @@ async def assess_quality(
 
 # Chapter retrieval endpoints
 @app.get("/v1/chapters")
-@limiter.limit("30/minute")
+@limiter.limit("600/minute")
 async def list_chapters(
     request: Request,
     project_id: str,
@@ -2099,7 +2815,7 @@ async def list_chapters(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/v1/chapters/{chapter_number}")
-@limiter.limit("30/minute")
+@limiter.limit("600/minute")
 async def get_chapter(
     request: Request,
     chapter_number: int,
@@ -2561,6 +3277,13 @@ async def run_auto_complete_job(job_id: str, request: AutoCompleteRequest):
         
         # Save final job status
         await firestore_client.save_job(job_id, job_data)
+        
+        # Notify SSE listeners of final status
+        try:
+            if job_id in job_update_events:
+                job_update_events[job_id].set()
+        except Exception as _notify_err:
+            logger.warning(f"Failed to notify SSE listeners for job {job_id} completion: {_notify_err}")
             
     except Exception as e:
         logger.error(f"Auto-complete job failed: {e}")
@@ -2785,7 +3508,9 @@ async def generate_reference_content(
         references_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate content for all requested types
-        reference_types = generation_request.reference_types or ['characters', 'outline', 'world-building', 'style-guide', 'plot-timeline']
+        reference_types = generation_request.reference_types or [
+            'characters', 'outline', 'world-building', 'style-guide', 'plot-timeline', 'director-guide'
+        ]
         
         logger.info(f"Generating reference content for project {generation_request.project_id}, types: {reference_types}")
         

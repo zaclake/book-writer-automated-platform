@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProjects } from '@/hooks/useProjects'
-import { useAuth } from '@clerk/nextjs'
+import { useAuthToken } from '@/lib/auth'
+import { fetchApi } from '@/lib/api-client'
 import { Project } from '@/types/project'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,7 +29,7 @@ interface ProjectPublishPickerProps {
 
 const ProjectPublishPicker: React.FC<ProjectPublishPickerProps> = ({ trigger }) => {
   const router = useRouter()
-  const { getToken } = useAuth()
+  const { getAuthHeaders } = useAuthToken()
   const { projects, loading, error } = useProjects()
   const [projectsWithStats, setProjectsWithStats] = useState<ProjectWithStats[]>([])
   const [loadingStats, setLoadingStats] = useState(false)
@@ -37,16 +38,15 @@ const ProjectPublishPicker: React.FC<ProjectPublishPickerProps> = ({ trigger }) 
   useEffect(() => {
     const fetchProjectStats = async () => {
       if (!projects || projects.length === 0) return
-      
+
       setLoadingStats(true)
-      const token = await getToken()
-      if (!token) return
+      const authHeaders = await getAuthHeaders()
 
       const projectStatsPromises = projects.map(async (project) => {
         try {
           // Fetch chapters for this project
-          const chaptersResponse = await fetch(`/api/v2/projects/${encodeURIComponent(project.id)}/chapters`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+          const chaptersResponse = await fetchApi(`/api/v2/projects/${encodeURIComponent(project.id)}/chapters`, {
+            headers: authHeaders
           })
 
           let chapterCount = 0
@@ -90,7 +90,7 @@ const ProjectPublishPicker: React.FC<ProjectPublishPickerProps> = ({ trigger }) 
     }
 
     fetchProjectStats()
-  }, [projects, getToken])
+  }, [projects, getAuthHeaders])
 
   // Filter projects that have chapters
   const publishableProjects = projectsWithStats.filter(project => project.chapterCount > 0)

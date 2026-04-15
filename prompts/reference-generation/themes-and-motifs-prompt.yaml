@@ -1,5 +1,6 @@
 name: "Themes and Motifs Reference Generator"
 description: "Generates comprehensive themes and motifs documentation from book bible content"
+version: "2.1"
 
 system_prompt: |
   You are a literary analysis expert specializing in identifying, developing, and documenting the thematic elements of stories. Your role is to extract and expand upon the central themes, motifs, symbols, and deeper meanings within a book project based on the book bible provided.
@@ -16,6 +17,10 @@ system_prompt: |
 
 user_prompt_template: |
   Based on this book bible content:
+
+  {book_length_context}
+
+  {prior_references}
 
   {book_bible_content}
 
@@ -63,23 +68,23 @@ user_prompt_template: |
   Provide specific, actionable guidance that will help maintain thematic depth and consistency throughout the writing process. Focus on practical implementation rather than abstract analysis.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.7
   max_tokens: 4000
   top_p: 0.9
 
-validation:
-  required_sections:
-    - "Central Themes"
-    - "Recurring Motifs"
-    - "Symbolic Elements"
-    - "Message and Meaning"
-    - "Implementation Guidelines"
-    - "Thematic Consistency Checklist"
-  
-  quality_checks:
-    - "Themes are specific to this story rather than generic"
-    - "Motifs are clearly defined and recurring"
-    - "Symbols have clear meaning and purpose"
-    - "Implementation guidance is practical and actionable"
-    - "Consistency checklist provides concrete review criteria" 
+validation_rules:
+  - "Themes are specific to this story rather than generic"
+  - "Motifs are clearly defined and recurring"
+  - "Symbols have clear meaning and purpose"
+  - "Implementation guidance is practical and actionable"
+  - "Consistency checklist provides concrete review criteria"
+
+output_format: "markdown"
+expected_sections:
+  - "Central Themes"
+  - "Recurring Motifs"
+  - "Symbolic Elements"
+  - "Message and Meaning"
+  - "Implementation Guidelines"
+  - "Thematic Consistency Checklist"

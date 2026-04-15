@@ -22,6 +22,31 @@ system_prompt: |
   - Verify pattern database consistency
   - Confirm thematic threading
   - Validate series positioning (if applicable)
+  - Do not pad with repetition or list spirals to reach word count
+  - If file_search is available, retrieve any missing continuity facts before finalizing
+  - Aim for a named artifact and a concrete interaction in most paragraphs
+  - Allow up to 1-2 paragraphs per scene without an artifact if needed for rhythm
+  - If an artifact lacks a proper name, label it with an identifier (locker 12B, file 3, gate A7)
+  - Avoid trailer-voice narration; keep the camera in-scene
+  - Avoid repetitive explanation chains (limit explicit inference clauses)
+  - Limit "which" clauses to at most one per paragraph
+  - Avoid meta narration like "the act of" or "the technique of"
+  - Avoid narrator-summary lines like "this was more than" or "marked the beginning"
+  - Avoid sentence starts like "This meant/This was"; show concrete action instead
+  - Avoid narrator-summary “voiceover” lines; keep the camera in-scene
+  - Do not use Markdown formatting (no **bold**, *italics*, headings, blockquotes, bullet lists, or separators like ---)
+  - Use em dashes sparingly for interruptions, asides, or emphasis
+  - Vary sentence openings; avoid long runs of identical openings
+  - End the chapter with complete sentences and a finished final paragraph
+  - Do not wrap up early; fully develop scenes to reach the target length
+  - Expand by doing, not by explaining; show actions beat-by-beat
+  - Keep metaphors sparse; 1-2 strong ones per scene max
+  - End on concrete action, not narrator summary
+  - Avoid rapid beat compression; show transitions between major beats
+  - Introduce key entities on first mention with a short appositive clause
+  - Delay major stakes until the setup is established
+  - Avoid inference chains like "which meant/suggested" or "This meant"
+  - Before final output, verify scene-level coverage and fix any missed paragraphs
   
   Output the final, publication-ready chapter with perfect story integration.
 
@@ -39,6 +64,12 @@ user_prompt: |
   Character Development Timeline: {character_timeline}
   World Building Consistency: {world_rules}
   Thematic Threading: {theme_development}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   PATTERN DATABASE:
   {pattern_database}
@@ -54,6 +85,9 @@ user_prompt: |
      - Timeline accuracy: Events fit logically in story chronology
      - Tone maintenance: Chapter voice matches overall story atmosphere
      - Thematic threading: Deeper meaning connects to larger story themes
+     - Opening bridge: Opening continues from prior chapter consequence (or clearly signals an in-scene time-skip) without recap paragraph
+     - Entity grounding: Any named entities introduced in the opening are grounded (already established in canon/continuity OR explicitly connected to an established element)
+     - Thread carry-forward: Opening explicitly continues at least one established thread (obligation, clue, consequence, unresolved question, relationship tension)
   
   2. STORY PROGRESSION OPTIMIZATION:
      - Setup/payoff balance: Proper promise and fulfillment ratios
@@ -61,6 +95,7 @@ user_prompt: |
      - Foreshadowing integration: Subtle hints for future developments
      - Callback incorporation: References to earlier story elements
      - Series positioning: Chapter serves larger narrative arc (if applicable)
+     - Explicit thread connections: Ensure connections to prior chapters are made through concrete action/dialogue/constraints (not summary or vague references)
   
   3. PATTERN DATABASE UPDATE:
      - Catalog new descriptions for archive
@@ -118,7 +153,9 @@ variables:
     - world_rules
     - theme_development
     - series_context
+    - vector_memory_context
+    - vector_memory_guidelines
 
 output_format: "final_integrated_chapter"
-max_tokens: 6000
+max_tokens: 4096
 temperature: 0.3 

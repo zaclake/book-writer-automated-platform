@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -17,17 +16,16 @@ export async function POST(
       )
     }
 
-    const { getToken } = await auth()
-    const token = await getToken()
-    if (!token) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
-
     const body = await request.text()
     const targetUrl = `${backendBaseUrl}/auto-complete/${encodeURIComponent(params.jobId)}/control`
+    const sessionToken = request.cookies.get('user_session')?.value
+    const authHeader = request.headers.get('authorization') || undefined
     const res = await fetch(targetUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...(authHeader ? { Authorization: authHeader } : {}),
+        ...(!authHeader && sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {})
       },
       body,
       cache: 'no-store',
@@ -52,5 +50,3 @@ export async function POST(
     )
   }
 }
-
-

@@ -10,11 +10,11 @@ function transformChapterData(chapter: any) {
   
   return {
     id: chapter.id,
-    chapter_number: chapter.chapter_number || 0,
+    chapter_number: Number(chapter.chapter_number) || 0,
     title: chapter.title || `Chapter ${chapter.chapter_number || 'Unknown'}`,
-    word_count: metadata.word_count || 0,
-    target_word_count: metadata.target_word_count || 2000,
-    stage: metadata.stage || 'draft',
+    word_count: Number(metadata.word_count || chapter.word_count || 0),
+    target_word_count: Number(metadata.target_word_count || chapter.target_word_count || 2000),
+    stage: metadata.stage || chapter.stage || 'draft',
     created_at: metadata.created_at || chapter.created_at || new Date().toISOString(),
     updated_at: metadata.updated_at || chapter.updated_at || new Date().toISOString(),
     director_notes_count: metadata.director_notes_count || 0,

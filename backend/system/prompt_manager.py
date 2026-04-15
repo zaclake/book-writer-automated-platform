@@ -120,7 +120,7 @@ class PromptManager:
             raise ValueError(f"Variable validation failed: {errors}")
         
         # Replace None values with empty strings for optional variables
-        safe_variables = {}
+        safe_variables = {key: "" for key in template.variables.get('optional', [])}
         for key, value in variables.items():
             safe_variables[key] = value if value is not None else ""
         

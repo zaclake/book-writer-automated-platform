@@ -1,8 +1,14 @@
 import { NextRequest } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+
+function resolveAuth(request: NextRequest): string | null {
+  const authHeader = request.headers.get('Authorization')
+  if (authHeader) return authHeader
+  const session = request.cookies.get('user_session')?.value
+  return session ? `Bearer ${session}` : null
+}
 
 export async function GET(request: NextRequest, { params }: { params: { projectId: string } }) {
   const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
@@ -13,10 +19,8 @@ export async function GET(request: NextRequest, { params }: { params: { projectI
   const targetUrl = `${backendBaseUrl}/v2/library/book/${encodeURIComponent(params.projectId)}/epub`
 
   const headers: Record<string, string> = {}
-  const { getToken } = await auth()
-  const token = await getToken()
-  if (!token) return new Response('Authentication required', { status: 401 })
-  headers['Authorization'] = `Bearer ${token}`
+  const auth = resolveAuth(request)
+  if (auth) headers['Authorization'] = auth
 
   const res = await fetch(targetUrl, { headers })
   if (!res.ok) {
@@ -25,14 +29,12 @@ export async function GET(request: NextRequest, { params }: { params: { projectI
   }
 
   const contentType = res.headers.get('Content-Type') || 'application/epub+zip'
-  const contentDisposition = res.headers.get('Content-Disposition') || `inline; filename=book-${params.projectId}.epub`
-  return new Response(res.body, {
-    status: 200,
-    headers: {
-      'Content-Type': contentType,
-      'Content-Disposition': contentDisposition,
-    },
-  })
+  const contentLength = res.headers.get('Content-Length')
+  const respHeaders: Record<string, string> = {
+    'Content-Type': contentType,
+    'Content-Disposition': res.headers.get('Content-Disposition') || `attachment; filename="book-${params.projectId}.epub"`,
+    'Cache-Control': 'private, max-age=3600',
+  }
+  if (contentLength) respHeaders['Content-Length'] = contentLength
+  return new Response(res.body, { status: 200, headers: respHeaders })
 }
-
-

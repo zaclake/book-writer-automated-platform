@@ -1,0 +1,123 @@
+name: "Relationship Map Generator"
+description: "Creates a comprehensive relationship map and information state tracker for all major characters"
+version: "1.0"
+
+model_config:
+  model: "gpt-5.2-pro"
+  temperature: 0.5
+  max_tokens: 6000
+  top_p: 0.9
+
+system_prompt: |
+  You are a narrative continuity specialist who maps character relationships and information flow across a novel. Your output is used directly by a chapter generation system to ensure characters interact consistently and secrets are revealed at the right time.
+
+  CRITICAL REQUIREMENTS:
+  1. **Every significant relationship pair must be mapped** — not just romantic ones. Include professional, familial, adversarial, and mentorship dynamics.
+  2. **Relationship evolution must be tied to specific story events or chapter ranges** so the writing system knows when dynamics shift.
+  3. **Information state must track what each character knows and doesn't know** — this prevents characters from referencing information they haven't learned yet.
+  4. **Secrets and reveals must have specific timing** — when the information is planted, when it's revealed, and to whom.
+
+user_prompt_template: |
+  Create a comprehensive relationship map and information state tracker for the novel described below. Use the previously generated character profiles, outline, and plot timeline to ensure accuracy.
+
+  {prior_references}
+
+  ---
+  BOOK BIBLE:
+  {book_bible_content}
+  ---
+
+  Generate the relationship map following this structure:
+
+  # Relationship & Information Map
+
+  ## Relationship Matrix
+
+  For every significant character pair, map the full relationship lifecycle:
+
+  | Character A | Character B | Type | Opening State | Tension Source | Evolution Summary | Shift Events |
+  |---|---|---|---|---|---|---|
+  | [Name] | [Name] | [mentor/rival/romantic/familial/professional/adversarial/allied] | [Trust level, power dynamic, emotional distance at story start] | [What creates friction or pull] | [How the relationship transforms across the story] | [Specific events or chapter ranges where the relationship fundamentally changes] |
+
+  ## Relationship Detail Cards
+
+  For each PRIMARY relationship pair (protagonist + each major character), provide deeper detail:
+
+  ### [Character A] ↔ [Character B]
+  **Relationship Type:** [e.g., reluctant allies, estranged siblings, mentor/student]
+  **Power Dynamic:** [Who has the upper hand and in what domain — professional, emotional, physical, informational]
+  **What A Wants from B:** [What A needs or seeks from this relationship]
+  **What B Wants from A:** [What B needs or seeks from this relationship]
+  **Source of Tension:** [The fundamental friction point]
+  **Source of Connection:** [What keeps them linked despite tension]
+
+  **Evolution Timeline:**
+  - **Opening (Chapters 1-[X]):** [How they interact at story start — specific behavioral patterns]
+  - **Early Shift (Chapters [X]-[X]):** [First meaningful change in the dynamic — what triggers it]
+  - **Midpoint State (Chapters [X]-[X]):** [Where the relationship stands at story center]
+  - **Crisis Point (Chapters [X]-[X]):** [The moment of greatest strain or closeness]
+  - **Resolution (Chapters [X]-[X]):** [Where the relationship lands by story end]
+
+  **Scene Dynamics:**
+  - When alone together, they tend to: [behavioral pattern]
+  - In public/group settings, they: [different behavioral pattern]
+  - Under stress, this relationship: [how it changes under pressure]
+
+  ## Information State Tracker
+
+  Track what each major character knows at each stage of the story. This prevents the writing system from having characters reference information they haven't learned yet.
+
+  ### [Character Name]
+
+  **Starting Knowledge:**
+  - [Fact or belief they hold at story start]
+  - [Another piece of established knowledge]
+
+  **Key Unknowns:**
+  - [Secret or fact hidden from them] → **Learns:** [chapter/event] → **Source:** [who tells them or how they discover it] → **Reaction:** [how this changes their behavior]
+  - [Another hidden fact] → **Learns:** [chapter/event] → **Source:** [discovery method] → **Reaction:** [behavioral shift]
+
+  **Secrets They Keep:**
+  - [What they hide] → **From:** [who doesn't know] → **Revealed:** [chapter/event] → **To:** [who learns it] → **Consequence:** [what changes]
+
+  **False Beliefs:**
+  - [Something they believe that is wrong] → **Corrected:** [chapter/event] → **Impact:** [how the correction changes them]
+
+  (Provide for every primary and secondary character.)
+
+  ## Secret & Revelation Timeline
+
+  A chronological view of when key information moves between characters:
+
+  | Chapter/Event | Information | From/Source | To/Learner | Method | Story Impact |
+  |---|---|---|---|---|---|
+  | [Chapter range] | [What is learned/revealed] | [Who holds the information or where it comes from] | [Who learns it] | [Told, discovered, overheard, deduced, witnessed] | [How this changes the story direction] |
+
+  ## Relationship Rules for Writing
+
+  Quick-reference constraints for the chapter generation system:
+
+  **Before Chapter [X]:**
+  - [Character A] does NOT know [fact] — do not reference it in their POV or dialogue
+  - [Character A] and [Character B] are still [state] — do not show [premature dynamic]
+
+  **After Chapter [X]:**
+  - [Character A] now knows [fact] — this should influence their decisions
+  - [Character A] and [Character B] have shifted to [new state] — show [new behavioral pattern]
+
+  (Provide at least 3-5 key boundary markers that the writing system must respect.)
+
+validation_rules:
+  - "Must map every significant character relationship pair"
+  - "Relationship evolution must include specific chapter ranges or events"
+  - "Information state must track what each character knows and doesn't know"
+  - "Must include timing for all major secret reveals"
+  - "Must provide relationship rules with specific chapter boundaries"
+
+output_format: "markdown"
+expected_sections:
+  - "Relationship Matrix"
+  - "Relationship Detail Cards"
+  - "Information State Tracker"
+  - "Secret & Revelation Timeline"
+  - "Relationship Rules for Writing"

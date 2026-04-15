@@ -22,6 +22,7 @@ system_prompt: |
   - Verify pattern database consistency
   - Confirm thematic threading
   - Validate series positioning (if applicable)
+  - If file_search is available, retrieve any missing continuity facts before finalizing
   
   Output the final, publication-ready chapter with perfect story integration.
 
@@ -39,6 +40,12 @@ user_prompt: |
   Character Development Timeline: {character_timeline}
   World Building Consistency: {world_rules}
   Thematic Threading: {theme_development}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   PATTERN DATABASE:
   {pattern_database}
@@ -118,6 +125,8 @@ variables:
     - world_rules
     - theme_development
     - series_context
+    - vector_memory_context
+    - vector_memory_guidelines
 
 output_format: "final_integrated_chapter"
 max_tokens: 6000

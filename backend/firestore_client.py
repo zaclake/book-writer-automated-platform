@@ -42,39 +42,47 @@ class FirestoreClientCompat:
     async def save_job(self, job_id: str, job_data: Dict[str, Any]) -> bool:
         """Save job data - compatibility wrapper."""
         try:
-            logger.info(f"🔍 [COMPAT] save_job called for {job_id}")
-            
             if self.get_db:
                 db = self.get_db()
-                logger.info(f"🔍 [COMPAT] Database adapter: use_firestore={db.use_firestore}")
-                
                 if db.use_firestore:
-                    logger.info(f"🔥 [COMPAT] Using Firestore for job {job_id}")
                     try:
-                        # Convert old format to new format
+                        # Convert legacy format into a Firestore generation_jobs document.
+                        # IMPORTANT: job_id must be the Firestore document id to support status endpoints.
                         new_job_data = {
                             "job_id": job_id,
-                            "job_type": "auto_complete_book",  # Default type
+                            "job_type": job_data.get("job_type") or "auto_complete_book",
                             "project_id": job_data.get("project_id", ""),
                             "user_id": job_data.get("user_id", ""),
                             "status": job_data.get("status", "pending"),
                             "progress": job_data.get("progress", {}),
-                            "auto_complete_data": job_data.get("book_completion_job", {})
+                            "config": job_data.get("config", {}),
+                            "created_at": job_data.get("created_at"),
+                            "updated_at": job_data.get("updated_at"),
+                            "error_message": job_data.get("error_message"),
+                            "quality_scores": job_data.get("quality_scores", []),
+                            "results": job_data.get("results", {}),
+                            # Billing fields used by auto-complete flows
+                            "provisional_txn_id": job_data.get("provisional_txn_id"),
+                            "estimated_credits": job_data.get("estimated_credits", 0),
+                            # Preserve older key name for compatibility callers
+                            "auto_complete_data": job_data.get("auto_complete_data") or job_data.get("book_completion_job", {}),
+                            # Optional: embed the job function result payload if present
+                            "result": job_data.get("result"),
                         }
-                        # Use the async Firestore save operation directly
+
+                        # Prefer idempotent upsert when available.
+                        if hasattr(db, "firestore") and hasattr(db.firestore, "upsert_generation_job"):
+                            return bool(await db.firestore.upsert_generation_job(job_id, new_job_data))
+
+                        # Fallback to create_generation_job (now respects provided job_id).
                         result = await self._save_to_firestore_async(db, new_job_data)
-                        logger.info(f"🔥 [COMPAT] Firestore save result: {result is not None}")
                         return result is not None
                     except Exception as e:
-                        logger.error(f"🔥 [COMPAT] Firestore save failed: {e}, falling back to local storage")
+                        logger.error(f"Firestore save failed for job {job_id}: {e}, falling back to local storage")
                         # Fall back to local storage if Firestore fails
-                else:
-                    logger.warning(f"⚠️ [COMPAT] Firestore not enabled, falling back to local storage")
-            else:
-                logger.warning(f"⚠️ [COMPAT] No database adapter available")
+            # Fall back to local storage when Firestore isn't enabled or adapter missing.
             
             # Fallback to local storage
-            logger.info(f"💾 [COMPAT] Using local storage for job {job_id}")
             return self._save_local_job(job_id, job_data)
             
         except Exception as e:
@@ -96,7 +104,15 @@ class FirestoreClientCompat:
                             "user_id": job_data.get("user_id"),
                             "status": job_data.get("status"),
                             "progress": job_data.get("progress", {}),
-                            "book_completion_job": job_data.get("auto_complete_data", {})
+                            "config": job_data.get("config", {}),
+                            "created_at": job_data.get("created_at"),
+                            "updated_at": job_data.get("updated_at"),
+                            "quality_scores": job_data.get("quality_scores", []),
+                            "error_message": job_data.get("error_message"),
+                            "provisional_txn_id": job_data.get("provisional_txn_id"),
+                            "estimated_credits": job_data.get("estimated_credits", 0),
+                            "result": job_data.get("result") or job_data.get("results"),
+                            "book_completion_job": job_data.get("auto_complete_data", {}),
                         }
             
             # Fallback to local storage
@@ -111,10 +127,9 @@ class FirestoreClientCompat:
         try:
             if self.get_db:
                 db = self.get_db()
-                if db.use_firestore and hasattr(db, 'firestore_service'):
-                    jobs = await db.firestore_service.get_user_jobs(user_id, limit + offset)
-                    # Apply offset
-                    return jobs[offset:offset+limit] if jobs else []
+                if db.use_firestore and getattr(db, 'firestore', None):
+                    jobs = await db.firestore.get_user_jobs(user_id, limit + offset)
+                    return jobs[offset:offset + limit] if jobs else []
             
             # Fallback to empty list
             return []

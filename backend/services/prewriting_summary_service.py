@@ -82,6 +82,7 @@ class PrewritingSummaryService:
         """Use LLM to generate a structured summary from book bible content."""
         
         system_prompt = """You are an expert story analyst and writing assistant. Your task is to analyze a book bible and extract key elements into a structured format that will be used for chapter generation.
+Use ONLY the provided book bible and settings. Do not invent missing facts.
 
 Extract and organize the following elements from the provided book bible:
 
@@ -123,15 +124,19 @@ Please provide a comprehensive structured analysis that will guide chapter gener
         
         try:
             # Make the API call using the orchestrator's internal method
-            response = self.llm_orchestrator._make_api_call(
+            response = await self.llm_orchestrator._make_api_call(
                 messages=messages,
                 temperature=0.3,  # Lower temperature for analytical tasks
                 max_tokens=4000,
                 top_p=0.9
             )
-            
-            content = response.choices[0].message.content
-            usage = response.usage
+
+            content = ""
+            if hasattr(response, "output_text"):
+                content = response.output_text
+            elif hasattr(response, "choices"):
+                content = response.choices[0].message.content
+            usage = getattr(response, "usage", None)
             
             return GenerationResult(
                 success=True,

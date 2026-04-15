@@ -1,87 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
-interface UpdateNoteRequest {
-  content?: string
-  resolved?: boolean
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+const getBackendUrl = () => process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+
+const buildHeaders = (request: NextRequest) => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const authHeader = request.headers.get('authorization')
+  if (authHeader) headers['Authorization'] = authHeader
+  return headers
 }
 
-// This would be imported from the main storage in production
-const notesStorage = new Map<string, any>()
+const safeParseBackendJson = async (backendResponse: Response) => {
+  const rawText = await backendResponse.text().catch(() => '')
+  if (!rawText) return { ok: true as const, data: null, rawText: '' }
+  try {
+    return { ok: true as const, data: JSON.parse(rawText), rawText }
+  } catch {
+    return { ok: false as const, data: null, rawText }
+  }
+}
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: { chapter: string, noteId: string } }
 ) {
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const backendBaseUrl = getBackendUrl()
+    if (!backendBaseUrl) {
+      return NextResponse.json({ error: 'Backend URL not configured' }, { status: 500 })
     }
 
-    const { noteId } = params
-    const updateData: UpdateNoteRequest = await request.json()
+    const body = await request.text()
+    const targetUrl = `${backendBaseUrl}/v2/chapters/${params.chapter}/notes/${params.noteId}`
 
-    // Get existing note
-    const note = notesStorage.get(noteId)
-
-    if (!note) {
-      return NextResponse.json(
-        { error: 'Note not found' },
-        { status: 404 }
-      )
-    }
-
-    // Check ownership (users can only update their own notes)
-    if (note.created_by !== userId) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      )
-    }
-
-    // Update note data
-    if (updateData.content !== undefined) {
-      note.content = updateData.content.trim()
-    }
-
-    if (updateData.resolved !== undefined) {
-      note.resolved = updateData.resolved
-      if (updateData.resolved) {
-        note.resolved_at = new Date().toISOString()
-      } else {
-        note.resolved_at = undefined
-      }
-    }
-
-    // Save updated note
-    notesStorage.set(noteId, note)
-
-    console.log(`Director note updated for user ${userId}:`, {
-      noteId,
-      updatedFields: Object.keys(updateData),
-      resolved: note.resolved
+    const backendResponse = await fetch(targetUrl, {
+      method: 'PUT',
+      headers: buildHeaders(request),
+      body,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(45000),
     })
 
-    return NextResponse.json({
-      success: true,
-      message: 'Director note updated successfully',
-      note: {
-        note_id: note.note_id,
-        content: note.content,
-        resolved: note.resolved,
-        resolved_at: note.resolved_at,
-        position: note.position
-      }
-    })
-
+    const parsed = await safeParseBackendJson(backendResponse)
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: 'Invalid response from backend', status: backendResponse.status, body_preview: parsed.rawText.slice(0, 2000) },
+        { status: 502 }
+      )
+    }
+    return NextResponse.json(parsed.data, { status: backendResponse.status })
   } catch (error) {
-    console.error(`PUT /api/chapters/${params.chapter}/notes/${params.noteId} error:`, error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    console.error(`[chapters/notes] PUT error:`, error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
@@ -90,50 +62,30 @@ export async function DELETE(
   { params }: { params: { chapter: string, noteId: string } }
 ) {
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const backendBaseUrl = getBackendUrl()
+    if (!backendBaseUrl) {
+      return NextResponse.json({ error: 'Backend URL not configured' }, { status: 500 })
     }
 
-    const { noteId } = params
+    const targetUrl = `${backendBaseUrl}/v2/chapters/${params.chapter}/notes/${params.noteId}`
 
-    // Get note to verify ownership
-    const note = notesStorage.get(noteId)
-
-    if (!note) {
-      return NextResponse.json(
-        { error: 'Note not found' },
-        { status: 404 }
-      )
-    }
-
-    // Check ownership (users can only delete their own notes)
-    if (note.created_by !== userId) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      )
-    }
-
-    // Delete note
-    notesStorage.delete(noteId)
-
-    console.log(`Director note deleted for user ${userId}:`, {
-      noteId,
-      chapterId: note.chapter_id
+    const backendResponse = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers: buildHeaders(request),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(45000),
     })
 
-    return NextResponse.json({
-      success: true,
-      message: 'Director note deleted successfully'
-    })
-
+    const parsed = await safeParseBackendJson(backendResponse)
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: 'Invalid response from backend', status: backendResponse.status, body_preview: parsed.rawText.slice(0, 2000) },
+        { status: 502 }
+      )
+    }
+    return NextResponse.json(parsed.data, { status: backendResponse.status })
   } catch (error) {
-    console.error(`DELETE /api/chapters/${params.chapter}/notes/${params.noteId} error:`, error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    console.error(`[chapters/notes] DELETE error:`, error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-} 
+}

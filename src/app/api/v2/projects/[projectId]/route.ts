@@ -1,60 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
- * Proxy single project requests to the FastAPI backend with authentication.
+ * Proxy single project requests to the FastAPI backend.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { projectId: string } }
 ) {
   console.log('[v2/projects/single] GET request started for project:', params.projectId)
-  
+
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    const backendBaseUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
     if (!backendBaseUrl) {
       console.error('[v2/projects/single] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL/BACKEND_URL missing)' },
         { status: 500 }
       )
     }
 
-    // Get Clerk auth and JWT token
-    const { getToken } = await auth()
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-    
-    try {
-      const token = await getToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-        console.log('[v2/projects/single] Auth token added to request')
-      } else {
-        console.warn('[v2/projects/single] No auth token available')
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        )
-      }
-    } catch (error) {
-      console.error('[v2/projects/single] Failed to get Clerk token:', error)
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 }
-      )
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     }
 
     // Forward query parameters
     const url = new URL(request.url)
     const queryParams = url.searchParams.toString()
-    const targetUrl = `${backendBaseUrl}/v2/projects/${params.projectId}`
+    const normalizedBase = backendBaseUrl.replace(/\/$/, '')
+    const targetUrl = `${normalizedBase}/v2/projects/${encodeURIComponent(params.projectId)}`
     const fullTargetUrl = queryParams ? `${targetUrl}?${queryParams}` : targetUrl
-    
+
     console.log('[v2/projects/single] Forwarding to:', fullTargetUrl)
 
     const backendResponse = await fetch(fullTargetUrl, {
@@ -63,8 +48,16 @@ export async function GET(
       cache: 'no-store'
     })
 
-    const data = await backendResponse.json()
-    
+    const rawText = await backendResponse.text()
+    let data: any = {}
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        data = { message: rawText }
+      }
+    }
+
     if (!backendResponse.ok) {
       console.error('[v2/projects/single] Backend error:', backendResponse.status, data)
       return NextResponse.json(data, { status: backendResponse.status })
@@ -87,40 +80,103 @@ export async function PUT(
   { params }: { params: { projectId: string } }
 ) {
   console.log('[v2/projects/single] PUT request started for project:', params.projectId)
+
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    const backendBaseUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
     if (!backendBaseUrl) {
       console.error('[v2/projects/single] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL/BACKEND_URL missing)' },
         { status: 500 }
       )
     }
 
-    const { getToken } = await auth()
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-
-    const token = await getToken()
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     }
-    headers['Authorization'] = `Bearer ${token}`
 
     const body = await request.text()
 
-    const targetUrl = `${backendBaseUrl}/v2/projects/${params.projectId}`
+    const normalizedBase = backendBaseUrl.replace(/\/$/, '')
+    const targetUrl = `${normalizedBase}/v2/projects/${encodeURIComponent(params.projectId)}`
     const backendResponse = await fetch(targetUrl, {
       method: 'PUT',
       headers,
       body,
     })
 
-    const data = await backendResponse.json().catch(() => ({}))
+    const rawText = await backendResponse.text()
+    let data: any = {}
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        data = { message: rawText }
+      }
+    }
     return NextResponse.json(data, { status: backendResponse.status })
   } catch (error) {
     console.error('[v2/projects/single] PUT error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { projectId: string } }
+) {
+  console.log('[v2/projects/single] PATCH request started for project:', params.projectId)
+
+  try {
+    const backendBaseUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
+    if (!backendBaseUrl) {
+      console.error('[v2/projects/single] Backend URL not configured')
+      return NextResponse.json(
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL/BACKEND_URL missing)' },
+        { status: 500 }
+      )
+    }
+
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
+    }
+
+    const body = await request.text()
+
+    const normalizedBase = backendBaseUrl.replace(/\/$/, '')
+    const targetUrl = `${normalizedBase}/v2/projects/${encodeURIComponent(params.projectId)}`
+    const backendResponse = await fetch(targetUrl, {
+      method: 'PATCH',
+      headers,
+      body,
+    })
+
+    const rawText = await backendResponse.text()
+    let data: any = {}
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        data = { message: rawText }
+      }
+    }
+    return NextResponse.json(data, { status: backendResponse.status })
+  } catch (error) {
+    console.error('[v2/projects/single] PATCH error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -130,43 +186,30 @@ export async function DELETE(
   { params }: { params: { projectId: string } }
 ) {
   console.log('[v2/projects/single] DELETE request started for project:', params.projectId)
+
   try {
-    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+    const backendBaseUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
     if (!backendBaseUrl) {
       console.error('[v2/projects/single] Backend URL not configured')
       return NextResponse.json(
-        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL missing)' },
+        { error: 'Backend URL not configured (NEXT_PUBLIC_BACKEND_URL/BACKEND_URL missing)' },
         { status: 500 }
       )
     }
 
-    // Get Clerk auth and JWT token
-    const { getToken } = await auth()
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-
-    try {
-      const token = await getToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-        console.log('[v2/projects/single] Auth token added to DELETE request')
-      } else {
-        console.warn('[v2/projects/single] No auth token available for DELETE')
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        )
-      }
-    } catch (error) {
-      console.error('[v2/projects/single] Failed to get Clerk token:', error)
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 }
-      )
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     }
 
-    const targetUrl = `${backendBaseUrl}/v2/projects/${params.projectId}`
+    const normalizedBase = backendBaseUrl.replace(/\/$/, '')
+    const targetUrl = `${normalizedBase}/v2/projects/${encodeURIComponent(params.projectId)}`
     console.log('[v2/projects/single] Forwarding DELETE to:', targetUrl)
 
     const backendResponse = await fetch(targetUrl, {
@@ -175,7 +218,15 @@ export async function DELETE(
       cache: 'no-store'
     })
 
-    const data = await backendResponse.json().catch(() => ({}))
+    const rawText = await backendResponse.text()
+    let data: any = {}
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        data = { message: rawText }
+      }
+    }
     if (!backendResponse.ok) {
       console.error('[v2/projects/single] Backend DELETE error:', backendResponse.status, data)
       return NextResponse.json(data, { status: backendResponse.status })

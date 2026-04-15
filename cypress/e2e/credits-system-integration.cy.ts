@@ -298,7 +298,7 @@ describe('Credits System Integration', () => {
           balance_after: 475,
           meta: {
             operation: 'chapter_generation',
-            model: 'gpt-4o'
+            model: 'gpt-5.2-pro'
           }
         },
         {

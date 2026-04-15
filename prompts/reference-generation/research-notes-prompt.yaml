@@ -1,5 +1,6 @@
 name: "Research Notes Reference Generator"
 description: "Generates comprehensive research documentation and fact-checking guidelines from book bible content"
+version: "2.1"
 
 system_prompt: |
   You are a research specialist and fact-checking expert who helps authors maintain accuracy and authenticity in their writing. Your role is to identify research requirements, organize factual information, and create systematic approaches for maintaining accuracy throughout the writing process.
@@ -85,26 +86,26 @@ user_prompt_template: |
   Provide specific, actionable guidance that will help maintain factual accuracy and authenticity throughout the writing process. Focus on practical research organization and verification methods.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.6
   max_tokens: 4000
   top_p: 0.9
 
-validation:
-  required_sections:
-    - "Research Requirements Analysis"
-    - "Subject Matter Domains"
-    - "Research Organization System"
-    - "Accuracy Standards"
-    - "Research Tracking System"
-    - "Chapter-by-Chapter Research Checklist"
-    - "Common Accuracy Pitfalls"
-    - "Research Resources and Tools"
-    - "Quality Control Process"
-  
-  quality_checks:
-    - "Research areas are specific to this story's content"
-    - "Organization system is practical and scalable"
-    - "Accuracy standards are clearly defined"
-    - "Tracking system is detailed and usable"
-    - "Resources are relevant and accessible" 
+validation_rules:
+  - "Research areas are specific to this story's content"
+  - "Organization system is practical and scalable"
+  - "Accuracy standards are clearly defined"
+  - "Tracking system is detailed and usable"
+  - "Resources are relevant and accessible"
+
+output_format: "markdown"
+expected_sections:
+  - "Research Requirements Analysis"
+  - "Subject Matter Domains"
+  - "Research Organization System"
+  - "Accuracy Standards"
+  - "Research Tracking System"
+  - "Chapter-by-Chapter Research Checklist"
+  - "Common Accuracy Pitfalls"
+  - "Research Resources and Tools"
+  - "Quality Control Process"

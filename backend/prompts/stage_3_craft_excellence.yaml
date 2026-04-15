@@ -32,6 +32,7 @@ system_prompt: |
   3. Specific weaknesses or gaps
   4. Actionable improvement recommendations
   5. Priority level (High/Medium/Low)
+  - If file_search is available, retrieve needed facts before scoring
 
 user_prompt: |
   Review this chapter for craft excellence against professional publishing standards:
@@ -41,6 +42,12 @@ user_prompt: |
   
   STORY CONTEXT:
   {story_context}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   PATTERN DATABASE:
   {pattern_database_context}
@@ -54,6 +61,7 @@ user_prompt: |
   - Character development goals: {character_goals}
   - Theme limits: {theme_limits}
   - Genre: {genre}
+  - Flag any padding, list spirals, or repetition used to reach word count
   
   Conduct systematic assessment of all categories A-O:
   
@@ -96,6 +104,8 @@ variables:
     - character_goals
     - theme_limits
     - inspiration_reference
+    - vector_memory_context
+    - vector_memory_guidelines
 
 output_format: "detailed_assessment_report"
 max_tokens: 4000

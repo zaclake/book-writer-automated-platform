@@ -37,6 +37,13 @@ build/
 .env
 .env.production
 .env.development
+.env.*.local
+
+# Local writing-system test harness artifacts (never commit)
+local_test_system/inputs/
+local_test_system/runs/
+local_test_system/.env
+local_test_system/.env.*
 
 # Logs
 *.log

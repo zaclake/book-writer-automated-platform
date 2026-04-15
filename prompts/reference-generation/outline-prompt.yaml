@@ -1,11 +1,11 @@
 name: "Story Outline Generator"
-description: "Creates detailed plot structure and chapter breakdown from book bible content"
-version: "2.0"
+description: "Creates detailed plot structure with scene-level chapter breakdowns, information reveals schedule, and subplot threading"
+version: "3.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.65
-  max_tokens: 7000
+  max_tokens: 10000
   top_p: 0.9
 
 system_prompt: |
@@ -17,6 +17,7 @@ system_prompt: |
   3. **Thematic Integration**: Weaving themes naturally through plot progression without forcing message moments
   4. **Intelligent Extrapolation**: Building complete, compelling plots from partial information by understanding story DNA
   5. **Professional Pacing**: Creating tension curves that maintain reader engagement while serving the story's emotional journey
+  6. **Scene-Level Planning**: Breaking chapters into concrete scenes with clear narrative purpose and emotional beats
 
   APPROACH FOR INCOMPLETE BOOK BIBLES:
   When plot details are sparse or missing:
@@ -32,9 +33,14 @@ system_prompt: |
   - Chapter breakdowns should create page-turning momentum
   - Structure should support the book's thematic concerns naturally
   - Plot complications should escalate logically and emotionally
+  - Scene breakdowns must be concrete enough to serve as direct input for chapter generation
 
 user_prompt_template: |
   Analyze this book bible comprehensively and create a detailed, professional story outline. Pay particular attention to the genre, themes, reference works, emotional journey, and target audience to construct a plot that serves all these elements seamlessly.
+
+  {book_length_context}
+
+  {prior_references}
 
   ---
   BOOK BIBLE:
@@ -52,16 +58,18 @@ user_prompt_template: |
   - **Internal Conflict:** [The psychological/emotional journey the protagonist must complete]
   - **Thematic Question:** [The central question the story explores through plot events]
   - **Story Promise:** [What the opening promises readers about the journey ahead]
+  - **Central Dramatic Question:** [The question the reader needs answered — will they [X]?]
 
   **Genre Architecture:**
   - **Primary Genre Conventions:** [Structural expectations this genre creates]
   - **Pacing Requirements:** [How this genre typically manages tension and revelation]
   - **Reader Expectations:** [What the target audience expects from this type of story]
   - **Subversion Opportunities:** [Where this story might surprise while honoring the genre]
+  - **Obligatory Scenes:** [Scenes the genre demands — e.g., thriller needs a "hero at mercy of villain" scene]
 
   ## Three-Act Structural Framework
 
-  ### Act I: Foundation & Launch (25% / [X] words)
+  ### Act I: Foundation & Launch (25% / [X] words / Chapters [X]-[X])
 
   **Opening Hook (First 5%):**
   - **Scene Setting:** [Specific opening scene that establishes tone and character]
@@ -86,7 +94,7 @@ user_prompt_template: |
   - **Stakes Escalation:** [How the consequences become more serious]
   - **Internal Shift:** [How this changes the character's internal landscape]
 
-  ### Act II: Development & Complication (50% / [X] words)
+  ### Act II: Development & Complication (50% / [X] words / Chapters [X]-[X])
 
   **First Half of Act II (25-50%):**
   - **New World/Situation Adjustment:** [How character adapts to changed circumstances]
@@ -115,7 +123,7 @@ user_prompt_template: |
   - **Internal Revelation:** [What the character finally understands about themselves]
   - **Final Choice Setup:** [The decision they'll have to make in Act III]
 
-  ### Act III: Resolution & Transformation (25% / [X] words)
+  ### Act III: Resolution & Transformation (25% / [X] words / Chapters [X]-[X])
 
   **Preparation for Final Confrontation:**
   - **Character's New Understanding:** [How they've internally changed]
@@ -138,80 +146,107 @@ user_prompt_template: |
 
   ## Detailed Chapter Architecture
 
-  [For each chapter, provide:]
+  For EVERY chapter in the book, provide scene-level detail. This is the primary structural input for the chapter generation system.
 
   ### Chapter [Number]: [Chapter Title/Theme]
+  - **Act Position:** [Act I/II/III and percentage through the story]
   - **Word Count Target:** [Specific range based on book bible target length]
-  - **Primary Purpose:** [What this chapter accomplishes in the overall story]
+  - **Primary Purpose:** [What this chapter accomplishes in the overall story — be specific]
   - **POV Focus:** [Whose perspective drives this chapter]
-  - **Emotional Journey:** [The feeling arc within this chapter]
-  - **Plot Advancement:** [Specific story progress made]
-  - **Character Development:** [How characters change or are revealed]
-  - **Key Scenes:**
-    - **Scene 1:** [Location, characters, purpose, emotional beat]
-    - **Scene 2:** [If applicable]
-  - **Chapter Hook:** [How it ends to maintain momentum]
-  - **Setup/Payoff Elements:** [What this chapter plants or resolves]
-  - **Thematic Integration:** [How the theme appears in this chapter]
+  - **Emotional Arc:** [Starting emotion → ending emotion within this chapter]
+  - **Plot Advancement:** [Specific story progress made — what changes by chapter end]
+  - **Character Development:** [How characters change or are revealed — specific shifts]
+  - **Scenes:**
+    - **Scene 1:** [Location] — [Characters present] — [What happens] — [Emotional beat] — [Purpose: advances plot/reveals character/builds tension/etc.]
+    - **Scene 2:** [Location] — [Characters present] — [What happens] — [Emotional beat] — [Purpose]
+    - **Scene 3 (if needed):** [Same structure]
+  - **Information Revealed:** [What the reader and/or characters learn in this chapter]
+  - **Information Withheld:** [What is deliberately kept hidden and why]
+  - **Setup Elements Planted:** [Foreshadowing, Chekhov's guns, seeds for future payoffs]
+  - **Payoff Elements Resolved:** [What earlier setups pay off here]
+  - **Chapter Hook:** [Specific ending beat — question, reversal, cliffhanger, or promise]
+  - **Bridge to Next:** [How this chapter's ending connects to the next chapter's opening]
+
+  ## Information Reveals Schedule
+
+  Track every significant piece of information across the story — when it's planted, when it's revealed, and to whom.
+
+  | Information/Secret | Planted In | Revealed In | Revealed To | Impact on Story |
+  |---|---|---|---|---|
+  | [Specific secret, twist, or key fact] | [Chapter where it's first hinted or set up] | [Chapter where it's revealed] | [Which characters learn it — and which still don't know] | [How this revelation changes the story direction] |
+
+  (Include at least every major plot twist, character secret, mystery element, and key backstory revelation.)
+
+  ## Subplot Threading
+
+  For each subplot, map its chapter-by-chapter presence and integration with the main plot.
+
+  ### Subplot: [Name/Description]
+  - **Type:** [romantic/professional/familial/internal/mystery/thematic]
+  - **Characters Involved:** [Who drives this subplot]
+  - **Connection to Main Plot:** [How it supports, complicates, or mirrors the central story]
+  - **Chapter Appearances:** [List every chapter where this subplot advances, with one-line description of what happens]
+    - Chapter [X]: [Subplot beat]
+    - Chapter [X]: [Subplot beat]
+    - Chapter [X]: [Subplot beat]
+  - **Resolution:** [When and how this subplot resolves — which chapter]
+  - **Thematic Function:** [What this subplot says about the story's themes]
+
+  (Provide for every subplot. Most novels have 2-4 subplots.)
 
   ## Plot Threading & Layering
 
   **Primary Plot Thread:**
   - **Central Question:** [The main story question that drives reader engagement]
   - **Resolution Path:** [How this question gets answered through the story]
-  - **Key Turning Points:** [Major moments that advance this thread]
+  - **Key Turning Points:** [Major moments that advance this thread — with chapter numbers]
 
   **Character Arc Integration:**
-  - **[Protagonist Name] Arc:** [How their internal journey weaves through plot events]
-  - **[Key Supporting Character] Arc:** [Their development path]
-  - **Arc Intersection Points:** [Where character journeys influence each other]
-
-  **Subplot Management:**
-  - **[Subplot 1]:** [Secondary story line and how it supports the main plot]
-  - **[Subplot 2]:** [Another supporting narrative thread]
-  - **Convergence Points:** [Where subplots merge with or support main plot]
+  - **[Protagonist Name] Arc:** [How their internal journey weaves through plot events — with chapter markers]
+  - **[Key Supporting Character] Arc:** [Their development path — with chapter markers]
+  - **Arc Intersection Points:** [Where character journeys influence each other — specific chapters]
 
   **Thematic Development:**
-  - **Theme Introduction:** [How the central theme first appears]
-  - **Theme Complication:** [How the theme gets tested and developed]
-  - **Theme Resolution:** [How the story ultimately addresses the thematic question]
+  - **Theme Introduction:** [How and where the central theme first appears — chapter number]
+  - **Theme Complication:** [How the theme gets tested — chapter numbers]
+  - **Theme Resolution:** [How the story ultimately addresses the thematic question — chapter number]
 
   ## Pacing & Tension Management
 
   **Tension Curve Design:**
   - **Opening Tension:** [How to create immediate engagement]
   - **Building Pressure:** [Escalation strategy through Act I and first half of Act II]
-  - **Pressure Release Points:** [Strategic moments of relief that don't kill momentum]
+  - **Pressure Release Points:** [Specific chapters that provide breathing room — chapter numbers]
   - **Final Escalation:** [Building to climax without exhausting readers]
 
-  **Revelation Schedule:**
-  - **Early Reveals:** [Information that hooks but doesn't spoil]
-  - **Midpoint Revelations:** [Game-changing information at story center]
-  - **Late Reveals:** [Final pieces that enable resolution]
-  - **Red Herrings:** [Misdirection that serves story rather than tricks reader]
+  **Revelation Schedule Summary:**
+  - **Early Reveals (Act I):** [Information that hooks but doesn't spoil]
+  - **Midpoint Revelations (Act II center):** [Game-changing information at story center]
+  - **Late Reveals (Act II-III):** [Final pieces that enable resolution]
+  - **Red Herrings:** [Misdirection that serves story rather than tricks reader — with plant and reveal chapters]
 
   **Scene Type Balance:**
-  - **Action/External Scenes:** [High-energy plot advancement moments]
-  - **Reaction/Internal Scenes:** [Character processing and decision-making moments]
-  - **Discovery Scenes:** [Revelation and information-gathering moments]
-  - **Relationship Scenes:** [Character interaction and development moments]
+  - **Action/External Scenes:** [Which chapters emphasize external events]
+  - **Reaction/Internal Scenes:** [Which chapters emphasize processing and decision]
+  - **Discovery Scenes:** [Which chapters center on revelation and investigation]
+  - **Relationship Scenes:** [Which chapters focus on interpersonal dynamics]
 
   ## Writer's Implementation Guide
 
   **Chapter Transition Strategies:**
   - **Hook Techniques:** [How to end chapters to maintain reading momentum]
-  - **Cliffhanger Guidelines:** [When and how to use suspense effectively]
+  - **Cliffhanger Guidelines:** [When and how to use suspense effectively — not every chapter]
   - **Emotional Bridges:** [Connecting emotional states between chapters]
 
   **Foreshadowing Integration:**
-  - **Plant Schedule:** [What to hint at and when]
-  - **Payoff Timeline:** [When foreshadowed elements should pay off]
+  - **Plant Schedule:** [What to hint at and when — specific chapter numbers]
+  - **Payoff Timeline:** [When foreshadowed elements should pay off — specific chapter numbers]
   - **Subtlety Guidelines:** [How to foreshadow without telegraphing]
 
   **Character Consistency Checkpoints:**
   - **Decision Logic:** [How each character's choices should reflect their psychology]
-  - **Growth Markers:** [Specific points where character change should be visible]
-  - **Relationship Evolution:** [How character dynamics should shift]
+  - **Growth Markers:** [Specific chapters where character change should be visible]
+  - **Relationship Evolution:** [How character dynamics should shift — with chapter ranges]
 
   INSTRUCTIONS FOR INCOMPLETE INFORMATION:
   When the book bible lacks specific plot details:
@@ -220,6 +255,7 @@ user_prompt_template: |
   3. Create plot events that serve character development and thematic exploration
   4. Build complications that test the protagonist's specific psychological journey
   5. Ensure every created element feels authentic to the established world and tone
+  6. Every chapter MUST have at least 2 concrete scenes with location, characters, and purpose
 
   Make every plot point meaningful and emotionally resonant. Avoid generic beats—ground everything in the specific story's unique elements.
 
@@ -231,12 +267,17 @@ validation_rules:
   - "Must provide detailed, actionable guidance for chapter-by-chapter writing"
   - "Should extrapolate intelligently from book bible context when plot details are sparse"
   - "Structure must support thematic development without forcing message moments"
+  - "Must include scene-level breakdown for every chapter"
+  - "Must include Information Reveals Schedule"
+  - "Must include Subplot Threading with chapter-by-chapter beats"
 
 output_format: "markdown"
 expected_sections:
   - "Story Foundation Analysis"
   - "Three-Act Structural Framework"
   - "Detailed Chapter Architecture"
+  - "Information Reveals Schedule"
+  - "Subplot Threading"
   - "Plot Threading & Layering"
   - "Pacing & Tension Management"
-  - "Writer's Implementation Guide" 
+  - "Writer's Implementation Guide"

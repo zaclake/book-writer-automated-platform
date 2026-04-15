@@ -215,15 +215,7 @@ export function BuyCreditsModal({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={() => handlePurchase(selectedPackage)}
-            disabled={!selectedPkg}
-            className="flex items-center gap-2"
-          >
-            <CreditCard className="h-4 w-4" />
-            Purchase {selectedPkg?.credits.toLocaleString()} Credits
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>

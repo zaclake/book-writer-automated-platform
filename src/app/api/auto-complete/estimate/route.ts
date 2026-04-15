@@ -32,9 +32,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Forward the Authorization header if present
-    const authHeader = request.headers.get('Authorization')
+    const authHeader = request.headers.get('Authorization') || undefined
     if (authHeader) {
       headers['Authorization'] = authHeader
+    } else {
+      const sessionToken = request.cookies.get('user_session')?.value
+      if (sessionToken) {
+        headers['Authorization'] = `Bearer ${sessionToken}`
+      }
     }
 
     console.log('[auto-complete/estimate] Request payload:', {

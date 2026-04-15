@@ -80,6 +80,23 @@ When issues are identified:
 5. **Verify Fix**: Re-run tests to ensure issue is resolved
 6. **Document Change**: Record what was improved and why
 
+### **Phase 5: Failure Mode Matrix (Universal)**
+
+**Purpose**: Detect and prevent recurring cross-genre failure patterns before drafting.
+
+#### **High-Severity Failure Modes**
+- **POV/Identity Drift**: protagonist name or POV shifts within a chapter
+- **Repeated Scene Function**: multiple scenes serving the same purpose without escalation
+- **Consequence-Free Scenes**: scenes end without cost, gain, or new obligation
+- **Generic Texture**: stock genre descriptions without proprietary world details
+- **Summary Overload**: multiple abstract paragraphs without action or sensory anchor
+
+#### **Detection & Resolution**
+1. **Identify**: Flag the failure mode and cite the specific passage or scene tag
+2. **Classify**: Determine if the issue is structural (plot/arc) or local (scene/prose)
+3. **Repair**: Apply the corresponding engine (Scene Integrity, Consistency Gate, Distinctiveness Tests, Show-vs-Summary Balancer)
+4. **Verify**: Re-check chapter against thresholds before proceeding
+
 ### **Phase 5: Enhanced System Integration**
 
 Before moving to chapter generation:
@@ -193,6 +210,54 @@ Before moving to chapter generation:
 - Quality control checkpoints at every stage
 - Professional punctuation mastery protocols
 
+### 9. Scene Integrity Engine (NEW)
+**Purpose**: Eliminate static scenes, travelogues, and consequence-free chapters
+- Mandatory scene structure: Goal → Obstacle → Choice → Result
+- Explicit scene consequence required (cost, gain, or new obligation)
+- No-travelogue rule: scene must change the story state
+- Scene function tagging for every scene (setup, escalation, reveal, reversal, payoff)
+- Scene failure triggers when structure or consequence is missing
+
+### 10. Consistency & Redundancy Gate (NEW)
+**Purpose**: Prevent POV/name drift, repeated beats, and stitched-together outputs
+- Identity consistency enforcement (single protagonist name/POV per chapter)
+- Beat-function deduplication (no duplicate onboarding/awe/tutorial beats)
+- Repetition limit for scene purposes (max 1 per chapter unless escalated)
+- Recap-only clauses allowed once per chapter, max 3 sentences
+- Automatic flagging of duplicated scene summaries
+
+### 11. Distinctiveness & Specificity Tests (NEW)
+**Purpose**: Eliminate generic prose and stock genre texture
+- Unique-world-marker rule: at least 1 proprietary world detail per scene
+- Generic lexicon penalty when stock terms appear without unique twist
+- Concrete action or sensory anchor required in each paragraph
+- Specificity minimum: 2 concrete nouns per paragraph (no abstract-only blocks)
+- Failure triggers for generic scene texture
+
+### 12. Show-vs-Summary Balancer (NEW)
+**Purpose**: Prevent abstract narration from dominating the chapter
+- Summary ratio cap: no more than 1 summary paragraph between action beats
+- Emotion-by-action requirement within 2 sentences
+- "He felt/She felt/They felt" limited to 1 per 800 words
+- Internal monologue ratio capped at 25% per chapter unless genre-justified
+- Mandatory conversion pass for summary-heavy sections
+
+### 13. Hook & Promise Reinforcement (NEW)
+**Purpose**: Ensure momentum and reader pull at chapter and book level
+- Chapter 1 promise must be explicit by end of chapter
+- Each chapter ends with a specific unresolved obligation
+- Escalation micro-ladder: each chapter adds a new risk or opportunity
+- No "determination-only" endings permitted
+- Hook clarity check at 25%, 50%, 75% checkpoints
+
+### 14. Director System (NEW)
+**Purpose**: Turn story inputs into flexible, scene-level guidance for world-class first drafts
+- Director brief generated before drafting using book bible, references, and vector memory
+- Opening onramp strategy to avoid rushed or repetitive chapter starts
+- Scene cards with goal/obstacle/choice/result/consequence and world markers
+- Freedom levers to preserve natural authorial voice
+- Explicit avoid/repetition list to prevent echo beats
+
 ---
 
 ## 🔄 COMPLETE WORKFLOW INTEGRATION
@@ -210,12 +275,18 @@ Before moving to chapter generation:
 4. **Begin Chapter Generation** (with bulletproof foundation)
 
 ### **Chapter Generation Integration:**
-All 8 Enhanced System tools now automatically load and enforce during chapter creation, with additional verification from Initialization Protocol improvements.
+All Enhanced System tools (14 total) now automatically load and enforce during chapter creation, with additional verification from Initialization Protocol improvements.
 
 ### **Quality Assurance:**
 - Stage 4.5: Brutal Reality Check (requires 8.5+ rating)
 - Enhanced System v2.0 compliance verification
 - Initialization Protocol improvement verification
+- Scene Integrity Engine compliance verification
+- Consistency & Redundancy Gate verification
+- Distinctiveness & Specificity Tests verification
+- Show-vs-Summary Balancer verification
+- Hook & Promise Reinforcement verification
+- Director System brief verification
 - No manual intervention required
 
 ---
@@ -237,6 +308,12 @@ All 8 Enhanced System tools now automatically load and enforce during chapter cr
 - Sophisticated, challenging investigative process
 - **Zero em-dashes with professional punctuation precision**
 - **Zero mid-process structural conversations required**
+- **Every scene includes consequence and forward motion**
+- **Zero POV/name drift and no duplicate scene functions**
+- **Scene texture is specific and proprietary to the world**
+- **Summary capped and balanced by concrete action**
+- **Every chapter ends on a clear, specific hook**
+- **Director brief guides first drafts toward human-author naturalness**
 
 ### **Quality Guarantee:**
 With Enhanced System v2.0 + Intelligent Initialization Protocol:

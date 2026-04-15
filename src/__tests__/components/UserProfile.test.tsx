@@ -1,11 +1,11 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { useUser } from '@clerk/nextjs'
 import UserProfile from '../../components/UserProfile'
-import { toast } from '../../components/ui/use-toast'
+import { toast } from '../../hooks/useAppToast'
 
 // Mock dependencies
 jest.mock('@clerk/nextjs')
-jest.mock('../../components/ui/use-toast')
+jest.mock('../../hooks/useAppToast')
 
 const mockUseUser = useUser as jest.MockedFunction<typeof useUser>
 const mockToast = toast as jest.MockedFunction<typeof toast>

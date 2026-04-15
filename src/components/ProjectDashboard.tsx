@@ -1,12 +1,13 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { useUser, useAuth } from '@clerk/nextjs'
+import { useAuthToken } from '@/lib/auth'
+import { fetchApi } from '@/lib/api-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toast } from '@/components/ui/use-toast'
+import { toast } from '@/hooks/useAppToast'
 import { CoverArtGenerator } from '@/components/CoverArtGenerator'
 import { useRouter } from 'next/navigation'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
@@ -71,8 +72,9 @@ interface PrewritingSummary {
 
 interface ProjectDashboardProps {
   projectId: string
-  onEditChapter?: (chapterId: string) => void
+  onEditChapter?: (chapterId: string, chapterNumber: number) => void
   onCreateChapter?: (chapterNumber: number) => void
+  onTitleUpdated?: (title: string) => void
 }
 
 interface ReferenceFile {
@@ -83,78 +85,68 @@ interface ReferenceFile {
   modified_by: string
 }
 
+interface TitleRecommendation {
+  title: string
+  rationale: string
+}
+
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   projectId,
   onEditChapter,
-  onCreateChapter
+  onCreateChapter,
+  onTitleUpdated
 }) => {
   const router = useRouter()
-  const { user, isLoaded } = useUser()
-  const { getToken } = useAuth()
+  const { getAuthHeaders, isLoaded, isSignedIn, user } = useAuthToken()
   const [project, setProject] = useState<Project | null>(null)
   const [chapters, setChapters] = useState<Chapter[]>([])
   const [summary, setSummary] = useState<PrewritingSummary | null>(null)
-  const [references, setReferences] = useState<ReferenceFile[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [loadingReferences, setLoadingReferences] = useState(false)
-  
-  // UI state
-  const [showReferencesSidebar, setShowReferencesSidebar] = useState(true)
+  const [titleInput, setTitleInput] = useState('')
+  const [isSavingTitle, setIsSavingTitle] = useState(false)
+  const [titleRecommendations, setTitleRecommendations] = useState<TitleRecommendation[]>([])
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false)
+  const [isClearingChapters, setIsClearingChapters] = useState(false)
 
   useEffect(() => {
-    if (isLoaded && projectId) {
+    if (projectId) {
       loadProjectData()
     }
-  }, [isLoaded, projectId])
+  }, [projectId])
+
+  useEffect(() => {
+    if (project?.title && !isSavingTitle) {
+      setTitleInput(project.title)
+    }
+  }, [project?.title, isSavingTitle])
 
   const loadProjectData = async () => {
-    if (!user || !projectId || !getToken) return
+    if (!projectId) return
 
     try {
       setIsLoading(true)
-      
-      console.log(`[ProjectDashboard] Loading data for project: ${projectId}`)
-      console.log(`[ProjectDashboard] User ID: ${user.id}`)
-      
-      // Load project details, chapters, summary, and references in parallel
-      const [projectRes, chaptersRes, summaryRes, referencesRes] = await Promise.all([
+
+      const authHeaders = await getAuthHeaders()
+
+      const [projectRes, chaptersRes] = await Promise.all([
         fetch(`/api/v2/projects/${projectId}`, {
-          headers: { 'Authorization': `Bearer ${await getToken()}` }
+          headers: { ...authHeaders, 'Content-Type': 'application/json' }
         }),
         fetch(`/api/v2/projects/${projectId}/chapters`, {
-          headers: { 'Authorization': `Bearer ${await getToken()}` }
-        }),
-        fetch(`/api/prewriting/summary?project_id=${projectId}`, {
-          headers: { 'Authorization': `Bearer ${await getToken()}` }
-        }),
-        fetch(`/api/v2/projects/${projectId}/references`, {
-          headers: { 'Authorization': `Bearer ${await getToken()}` }
+          headers: { ...authHeaders, 'Content-Type': 'application/json' }
         })
       ])
-
-      console.log(`[ProjectDashboard] Response status codes:`, {
-        project: projectRes.status,
-        chapters: chaptersRes.status,
-        summary: summaryRes.status,
-        references: referencesRes.status
-      })
 
       // Handle project data
       if (projectRes.ok) {
         const data = await projectRes.json()
         // API may return { project: {...} } or the object itself
         const p = data.project || data
-        console.log('[ProjectDashboard] Project data structure:', {
-          hasProject: !!p,
-          projectKeys: p ? Object.keys(p) : [],
-          title: p?.metadata?.title || p?.title,
-          settings: p?.settings
-        })
-
         if (p) {
+          const resolvedTitle = p.metadata?.title || p.title || `Project ${projectId}`
           setProject({
             id: p.id,
-            title: p.metadata?.title || p.title || `Project ${projectId}`,
+            title: resolvedTitle,
             genre: p.settings?.genre || p.genre || 'Fiction',
             status: p.metadata?.status || p.status || 'active',
             created_at: p.metadata?.created_at || p.created_at || new Date().toISOString(),
@@ -165,6 +157,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               purpose: ''
             }
           })
+          onTitleUpdated?.(resolvedTitle)
         } else {
           setProject(null)
         }
@@ -177,85 +170,30 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         const chaptersData = await chaptersRes.json()
         const chapters = chaptersData.chapters || []
         
-        console.log('[ProjectDashboard] Raw chapters data:', {
-          responseStructure: Object.keys(chaptersData),
-          chaptersArray: chapters,
-          chaptersCount: chapters.length,
-          firstChapterStructure: chapters[0] ? Object.keys(chapters[0]) : 'no chapters',
-          firstChapterSample: chapters[0] ? {
-            id: chapters[0].id,
-            title: chapters[0].title,
-            word_count: chapters[0].word_count,
-            metadata: chapters[0].metadata
-          } : 'no chapters'
-        })
-        
-        // Ensure all word_count values are numeric to prevent NaN in calculations
+        // Ensure numeric values and consistent fields for chapter status
         const sanitizedChapters = chapters.map((chapter: any) => {
           // More robust word count extraction - try multiple possible locations
           const wordCount = Number(chapter.metadata?.word_count || chapter.word_count || 0)
           const targetWordCount = Number(chapter.metadata?.target_word_count || chapter.target_word_count || 2000)
           const directorNotesCount = Number(chapter.director_notes_count) || 0
-          
-          console.log(`[ProjectDashboard] Sanitizing chapter ${chapter.id}:`, {
-            originalWordCount: chapter.word_count,
-            metadataWordCount: chapter.metadata?.word_count,
-            sanitizedWordCount: wordCount,
-            originalTargetWordCount: chapter.target_word_count,
-            metadataTargetWordCount: chapter.metadata?.target_word_count,
-            sanitizedTargetWordCount: targetWordCount
-          })
+          const stage = chapter.metadata?.stage || chapter.stage || 'draft'
+          const chapterNumber = Number(chapter.chapter_number) || Number(chapter.metadata?.chapter_number) || 0
           
           return {
             ...chapter,
+            chapter_number: chapterNumber,
             word_count: wordCount,
             target_word_count: targetWordCount,
-            director_notes_count: directorNotesCount
+            director_notes_count: directorNotesCount,
+            stage
           }
         })
         
-        console.log('[ProjectDashboard] Chapters loaded:', sanitizedChapters.length, 'chapters')
-        console.log('[ProjectDashboard] Sanitized chapters sample:', sanitizedChapters[0])
         setChapters(sanitizedChapters)
       } else {
         console.error('[ProjectDashboard] Failed to load chapters:', chaptersRes.status, await chaptersRes.text())
         setChapters([]) // Empty is valid for new projects
       }
-
-      // Handle summary data (might not exist for new projects)
-      if (summaryRes.ok) {
-        const summaryData = await summaryRes.json()
-        console.log('[ProjectDashboard] Summary data structure:', {
-          hasData: !!summaryData,
-          hasSummary: !!summaryData.summary,
-          summaryKeys: summaryData.summary ? Object.keys(summaryData.summary) : [],
-          totalChapters: summaryData.summary?.total_chapters
-        })
-        setSummary(summaryData.summary)
-      } else if (summaryRes.status === 404) {
-        console.log('[ProjectDashboard] Summary not found (normal for new projects)')
-        setSummary(null)
-      } else {
-        console.error('[ProjectDashboard] Failed to load summary:', summaryRes.status, await summaryRes.text())
-        setSummary(null)
-      }
-
-      // Handle references data  
-      setLoadingReferences(false)
-      if (referencesRes.ok) {
-        const referencesData = await referencesRes.json()
-        console.log('[ProjectDashboard] References data:', referencesData)
-        
-        // API now returns array directly
-        const references = Array.isArray(referencesData) ? referencesData : []
-        setReferences(references)
-        console.log(`[ProjectDashboard] Loaded ${references.length} reference files`)
-      } else {
-        console.warn('[ProjectDashboard] Failed to load references:', referencesRes.status)
-        setReferences([])
-      }
-
-      console.log('[ProjectDashboard] Data loading completed')
 
     } catch (error) {
       console.error('Error loading project data:', error)
@@ -267,31 +205,42 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     } finally {
       setIsLoading(false)
     }
+
+    // Load summary in the background to avoid blocking the UI
+    try {
+      const authHeaders = await getAuthHeaders()
+      const summaryRes = await fetch(`/api/prewriting/summary?project_id=${projectId}`, {
+        headers: authHeaders
+      })
+
+      if (summaryRes.ok) {
+        const summaryData = await summaryRes.json()
+        setSummary(summaryData.summary)
+      } else if (summaryRes.status === 404) {
+        setSummary(null)
+      } else {
+        console.error('[ProjectDashboard] Failed to load summary:', summaryRes.status, await summaryRes.text())
+        setSummary(null)
+      }
+    } catch (error) {
+      console.error('[ProjectDashboard] Failed to load summary:', error)
+      setSummary(null)
+    }
   }
 
   const getProgressStats = () => {
-    console.log('[ProjectDashboard] getProgressStats called with:', {
-      hasSummary: !!summary,
-      summary: summary,
-      chaptersCount: chapters.length,
-      chaptersArray: chapters
-    })
-    
     // If no summary and no chapters, provide sensible defaults for new projects
     if (!summary && chapters.length === 0) {
-      console.log('[ProjectDashboard] No summary and no chapters, returning default stats for new project')
       return { completed: 0, total: 25, percentage: 0, totalWords: 0, chaptersWritten: 0 }
     }
     
     if (!summary) {
-      console.log('[ProjectDashboard] No summary but have chapters, calculating from chapters')
       const completed = chapters.filter(c => c.stage === 'complete').length
       const chaptersWritten = chapters.length
       const total = Math.max(chaptersWritten, 25) // Assume 25 chapters if no summary
       const percentage = total > 0 ? Math.min(100, Math.max(0, (chaptersWritten / total) * 100)) : 0
       const totalWords = chapters.reduce((sum, c) => {
         const wordCount = Number(c.word_count) || 0
-        console.log(`[ProjectDashboard] Adding chapter ${c.chapter_number} word count: ${wordCount}`)
         return sum + wordCount
       }, 0)
       
@@ -310,7 +259,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     const percentage = total > 0 ? Math.min(100, Math.max(0, (chaptersWritten / total) * 100)) : 0
     const totalWords = chapters.reduce((sum, c) => {
       const wordCount = Number(c.word_count) || 0
-      console.log(`[ProjectDashboard] Adding chapter ${c.chapter_number} word count: ${wordCount}`)
       return sum + wordCount
     }, 0)
     
@@ -323,7 +271,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       chaptersWritten: Number(chaptersWritten) || 0
     }
     
-    console.log('[ProjectDashboard] getProgressStats result:', result)
     return result
   }
 
@@ -344,34 +291,126 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const handleChapterClick = (chapterNumber: number) => {
     const chapter = chapters.find(c => c.chapter_number === chapterNumber)
     if (chapter && onEditChapter) {
-      onEditChapter(chapter.id)
+      onEditChapter(chapter.id, chapterNumber)
     } else if (!chapter && onCreateChapter) {
       onCreateChapter(chapterNumber)
     }
   }
 
+  const saveTitle = async (rawTitle: string) => {
+    const nextTitle = rawTitle.trim()
+    if (!nextTitle) {
+      toast({
+        title: 'Title required',
+        description: 'Please enter a book title before saving.',
+        variant: 'destructive'
+      })
+      return
+    }
+    if (nextTitle === project?.title?.trim()) {
+      toast({
+        title: 'No changes',
+        description: 'The title is already up to date.'
+      })
+      return
+    }
+
+    try {
+      setIsSavingTitle(true)
+      const authHeaders = await getAuthHeaders()
+      const resp = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ title: nextTitle })
+      })
+
+      if (resp.ok) {
+        setProject((prev) => (prev ? { ...prev, title: nextTitle } : prev))
+        setTitleInput(nextTitle)
+        localStorage.setItem(`projectTitle-${projectId}`, nextTitle)
+        onTitleUpdated?.(nextTitle)
+        toast({
+          title: 'Title updated',
+          description: 'Your book title has been saved.'
+        })
+      } else {
+        toast({
+          title: 'Update failed',
+          description: await resp.text(),
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      console.error('Failed to update title:', error)
+      toast({
+        title: 'Update failed',
+        description: 'Please try again in a moment.',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsSavingTitle(false)
+    }
+  }
+
+  const handleTitleSave = async () => {
+    await saveTitle(titleInput)
+  }
+
+  const handleGenerateTitleRecommendations = async () => {
+    try {
+      setIsLoadingRecommendations(true)
+      const authHeaders = await getAuthHeaders()
+      const resp = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}/title-recommendations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ count: 6 })
+      })
+
+      if (resp.ok) {
+        const data = await resp.json()
+        setTitleRecommendations(data.recommendations || [])
+        if (!data.recommendations || data.recommendations.length === 0) {
+          toast({
+            title: 'No recommendations found',
+            description: 'Try refining your book bible or reference files.'
+          })
+        }
+      } else {
+        toast({
+          title: 'Recommendation failed',
+          description: await resp.text(),
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      console.error('Title recommendation error:', error)
+      toast({
+        title: 'Recommendation failed',
+        description: 'Please try again in a moment.',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsLoadingRecommendations(false)
+    }
+  }
+
+  const handleUseRecommendation = async (recommendedTitle: string) => {
+    setTitleInput(recommendedTitle)
+    await saveTitle(recommendedTitle)
+  }
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-brand-off-white">
-        {/* Immersive loading hero matching the main dashboard */}
-        <div className="relative min-h-[40vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
-          {/* Animated background particles */}
-          <div className="absolute inset-0">
-            <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white/20 rounded-full animate-float"></div>
-            <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-white/30 rounded-full animate-float" style={{animationDelay: '2s'}}></div>
-            <div className="absolute bottom-1/3 left-1/3 w-3 h-3 bg-white/10 rounded-full animate-float" style={{animationDelay: '4s'}}></div>
-          </div>
-          
-          <div className="relative z-10 flex items-center justify-center min-h-[40vh] px-6">
-            <div className="text-center">
-              <div className="mb-6">
-                <div className="w-12 h-12 border-3 border-white/30 border-t-white/80 rounded-full animate-spin mx-auto mb-4"></div>
-              </div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white mb-3 drop-shadow-lg">
-                Loading your creative project...
-              </h1>
-            </div>
-          </div>
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-gray-200 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-sm">Loading project...</p>
         </div>
       </div>
     )
@@ -379,22 +418,17 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-brand-off-white">
-        {/* Hero section for error state */}
-        <div className="relative min-h-[40vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
-          <div className="relative z-10 flex items-center justify-center min-h-[40vh] px-6">
-            <div className="text-center text-white">
-              <h2 className="text-2xl font-bold mb-4">Project Not Found</h2>
-              <p className="text-white/90 mb-6">
-                We couldn't load the project data. This might be due to permissions or connection issues.
-              </p>
-              <button 
-                onClick={() => window.location.reload()}
-                className="bg-white/20 backdrop-blur-sm text-white px-6 py-3 rounded-xl font-semibold hover:bg-white/30 transition-colors"
-              >
-                Try Again
-              </button>
-            </div>
+      <div className="flex items-center justify-center min-h-[50vh] px-6">
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-semibold text-gray-900 mb-3">Project Not Found</h2>
+          <p className="text-gray-600 mb-6">
+            We couldn&apos;t load the project data. This might be due to permissions or connection issues.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Try Again
+            </Button>
+            <Button onClick={() => router.push('/dashboard')}>Back to Dashboard</Button>
           </div>
         </div>
       </div>
@@ -402,66 +436,92 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   }
 
   const progressStats = getProgressStats()
+  const titleUnchanged = (project?.title || '').trim() === titleInput.trim()
 
   return (
     <div className="w-full">
       {/* Project Summary Header */}
-      <div className="relative bg-gradient-to-r from-brand-lavender/10 via-white/60 to-brand-blush-orange/10 px-6 md:px-8 lg:px-12 py-8 border-b border-brand-lavender/20">
+      <div className="relative bg-white px-4 sm:px-6 md:px-8 lg:px-12 py-6 sm:py-8 border-b border-gray-200">
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-2xl font-black text-brand-forest mb-2">Project Overview</h2>
-              <p className="text-brand-forest/70 font-medium">
-                {project.genre} • {progressStats.completed}/{progressStats.total} chapters complete • {progressStats.totalWords.toLocaleString()} words
-              </p>
+              <h2 className="text-2xl font-bold text-gray-900 tracking-tight mb-2">Project Overview</h2>
             </div>
             
             {/* Compact Progress Ring */}
-            <div className="flex items-center space-x-6">
-              {/* Delete Project CTA */}
-              <Button
-                variant="outline"
-                className="border-red-200 text-red-700 hover:bg-red-50"
-                onClick={async () => {
-                  const confirmed = window.confirm('Are you sure you want to delete this project? This action cannot be undone.')
-                  if (!confirmed) return
-                  try {
-                    const token = await getToken()
-                    GlobalLoader.show({
-                      title: 'Deleting Project',
-                      stage: 'Cleaning up data...',
-                      showProgress: false,
-                      size: 'md',
-                      customMessages: [
-                        '🧹 Removing project data...',
-                        '🗂️ Cleaning indexes...',
-                        '☁️ Syncing changes...',
-                      ],
-                      timeoutMs: 600000,
-                    })
-                    const resp = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
-                      method: 'DELETE',
-                      headers: { 'Authorization': `Bearer ${token}` }
-                    })
-                    if (resp.ok) {
-                      toast({ title: 'Project deleted', description: 'The project was removed successfully.' })
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  className="border-amber-200 text-amber-700 hover:bg-amber-50 w-full sm:w-auto"
+                  disabled={isClearingChapters || chapters.length === 0}
+                  onClick={async () => {
+                    if (!window.confirm(
+                      `Are you sure you want to clear all ${chapters.length} chapters? Your book bible and reference files will be preserved. This cannot be undone.`
+                    )) return
+                    try {
+                      setIsClearingChapters(true)
+                      const authHeaders = await getAuthHeaders()
+                      const resp = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}/chapters`, {
+                        method: 'DELETE',
+                        headers: authHeaders
+                      })
+                      if (resp.ok) {
+                        const data = await resp.json()
+                        toast({ title: 'Chapters cleared', description: data.message || 'All chapters have been removed. You can start fresh.' })
+                        setChapters([])
+                        await loadProjectData()
+                      } else {
+                        toast({ title: 'Clear failed', description: await resp.text(), variant: 'destructive' })
+                      }
+                    } catch (err) {
+                      console.error('Clear chapters error:', err)
+                      toast({ title: 'Clear failed', description: 'Please try again later.', variant: 'destructive' })
+                    } finally {
+                      setIsClearingChapters(false)
+                    }
+                  }}
+                >
+                  {isClearingChapters ? 'Clearing...' : 'Clear All Chapters'}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-red-200 text-red-700 hover:bg-red-50 w-full sm:w-auto"
+                  onClick={async () => {
+                    if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) return
+                    try {
+                      const authHeaders = await getAuthHeaders()
+                      GlobalLoader.show({
+                        title: 'Deleting Project',
+                        stage: 'Removing data...',
+                        showProgress: false,
+                        safeToLeave: false,
+                        canMinimize: false,
+                        timeoutMs: 600000,
+                      })
+                      const resp = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
+                        method: 'DELETE',
+                        headers: authHeaders
+                      })
                       GlobalLoader.hide()
-                      router.push('/dashboard')
-                    } else {
-                      toast({ title: 'Delete failed', description: await resp.text(), variant: 'destructive' })
+                      if (resp.ok) {
+                        toast({ title: 'Project deleted', description: 'The project was removed successfully.' })
+                        router.push('/dashboard')
+                      } else {
+                        toast({ title: 'Delete failed', description: await resp.text(), variant: 'destructive' })
+                      }
+                    } catch (err) {
+                      console.error('Delete project error:', err)
+                      toast({ title: 'Delete failed', description: 'Please try again later.', variant: 'destructive' })
                       GlobalLoader.hide()
                     }
-                  } catch (err) {
-                    console.error('Delete project error:', err)
-                    toast({ title: 'Delete failed', description: 'Please try again later.', variant: 'destructive' })
-                    GlobalLoader.hide()
-                  }
-                }}
-              >
-                Delete Project
-              </Button>
+                  }}
+                >
+                  Delete Project
+                </Button>
+              </div>
               <div className="relative">
-                <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 100 100">
+                <svg className="w-12 h-12 sm:w-16 sm:h-16 transform -rotate-90" viewBox="0 0 100 100">
                   <circle
                     cx="50" cy="50" r="40"
                     stroke="rgba(177, 142, 255, 0.3)"
@@ -480,51 +540,115 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-sm font-black text-brand-forest">
+                  <span className="text-xs sm:text-sm font-bold text-gray-900">
                     {Math.round(progressStats.percentage)}%
                   </span>
                 </div>
               </div>
               
-              <button
-                onClick={() => setShowReferencesSidebar(!showReferencesSidebar)}
-                className="bg-white/60 backdrop-blur-sm text-brand-forest px-4 py-2 rounded-xl font-semibold hover:bg-white/80 transition-all border border-brand-lavender/20"
-              >
-                {showReferencesSidebar ? 'Hide References' : 'Show References'}
-              </button>
+              
             </div>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="w-full px-6 md:px-8 lg:px-12 py-8">
-        <div className={`grid grid-cols-1 ${showReferencesSidebar ? 'lg:grid-cols-4' : ''} gap-8`}>
+      <div className="w-full px-4 sm:px-6 md:px-8 lg:px-12 py-6 sm:py-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Main Content Area */}
-          <div className={`${showReferencesSidebar ? 'lg:col-span-3' : ''}`}>
+          <div className="md:col-span-3">
             
             {/* Project Overview Content */}
               <div className="space-y-8">
+                <div className="bg-white rounded-xl p-6 sm:p-7 border border-gray-200 shadow-sm">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="w-full">
+                      <Label htmlFor="project-title" className="text-sm font-bold text-gray-600">
+                        Book Title
+                      </Label>
+                      <Input
+                        id="project-title"
+                        name="projectTitle"
+                        value={titleInput}
+                        onChange={(event) => setTitleInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !titleUnchanged && titleInput.trim()) {
+                            handleTitleSave()
+                          }
+                        }}
+                        className="mt-2 bg-white border-gray-200/30"
+                      />
+                    </div>
+                    <Button
+                      onClick={handleTitleSave}
+                      disabled={isSavingTitle || titleUnchanged || !titleInput.trim()}
+                      className="w-full sm:w-auto"
+                    >
+                      {isSavingTitle ? 'Saving...' : 'Save Title'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-6 sm:p-7 border border-gray-200 shadow-sm">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Recommended Titles</h3>
+                      <p className="text-sm text-gray-500">
+                        Generate title options from your book bible, references, and vector memory.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleGenerateTitleRecommendations}
+                      disabled={isLoadingRecommendations}
+                      className="w-full sm:w-auto"
+                    >
+                      {isLoadingRecommendations ? 'Generating...' : 'Generate Titles'}
+                    </Button>
+                  </div>
+                  {titleRecommendations.length > 0 && (
+                    <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {titleRecommendations.map((recommendation, index) => (
+                        <div
+                          key={`${recommendation.title}-${index}`}
+                          className="flex flex-col gap-3 rounded-xl border border-gray-200/20 bg-white p-4 h-full"
+                        >
+                          <div>
+                            <div className="text-base font-bold text-gray-900">{recommendation.title}</div>
+                            <div className="text-sm text-gray-500">{recommendation.rationale}</div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            className="border-gray-200/30 text-gray-900"
+                            onClick={() => handleUseRecommendation(recommendation.title)}
+                          >
+                            Use This Title
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Beautiful Stats Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-gradient-to-br from-white/60 via-brand-beige/40 to-brand-lavender/10 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl text-center hover:shadow-2xl transition-all hover:-translate-y-1">
-                    <div className="text-3xl font-black text-brand-forest mb-2">{progressStats.chaptersWritten}</div>
-                    <div className="text-sm font-bold text-brand-forest/70 uppercase tracking-wide">Chapters Written</div>
+                  <div className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm text-center hover:shadow-md transition-all hover:-translate-y-0.5">
+                    <div className="text-3xl font-bold text-gray-900 mb-2">{progressStats.chaptersWritten}</div>
+                    <div className="text-sm font-bold text-gray-500 uppercase tracking-wide">Chapters Written</div>
                   </div>
-                  <div className="bg-gradient-to-br from-white/60 via-brand-beige/40 to-emerald-50 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl text-center hover:shadow-2xl transition-all hover:-translate-y-1">
-                    <div className="text-3xl font-black text-emerald-600 mb-2">{progressStats.totalWords.toLocaleString()}</div>
-                    <div className="text-sm font-bold text-brand-forest/70 uppercase tracking-wide">Words Written</div>
+                  <div className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm text-center hover:shadow-md transition-all hover:-translate-y-0.5">
+                    <div className="text-3xl font-bold text-emerald-600 mb-2">{progressStats.totalWords.toLocaleString()}</div>
+                    <div className="text-sm font-bold text-gray-500 uppercase tracking-wide">Words Written</div>
                   </div>
-                  <div className="bg-gradient-to-br from-white/60 via-brand-beige/40 to-purple-50 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl text-center hover:shadow-2xl transition-all hover:-translate-y-1">
-                    <div className="text-3xl font-black text-purple-600 mb-2">{Math.ceil((progressStats.totalWords || 0) / 250)}</div>
-                    <div className="text-sm font-bold text-brand-forest/70 uppercase tracking-wide">Estimated Pages</div>
+                  <div className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm text-center hover:shadow-md transition-all hover:-translate-y-0.5">
+                    <div className="text-3xl font-bold text-purple-600 mb-2">{Math.ceil((progressStats.totalWords || 0) / 250)}</div>
+                    <div className="text-sm font-bold text-gray-500 uppercase tracking-wide">Estimated Pages</div>
                   </div>
                 </div>
 
                 {/* Enhanced Chapter Status Grid */}
-                <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-8 backdrop-blur-sm border border-white/50 shadow-xl">
-                  <h3 className="text-2xl font-black text-brand-forest mb-6">Chapter Status</h3>
-                  <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
+                <div className="bg-white rounded-xl p-8 border border-gray-200 shadow-sm">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-6">Chapter Status</h3>
+                  <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-3">
                     {Array.from({ length: project?.settings.target_chapters || 25 }, (_, i) => {
                       const chapterNumber = i + 1
                       const status = getChapterStatus(chapterNumber)
@@ -547,27 +671,27 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 </div>
 
                 {/* Recent Activity with Enhanced Design */}
-                <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-8 backdrop-blur-sm border border-white/50 shadow-xl">
-                  <h3 className="text-2xl font-black text-brand-forest mb-6">Recent Chapters</h3>
+                <div className="bg-white rounded-xl p-5 sm:p-6 lg:p-8 border border-gray-200 shadow-sm">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-6">Recent Chapters</h3>
                   <div className="space-y-4">
                     {chapters.slice(0, 5).map((chapter) => (
-                      <div key={chapter.id} className="flex items-center justify-between p-4 bg-white/60 rounded-xl border border-brand-lavender/20 hover:bg-white/80 transition-all hover:shadow-lg">
+                      <div key={chapter.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white rounded-xl border border-gray-200/20 hover:bg-white transition-all hover:shadow-lg">
                         <div>
-                          <div className="font-bold text-brand-forest">{chapter.title}</div>
-                          <div className="text-sm text-brand-forest/70 font-semibold">
+                          <div className="font-bold text-gray-900">{chapter.title}</div>
+                          <div className="text-sm text-gray-500 font-semibold">
                             {chapter.word_count.toLocaleString()} words • {chapter.stage}
                           </div>
                         </div>
                         <button
-                          onClick={() => onEditChapter?.(chapter.id)}
-                          className="bg-gradient-to-r from-brand-forest to-brand-lavender text-white px-4 py-2 rounded-lg font-semibold hover:shadow-lg transition-all hover:scale-105"
+                          onClick={() => onEditChapter?.(chapter.id, chapter.chapter_number)}
+                          className="bg-gray-900 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-800 transition-all w-full sm:w-auto"
                         >
                           Edit
                         </button>
                       </div>
                     ))}
                     {chapters.length === 0 && (
-                      <div className="text-center text-brand-forest/60 py-8">
+                      <div className="text-center text-gray-900/60 py-8">
                         <div className="text-lg font-semibold mb-2">No chapters found</div>
                         <div className="text-sm">Start by creating your first chapter</div>
                       </div>
@@ -577,42 +701,47 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               </div>
           </div>
 
-          {/* Enhanced References Sidebar */}
-          {showReferencesSidebar && (
-            <div className="lg:col-span-1">
-              <div className="bg-gradient-to-br from-white/60 via-brand-beige/30 to-brand-lavender/10 rounded-2xl p-6 backdrop-blur-sm border border-white/50 shadow-xl">
-                <h3 className="text-xl font-black text-brand-forest mb-4">References</h3>
-                {loadingReferences ? (
-                  <div className="animate-pulse space-y-3">
-                    <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                    <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                    <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                  </div>
-                ) : references.length > 0 ? (
-                  <div className="space-y-3">
-                    {references.map((ref, index) => (
-                      <div key={index} className="p-3 bg-white/60 rounded-xl border border-brand-lavender/20 hover:bg-white/80 transition-all cursor-pointer">
-                        <div className="font-bold text-sm text-brand-forest">
-                          {ref.filename}
-                        </div>
-                        <div className="text-xs text-brand-forest/60 mt-1 line-clamp-2">
-                          {ref.summary}
-                        </div>
-                        <div className="text-xs text-brand-forest/40 mt-2">
-                          Modified {new Date(ref.last_modified).toLocaleDateString()}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center text-brand-forest/60 py-6">
-                    <div className="text-sm font-semibold">No reference files found</div>
-                    <div className="text-xs mt-1">Reference files will appear here when available</div>
-                  </div>
-                )}
+          {/* Quick Start Sidebar */}
+          <div className="md:col-span-1">
+            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+              <h3 className="text-xl font-bold text-gray-900 mb-3">Quick Start</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                A few tips to get the most out of your writing workspace.
+              </p>
+              <div className="space-y-4 text-sm text-gray-600">
+                <div>
+                  <div className="font-semibold text-gray-900 mb-1">1) Review your references</div>
+                  <p>
+                    Open the <span className="font-semibold">References</span> tab in the top navigation. Skim each document
+                    (characters, outline, timeline, and more) and make updates so everything reflects your vision. These
+                    guide every chapter the system writes.
+                  </p>
+                </div>
+                <div>
+                  <div className="font-semibold text-gray-900 mb-1">2) Write chapters your way</div>
+                  <p>
+                    Open the <span className="font-semibold">Chapters</span> tab to generate AI drafts <span className="font-semibold">one chapter at a time</span>,
+                    then review and refine with inline edits — remember to save. Prefer a fully hands‑off run?
+                    Use <span className="font-semibold">Auto‑Complete</span> to have the system draft the <span className="font-semibold">entire book in one go</span>.
+                  </p>
+                </div>
+                <div>
+                  <div className="font-semibold text-gray-900 mb-1">3) Explore cover art</div>
+                  <p>
+                    Try generating <span className="font-semibold">Cover Art</span> at any point. Refresh until it feels like your book.
+                  </p>
+                </div>
+                <div>
+                  <div className="font-semibold text-gray-900 mb-1">4) Publish when you’re ready</div>
+                  <p>
+                    In the <span className="font-semibold">Publish</span> tab, fill in as much or as little as you’d like and press
+                    <span className="font-semibold"> Publish</span>. Your finished book appears in your Library. On mobile, tap
+                    <span className="font-semibold"> Save</span>, then “Open with” to send it to Apple Books or Kindle.
+                  </p>
+                </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

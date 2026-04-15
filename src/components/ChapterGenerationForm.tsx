@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuthToken } from '@/lib/auth'
+import { fetchApi } from '@/lib/api-client'
 import { PlayIcon, StopIcon } from '@heroicons/react/24/outline'
-import { CreativeLoader } from './ui/CreativeLoader'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 interface ChapterGenerationFormProps {
@@ -23,12 +23,35 @@ export function ChapterGenerationForm({
   const [stage, setStage] = useState('complete')
   const [status, setStatus] = useState('')
 
-  const getProjectId = () => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('lastProjectId')
-  }
+  const [projectId, setProjectId] = useState<string | null>(null)
 
-  const projectId = getProjectId()
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setProjectId(localStorage.getItem('lastProjectId'))
+  }, [])
+
+  useEffect(() => {
+    if (isGenerating) {
+      GlobalLoader.show({
+        title: 'Generating Chapter',
+        stage: 'Writing content...',
+        showProgress: false,
+        safeToLeave: true,
+        canMinimize: true,
+        customMessages: [
+          'Building narrative structure...',
+          'Developing character arcs...',
+          'Writing dialogue...',
+          'Refining prose...',
+          'Checking consistency...',
+        ],
+        timeoutMs: 600000,
+      })
+    } else {
+      GlobalLoader.hide()
+    }
+  }, [isGenerating])
+
   const hasProject = Boolean(projectId)
   const canInteract = isSignedIn && hasProject && !isGenerating
 
@@ -39,7 +62,7 @@ export function ChapterGenerationForm({
       setStatus('❌ Please sign in to generate chapters')
       return
     }
-    const projectId = getProjectId()
+    const projectId = typeof window !== 'undefined' ? localStorage.getItem('lastProjectId') : null
     if (!projectId) {
       setStatus('❌ No project selected - upload or select a Book Bible first')
       return
@@ -48,7 +71,7 @@ export function ChapterGenerationForm({
     setStatus('Generating chapter...')
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/v2/chapters/generate', {
+      const response = await fetchApi('/api/v2/chapters/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -78,7 +101,7 @@ export function ChapterGenerationForm({
           const pollStart = Date.now()
           const poll = async () => {
             const auth = await getAuthHeaders()
-            const check = await fetch(`/api/v2/projects/${projectId}/chapters`, { headers: auth })
+            const check = await fetchApi(`/api/v2/projects/${projectId}/chapters`, { headers: auth })
             if (check.ok) {
               const payload = await check.json()
               const exists = (payload.chapters || []).some((ch: any) => ch.chapter_number === chapterNumber)
@@ -109,7 +132,7 @@ export function ChapterGenerationForm({
   const handleEstimate = async () => {
     try {
       const authHeaders = await getAuthHeaders()
-      const projectId = getProjectId()
+      const projectId = typeof window !== 'undefined' ? localStorage.getItem('lastProjectId') : null
       if (!projectId) {
         setStatus('❌ No project selected - upload or select a Book Bible first')
         return
@@ -259,36 +282,6 @@ export function ChapterGenerationForm({
           </button>
         </div>
       </form>
-      
-      {(() => {
-        if (isGenerating) {
-          setTimeout(() => {
-            GlobalLoader.show({
-              title: 'Generating Chapter',
-              stage: 'Crafting Chapter',
-              showProgress: false,
-              size: 'md',
-              fullScreen: true,
-              customMessages: [
-                '🖋️ Weaving narrative threads...',
-                '🎭 Developing character voices...',
-                '📖 Building dramatic tension...',
-                '✨ Polishing prose perfection...',
-                '🎨 Painting vivid scenes...',
-                '🔥 Forging compelling dialogue...',
-                '🌟 Creating literary magic...',
-                '📚 Consulting story wisdom...',
-                '🎯 Aiming for the perfect word...',
-                '⚡ Channeling creative energy...'
-              ],
-              timeoutMs: 600000,
-            })
-          }, 0)
-        } else {
-          setTimeout(() => GlobalLoader.hide(), 0)
-        }
-        return null
-      })()}
 
       {status && !isGenerating && (
         <div className="mt-4 p-3 bg-gray-50 rounded-md">

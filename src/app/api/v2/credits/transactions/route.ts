@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -14,21 +13,18 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { getToken } = await auth()
-    const token = await getToken()
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
-    }
-
     const url = new URL(request.url)
     const params = url.searchParams.toString()
     const targetUrl = `${backendBaseUrl}/v2/credits/transactions${params ? `?${params}` : ''}`
 
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const backendResponse = await fetch(targetUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        ...(resolvedAuthHeader ? { Authorization: resolvedAuthHeader } : {}),
       },
       cache: 'no-store',
     })
@@ -50,5 +46,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
-

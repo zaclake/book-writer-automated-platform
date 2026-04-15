@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useUser, useAuth } from '@clerk/nextjs'
+import { useAuthToken } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { toast } from '@/components/ui/use-toast'
+import { toast } from '@/hooks/useAppToast'
 
 interface OnboardingData {
   purpose: 'personal' | 'commercial' | 'educational'
@@ -24,8 +24,7 @@ interface OnboardingFlowProps {
 }
 
 const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) => {
-  const { user, isLoaded } = useUser()
-  const { getToken } = useAuth()
+  const { getAuthHeaders, user, isLoaded } = useAuthToken()
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
@@ -52,15 +51,14 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) => {
   }
 
   const handleComplete = async () => {
-    if (!user || !getToken) return
-
     setIsLoading(true)
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/users/v2/onboarding', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await getToken()}`
+          ...authHeaders
         },
         body: JSON.stringify(onboardingData)
       })
@@ -90,15 +88,12 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) => {
     setOnboardingData(prev => ({ ...prev, [field]: value }))
   }
 
-  if (!isLoaded) {
-    return <div className="animate-pulse">Loading...</div>
-  }
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
+    <div className="max-w-2xl md:max-w-3xl mx-auto px-4 sm:px-6 md:px-8 py-6 sm:py-8">
       {/* Progress bar */}
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
           <h2 className="text-2xl font-bold">Welcome to Writer Bloom</h2>
           <span className="text-sm text-gray-500">Step {currentStep} of {totalSteps}</span>
         </div>
@@ -111,7 +106,7 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) => {
       </div>
 
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-5 sm:p-6 md:p-8">
           {/* Step 1: Purpose Selection */}
           {currentStep === 1 && (
             <div className="space-y-6">
@@ -335,21 +330,22 @@ const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) => {
           )}
 
           {/* Navigation */}
-          <div className="flex justify-between mt-8 pt-6 border-t">
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-3 mt-8 pt-6 border-t">
             <Button
               variant="outline"
               onClick={handlePrevious}
               disabled={currentStep === 1}
+              className="w-full sm:w-auto"
             >
               Previous
             </Button>
 
             {currentStep < totalSteps ? (
-              <Button onClick={handleNext}>
+              <Button onClick={handleNext} className="w-full sm:w-auto">
                 Next
               </Button>
             ) : (
-              <Button onClick={handleComplete} disabled={isLoading}>
+              <Button onClick={handleComplete} disabled={isLoading} className="w-full sm:w-auto">
                 {isLoading ? 'Setting up...' : 'Complete Setup'}
               </Button>
             )}

@@ -11,8 +11,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def initialize_pricing_data():
@@ -29,9 +27,30 @@ async def initialize_pricing_data():
         firestore = db_adapter.firestore.db  # Access the actual Firestore client
         logger.info("✅ Connected to Firestore")
         
-        # Default pricing data based on OpenAI's current pricing (as of 2024)
+        # Default pricing data based on OpenAI's current pricing (as of 2026)
         default_pricing = {
             'openai': {
+                'gpt-4.1': {
+                    # Standard tier: $2.00 / 1M input tokens, $8.00 / 1M output tokens
+                    'input_usd_per_1k': 0.002,
+                    'output_usd_per_1k': 0.008,
+                    'provider': 'openai',
+                    'model_type': 'chat'
+                },
+                'gpt-4.1-mini': {
+                    # Standard tier: $0.40 / 1M input tokens, $1.60 / 1M output tokens
+                    'input_usd_per_1k': 0.0004,
+                    'output_usd_per_1k': 0.0016,
+                    'provider': 'openai',
+                    'model_type': 'chat'
+                },
+                'gpt-4.1-nano': {
+                    # Standard tier: $0.10 / 1M input tokens, $0.40 / 1M output tokens
+                    'input_usd_per_1k': 0.0001,
+                    'output_usd_per_1k': 0.0004,
+                    'provider': 'openai',
+                    'model_type': 'chat'
+                },
                 'gpt-4o': {
                     'input_usd_per_1k': 0.005,   # $5 per 1M input tokens
                     'output_usd_per_1k': 0.015,  # $15 per 1M output tokens
@@ -49,6 +68,13 @@ async def initialize_pricing_data():
                     'output_usd_per_1k': 0.03,    # $30 per 1M output tokens
                     'provider': 'openai',
                     'model_type': 'chat'
+                },
+                'gpt-image-1': {
+                    'job_usd': 0.250,  # High quality 1024x1536 image
+                    'provider': 'openai',
+                    'model_type': 'image',
+                    'image_size': '1024x1536',
+                    'quality': 'high'
                 },
                 'dall-e-3': {
                     'job_usd': 0.040,  # $0.04 per 1024x1024 image
@@ -75,12 +101,6 @@ async def initialize_pricing_data():
                     'model_type': 'image',
                     'image_size': '1024x1792',
                     'quality': 'hd'
-                },
-                'gpt-image-1': {
-                    'job_usd': 0.040,  # Estimated pricing for GPT-image-1
-                    'provider': 'openai',
-                    'model_type': 'image',
-                    'image_size': '1024x1536'
                 }
             }
         }
@@ -156,10 +176,17 @@ async def verify_pricing_data():
         
         # Sample a few key models
         openai_models = providers.get('openai', {})
+        if 'gpt-4.1' in openai_models:
+            gpt41 = openai_models['gpt-4.1']
+            logger.info(f"   - GPT-4.1: ${gpt41.get('input_usd_per_1k')}/1k input, ${gpt41.get('output_usd_per_1k')}/1k output")
         if 'gpt-4o' in openai_models:
             gpt4o = openai_models['gpt-4o']
             logger.info(f"   - GPT-4o: ${gpt4o.get('input_usd_per_1k')}/1k input, ${gpt4o.get('output_usd_per_1k')}/1k output")
         
+        if 'gpt-image-1' in openai_models:
+            gpt_image = openai_models['gpt-image-1']
+            logger.info(f"   - GPT-image-1: ${gpt_image.get('job_usd')}/image")
+
         if 'dall-e-3' in openai_models:
             dalle = openai_models['dall-e-3']
             logger.info(f"   - DALL-E 3: ${dalle.get('job_usd')}/image")

@@ -112,8 +112,7 @@ class BrutalAssessmentScorer:
         failures = []
         
         # Em-dash usage check
-        if '—' in chapter_text:
-            failures.append("EM-DASH USAGE (—) - Automatic failure")
+        # Em-dash usage is a style choice; do not treat as an automatic failure.
         
         # Word count check
         target_range = self.config['enhanced_system_compliance']['requirements']['word_count_verification']['target_range_words']

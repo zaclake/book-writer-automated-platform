@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -17,15 +16,14 @@ export async function GET(
       )
     }
 
-    const { getToken } = await auth()
-    const token = await getToken()
-    if (!token) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
-
     const targetUrl = `${backendBaseUrl}/auto-complete/${encodeURIComponent(params.jobId)}/status`
+    const sessionToken = request.cookies.get('user_session')?.value
+    const authHeader = request.headers.get('authorization') || undefined
     const res = await fetch(targetUrl, {
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...(authHeader ? { Authorization: authHeader } : {}),
+        ...(!authHeader && sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {})
       },
       cache: 'no-store',
     })
@@ -49,5 +47,3 @@ export async function GET(
     )
   }
 }
-
-

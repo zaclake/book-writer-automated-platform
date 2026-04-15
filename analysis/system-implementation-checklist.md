@@ -110,17 +110,23 @@ All critical failures identified in the brutal critique have been systematically
 ### **PRIMARY SYSTEM TOOLS** ✅
 
 #### **Core System Files:**
-- [x] **system/system/enhanced-writing-system-v2.md** - Master system overview
-- [x] **frameworks/frameworks/character-development-toolkit.md** - Character creation and tracking
-- [x] **frameworks/frameworks/research-tracking-system.md** - Research and authenticity verification
-- [x] **tools/tools/plot-tracker.md** - Plot advancement and quality control
-- [x] **tools/tools/word-count-planning-calculator.md** - Word count planning and monitoring
-- [x] **tools/frameworks/series-balance-guidelines.md** - Individual vs. series balance
+- [x] **backend/system/enhanced-writing-system-v2.md** - Master system overview
+- [x] **frameworks/character-development-toolkit.md** - Character creation and tracking
+- [x] **frameworks/research-tracking-system.md** - Research and authenticity verification
+- [x] **tools/plot-tracker.md** - Plot advancement and quality control
+- [x] **tools/word-count-planning-calculator.md** - Word count planning and monitoring
+- [x] **frameworks/series-balance-guidelines.md** - Individual vs. series balance
+- [x] **backend/system/scene-integrity-engine.md** - Scene structure and consequence enforcement
+- [x] **backend/system/consistency-redundancy-gate.md** - POV and beat deduplication
+- [x] **backend/system/distinctiveness-specificity-tests.md** - Unique world texture enforcement
+- [x] **backend/system/show-vs-summary-balancer.md** - Summary ratio and action balance
+- [x] **backend/system/hook-promise-reinforcement.md** - Chapter promise and hook checks
+- [x] **backend/system/director-system.md** - Director brief guidance layer
 
 #### **Implementation Support:**
-- [x] **docs/enhanced-writing-system-implementation-guide.md** - Master implementation protocol
-- [x] **docs/system-improvements-summary.md** - Comprehensive failure resolution overview
-- [x] **docs/system-implementation-docs/system-implementation-checklist.md** - This verification document
+- [x] **backend/system/enhanced-writing-system-implementation-guide.md** - Master implementation protocol
+- [x] **analysis/system-improvements-summary.md** - Comprehensive failure resolution overview
+- [x] **analysis/system-implementation-checklist.md** - This verification document
 
 ### **SYSTEM INTEGRATION FEATURES** ✅
 
@@ -150,6 +156,13 @@ All critical failures identified in the brutal critique have been systematically
 - [x] **Research Quality: 80/100 minimum score**
 - [x] **Plot Advancement: All checkpoints passed**
 - [x] **Standalone Satisfaction: 8/10 minimum**
+- [x] **Scene Integrity: 100% scenes with explicit consequence**
+- [x] **Consistency: Zero POV/name drift**
+- [x] **Redundancy: No duplicate scene functions per chapter**
+- [x] **Distinctiveness: 1+ unique-world marker per scene**
+- [x] **Summary Balance: No more than 1 summary paragraph between action beats**
+- [x] **Hooks: Every chapter ends with specific unresolved obligation**
+- [x] **Director Brief: Created for every chapter**
 
 ### **EXPERT VERIFICATION REQUIREMENTS** ✅
 
@@ -190,6 +203,12 @@ All critical failures identified in the brutal critique have been systematically
 - [x] **Character growth milestones established**
 - [x] **Theme repetition limits identified**
 - [x] **Act escalation requirements set**
+
+#### **Step 5: Scene Function Map** ✅
+- [x] **Scene functions tagged for every planned scene**
+- [x] **Goal → Obstacle → Choice → Result mapped**
+- [x] **Explicit consequence identified per scene**
+- [x] **Unique-world marker placements identified**
 
 ### **PHASE 2: WRITING IMPLEMENTATION** ✅
 

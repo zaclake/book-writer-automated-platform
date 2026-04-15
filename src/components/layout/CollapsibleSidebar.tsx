@@ -18,6 +18,7 @@ import {
   ClockIcon
 } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
+import { fetchApi } from '@/lib/api-client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -37,12 +38,6 @@ interface ProjectOverview {
   wordCount: number
 }
 
-interface QualityMetrics {
-  pacingScore: number
-  continuityScore: number
-  aiConfidence: number
-}
-
 interface CollapsibleSidebarProps {
   isOpen: boolean
   onToggle: () => void
@@ -56,8 +51,17 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
 
   const [references, setReferences] = useState<ReferenceQuickAccess[]>([])
   const [overview, setOverview] = useState<ProjectOverview | null>(null)
-  const [metrics, setMetrics] = useState<QualityMetrics | null>(null)
   const [loading, setLoading] = useState(true)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isOpen])
 
   useEffect(() => {
     if (isSignedIn && projectId && isOpen) {
@@ -73,7 +77,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
       const authHeaders = await getAuthHeaders()
 
       // Load reference files for quick access
-              const referencesResponse = await fetch(`/api/v2/projects/${projectId}/references`, {
+              const referencesResponse = await fetchApi(`/api/v2/projects/${projectId}/references`, {
         headers: authHeaders
       })
       
@@ -109,16 +113,10 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
         }
       }
 
-      // Mock quality metrics (would be real in production)
-      setMetrics({
-        pacingScore: 85,
-        continuityScore: 92,
-        aiConfidence: 88
-      })
-
     } catch (error) {
       console.error('Error loading sidebar data:', error)
     } finally {
+      setLastRefreshedAt(new Date())
       setLoading(false)
     }
   }
@@ -127,11 +125,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
     return num.toLocaleString()
   }
 
-  const getScoreColor = (score: number) => {
-    if (score >= 90) return 'text-green-600'
-    if (score >= 80) return 'text-yellow-600'
-    return 'text-red-600'
-  }
+  // NOTE: Quality metrics UI removed here because it previously used mock data.
 
   return (
     <>
@@ -148,7 +142,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
         fixed top-0 right-0 h-full bg-white border-l border-gray-200 
         transform transition-transform duration-300 ease-in-out z-50
         ${isOpen ? 'translate-x-0' : 'translate-x-full'}
-        w-80 shadow-lg
+        w-80 max-w-[90vw] shadow-lg
         ${className}
       `}>
         {/* Toggle Button */}
@@ -156,7 +150,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
           onClick={onToggle}
           variant="ghost"
           size="sm"
-          className="absolute -left-10 top-4 bg-white border border-gray-200 rounded-l-md rounded-r-none shadow-md"
+          className="absolute left-2 top-4 bg-white border border-gray-200 rounded-md shadow-md lg:-left-10 lg:rounded-l-md lg:rounded-r-none"
         >
           {isOpen ? (
             <ChevronRightIcon className="w-4 h-4" />
@@ -192,7 +186,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
                 {references.length > 0 ? (
                   <div className="space-y-2">
                     {references.map((ref, index) => (
-                      <Card key={index} className="p-3 hover:bg-gray-50 cursor-pointer">
+                      <Card key={index} className="p-3">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between">
                             <h4 className="text-xs font-medium text-gray-900 capitalize">
@@ -259,64 +253,13 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
                 </div>
               )}
 
-              {/* Quality Metrics */}
-              {metrics && (
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <ChartBarIcon className="w-5 h-5 text-gray-600" />
-                    <h3 className="text-sm font-medium text-gray-900">Quality Metrics</h3>
-                  </div>
-                  
-                  <Card className="p-3">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-600">Pacing</span>
-                        <span className={`text-xs font-medium ${getScoreColor(metrics.pacingScore)}`}>
-                          {metrics.pacingScore}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-1">
-                        <div 
-                          className="bg-blue-600 h-1 rounded-full"
-                          style={{ width: `${metrics.pacingScore}%` }}
-                        />
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-600">Continuity</span>
-                        <span className={`text-xs font-medium ${getScoreColor(metrics.continuityScore)}`}>
-                          {metrics.continuityScore}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-1">
-                        <div 
-                          className="bg-green-600 h-1 rounded-full"
-                          style={{ width: `${metrics.continuityScore}%` }}
-                        />
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-600">AI Confidence</span>
-                        <span className={`text-xs font-medium ${getScoreColor(metrics.aiConfidence)}`}>
-                          {metrics.aiConfidence}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-1">
-                        <div 
-                          className="bg-purple-600 h-1 rounded-full"
-                          style={{ width: `${metrics.aiConfidence}%` }}
-                        />
-                      </div>
-                    </div>
-                  </Card>
-                </div>
-              )}
-
               {/* Last Updated */}
               <div className="pt-4 border-t border-gray-200">
                 <div className="flex items-center space-x-2 text-xs text-gray-500">
                   <ClockIcon className="w-3 h-3" />
-                  <span>Updated just now</span>
+                  <span>
+                    {lastRefreshedAt ? `Updated ${lastRefreshedAt.toLocaleTimeString()}` : 'Updated'}
+                  </span>
                 </div>
               </div>
             </>

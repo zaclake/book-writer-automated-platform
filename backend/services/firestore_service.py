@@ -10,18 +10,20 @@ import uuid
 import json
 import tempfile
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, asdict
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
+try:
+    from google.cloud.firestore_v1 import FieldPath as _FieldPath
+except Exception:  # pragma: no cover
+    _FieldPath = None
 from google.api_core.exceptions import NotFound, PermissionDenied
 from google.oauth2 import service_account
 from google.cloud import storage
 from concurrent.futures import ThreadPoolExecutor
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -93,7 +95,7 @@ class FirestoreService:
             service_account_json = os.getenv('SERVICE_ACCOUNT_JSON')
             if service_account_json:
                 try:
-                    logger.info("Attempting to initialize Firestore with SERVICE_ACCOUNT_JSON")
+                    logger.debug("Attempting to initialize Firestore with SERVICE_ACCOUNT_JSON")
                     service_account_info = json.loads(service_account_json)
                     credentials = service_account.Credentials.from_service_account_info(service_account_info)
                     
@@ -106,7 +108,7 @@ class FirestoreService:
                     else:
                         self.db = firestore.Client(credentials=credentials)
                         
-                    logger.info(f"✅ Firestore initialized successfully with SERVICE_ACCOUNT_JSON (project: {project_id})")
+                    logger.debug(f"✅ Firestore initialized successfully with SERVICE_ACCOUNT_JSON (project: {project_id})")
                     self.available = True
                     return
                 except json.JSONDecodeError as e:
@@ -118,7 +120,7 @@ class FirestoreService:
             creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
             if creds_path and os.path.exists(creds_path):
                 try:
-                    logger.info(f"Attempting to initialize Firestore with credentials file: {creds_path}")
+                    logger.debug(f"Attempting to initialize Firestore with credentials file: {creds_path}")
                     credentials = service_account.Credentials.from_service_account_file(creds_path)
                     
                     if project_id:
@@ -126,7 +128,7 @@ class FirestoreService:
                     else:
                         self.db = firestore.Client(credentials=credentials)
                     
-                    logger.info(f"✅ Firestore initialized successfully with credentials file")
+                    logger.debug("✅ Firestore initialized successfully with credentials file")
                     self.available = True
                     return
                 except Exception as e:
@@ -134,7 +136,7 @@ class FirestoreService:
             
             # Method 3: Try default credentials (for local development or GCP environment)
             try:
-                logger.info("Attempting to initialize Firestore with default credentials")
+                logger.debug("Attempting to initialize Firestore with default credentials")
                 if project_id:
                     self.db = firestore.Client(project=project_id)
                 else:
@@ -145,7 +147,7 @@ class FirestoreService:
                     else:
                         self.db = firestore.Client()
                 
-                logger.info("✅ Firestore initialized successfully with default credentials")
+                logger.debug("✅ Firestore initialized successfully with default credentials")
                 self.available = True
                 return
             except Exception as e:
@@ -201,7 +203,7 @@ class FirestoreService:
                     'auto_backup_enabled': True,
                     'collaboration_notifications': True,
                     'email_notifications': True,
-                    'preferred_llm_model': 'gpt-4o'
+                    'preferred_llm_model': 'gpt-4.1'
                 }
             
             if 'limits' not in user_data:
@@ -323,24 +325,185 @@ class FirestoreService:
             logger.error(f"Failed to create project: {e}")
             return None
     
+    def _is_project_payload(self, data: Dict[str, Any]) -> bool:
+        """Return True when the payload looks like a project document."""
+        if not isinstance(data, dict) or not data:
+            return False
+        return bool(
+            data.get('metadata')
+            or data.get('settings')
+            or data.get('book_bible')
+            or data.get('progress')
+            or data.get('references')
+            or data.get('reference_files')
+        )
+
+    async def find_project_payload(self, project_id: str) -> Optional[Dict[str, Any]]:
+        """Locate a non-empty project payload across all storage models."""
+        if not self.db:
+            logger.error("Firestore client unavailable when searching for project payload")
+            return None
+
+        # Prefer collection-group queries when possible.
+        try:
+            group_query = self.db.collection_group('projects').where(
+                filter=FieldFilter('metadata.project_id', '==', project_id)
+            ).limit(1)
+            for doc in group_query.stream():
+                data = doc.to_dict() or {}
+                if self._is_project_payload(data):
+                    return data
+        except Exception as e:
+            logger.warning(f"Collection group metadata.project_id lookup failed for {project_id}: {e}")
+
+        try:
+            group_query = self.db.collection_group('projects').where(
+                filter=FieldFilter('project_id', '==', project_id)
+            ).limit(1)
+            for doc in group_query.stream():
+                data = doc.to_dict() or {}
+                if self._is_project_payload(data):
+                    return data
+        except Exception as e:
+            logger.warning(f"Collection group project_id lookup failed for {project_id}: {e}")
+
+        # Legacy root collection checks.
+        try:
+            doc_ref = self.db.collection('projects').document(project_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                if self._is_project_payload(data):
+                    return data
+        except Exception as e:
+            logger.warning(f"Legacy root doc lookup failed for {project_id}: {e}")
+
+        try:
+            legacy_query = self.db.collection('projects').where(
+                filter=FieldFilter('metadata.project_id', '==', project_id)
+            ).limit(1)
+            for doc in legacy_query.stream():
+                data = doc.to_dict() or {}
+                if self._is_project_payload(data):
+                    return data
+        except Exception as e:
+            logger.warning(f"Legacy root metadata.project_id lookup failed for {project_id}: {e}")
+
+        try:
+            legacy_query = self.db.collection('projects').where(
+                filter=FieldFilter('project_id', '==', project_id)
+            ).limit(1)
+            for doc in legacy_query.stream():
+                data = doc.to_dict() or {}
+                if self._is_project_payload(data):
+                    return data
+        except Exception as e:
+            logger.warning(f"Legacy root project_id lookup failed for {project_id}: {e}")
+
+        # Final fallback: scan collection group (no index required).
+        try:
+            for doc in self.db.collection_group('projects').stream():
+                data = doc.to_dict() or {}
+                metadata = data.get('metadata', {}) if isinstance(data.get('metadata'), dict) else {}
+                if (
+                    doc.id == project_id
+                    or metadata.get('project_id') == project_id
+                    or data.get('project_id') == project_id
+                ):
+                    if self._is_project_payload(data):
+                        return data
+        except Exception as e:
+            logger.warning(f"Collection group scan failed for {project_id}: {e}")
+
+        return None
+
+    async def repair_project_document(self, project_id: str, owner_id_hint: Optional[str] = None) -> bool:
+        """Rehydrate an empty/missing user-scoped project document."""
+        try:
+            payload = await self.find_project_payload(project_id)
+            if not payload:
+                logger.warning(f"[firestore] repair_project_document: no payload found for {project_id}")
+                return False
+
+            metadata = payload.get('metadata') if isinstance(payload.get('metadata'), dict) else {}
+            owner_id = metadata.get('owner_id') or payload.get('owner_id') or payload.get('user_id') or owner_id_hint
+            if not owner_id:
+                logger.warning(f"[firestore] repair_project_document: missing owner_id for {project_id}")
+                return False
+
+            title = metadata.get('title') or payload.get('title') or payload.get('project_name') or payload.get('projectName')
+            if not title:
+                logger.warning(f"[firestore] repair_project_document: missing title for {project_id}")
+                return False
+
+            metadata.setdefault('title', title)
+            metadata.setdefault('owner_id', owner_id)
+            metadata.setdefault('collaborators', payload.get('collaborators', []))
+            metadata.setdefault('status', payload.get('status', 'active'))
+            metadata.setdefault('visibility', payload.get('visibility', 'private'))
+
+            # Ensure canonical metadata.project_id is set
+            if metadata.get('project_id') != project_id:
+                metadata['project_id'] = project_id
+                payload['metadata'] = metadata
+
+            # Avoid persisting transient id field
+            payload.pop('id', None)
+
+            doc_ref = self.db.collection('users').document(owner_id)\
+                             .collection('projects').document(project_id)
+            doc_ref.set(payload, merge=True)
+            logger.info(f"[firestore] repair_project_document: rehydrated users/{owner_id}/projects/{project_id}")
+            return True
+        except Exception as e:
+            logger.error(f"[firestore] repair_project_document failed for {project_id}: {e}")
+            return False
+
     async def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get project document by ID (searches across all users for backwards compatibility)."""
         try:
-            # First try to find the project by searching across users
-            # This is less efficient but maintains backwards compatibility
+            if not self.db:
+                logger.error("Firestore client unavailable when fetching project")
+                return None
+
+            # NOTE:
+            # Do NOT attempt collection-group lookups by document id using FieldPath.document_id()/__name__
+            # with a raw UUID like "470e7a86-...". Firestore treats this as a __key__ filter and requires
+            # a Key/DocumentReference value, not a string. That query will fail and spam warnings in prod.
+            #
+            # Instead, prefer matching by a stored string field (metadata.project_id), and fall back to
+            # legacy scans/collections for backwards compatibility.
+
+            # Fast path: matching by metadata.project_id via collection group (avoids per-user scans).
+            # Use collection group query to avoid per-user scans when possible.
+            try:
+                group_query = self.db.collection_group('projects').where(
+                    filter=FieldFilter('metadata.project_id', '==', project_id)
+                ).limit(1)
+                for doc in group_query.stream():
+                    project_data = doc.to_dict()
+                    if self._is_project_payload(project_data):
+                        project_data['id'] = project_id  # Preserve requested project ID
+                        return project_data
+                    logger.warning(f"[firestore] Empty project payload for {project_id} via metadata.project_id")
+            except Exception as e:
+                logger.warning(f"Collection group lookup failed for project {project_id}: {e}")
+
+            # Backwards-compatible fallback: search across users (expensive).
             users_ref = self.db.collection('users')
             users = users_ref.stream()
-            
             for user_doc in users:
                 user_id = user_doc.id
                 project_ref = self.db.collection('users').document(user_id)\
                                    .collection('projects').document(project_id)
                 project_doc = project_ref.get()
-                
+
                 if project_doc.exists:
                     project_data = project_doc.to_dict()
-                    project_data['id'] = project_id  # Add document ID as 'id' field
-                    return project_data
+                    if self._is_project_payload(project_data):
+                        project_data['id'] = project_id  # Preserve requested project ID
+                        return project_data
+                    logger.warning(f"[firestore] Empty project payload for {project_id} (user {user_id})")
             
             # If not found in user-scoped collections, try the old root collection
             # for backwards compatibility during migration
@@ -349,8 +512,55 @@ class FirestoreService:
             
             if doc.exists:
                 project_data = doc.to_dict()
-                project_data['id'] = project_id  # Add document ID as 'id' field
-                return project_data
+                if self._is_project_payload(project_data):
+                    project_data['id'] = project_id  # Preserve requested project ID
+                    return project_data
+                logger.warning(f"[firestore] Empty project payload for {project_id} in legacy root")
+
+            # Legacy root collection fallback by metadata.project_id
+            try:
+                legacy_query = self.db.collection('projects').where(
+                    filter=FieldFilter('metadata.project_id', '==', project_id)
+                ).limit(1)
+                for doc in legacy_query.stream():
+                    project_data = doc.to_dict()
+                    if self._is_project_payload(project_data):
+                        project_data['id'] = project_id  # Preserve requested project ID
+                        return project_data
+                    logger.warning(f"[firestore] Empty project payload for {project_id} via legacy metadata.project_id")
+            except Exception as e:
+                logger.warning(f"Legacy metadata lookup failed for project {project_id}: {e}")
+
+            # Legacy root collection fallback by root project_id field
+            try:
+                legacy_query = self.db.collection('projects').where(
+                    filter=FieldFilter('project_id', '==', project_id)
+                ).limit(1)
+                for doc in legacy_query.stream():
+                    project_data = doc.to_dict()
+                    if self._is_project_payload(project_data):
+                        project_data['id'] = project_id  # Preserve requested project ID
+                        return project_data
+                    logger.warning(f"[firestore] Empty project payload for {project_id} via legacy root project_id")
+            except Exception as e:
+                logger.warning(f"Legacy root project_id lookup failed for project {project_id}: {e}")
+
+            # Final fallback: scan all project subcollections (no index required).
+            try:
+                for doc in self.db.collection_group('projects').stream():
+                    data = doc.to_dict() or {}
+                    metadata = data.get('metadata', {}) if isinstance(data.get('metadata'), dict) else {}
+                    if (
+                        doc.id == project_id
+                        or metadata.get('project_id') == project_id
+                        or data.get('project_id') == project_id
+                    ):
+                        if self._is_project_payload(data):
+                            data['id'] = project_id
+                            return data
+                        logger.warning(f"[firestore] Empty project payload for {project_id} via collection_group scan")
+            except Exception as e:
+                logger.warning(f"Collection group scan failed for project {project_id}: {e}")
             
             return None
             
@@ -421,12 +631,67 @@ class FirestoreService:
         try:
             # Add update timestamp
             updates['metadata.updated_at'] = datetime.now(timezone.utc)
-            
-            doc_ref = self.db.collection('projects').document(project_id)
-            doc_ref.update(updates)
-            
-            logger.info(f"Project {project_id} updated successfully")
-            return True
+
+            updated = False
+
+            # Update user-scoped project doc if it exists (by document ID)
+            try:
+                for user_doc in self.db.collection('users').stream():
+                    user_id = user_doc.id
+                    project_ref = self.db.collection('users').document(user_id)\
+                                       .collection('projects').document(project_id)
+                    project_doc = project_ref.get()
+                    if project_doc.exists:
+                        project_ref.update(updates)
+                        updated = True
+                        break
+            except Exception as e:
+                logger.warning(f"User-scoped project update by ID failed for {project_id}: {e}")
+
+            # Update user-scoped project doc if stored under different document ID
+            try:
+                group_query = self.db.collection_group('projects').where(
+                    filter=FieldFilter('metadata.project_id', '==', project_id)
+                ).limit(1)
+                for doc in group_query.stream():
+                    doc.reference.update(updates)
+                    updated = True
+                    break
+            except Exception as e:
+                logger.warning(f"User-scoped project update by metadata.project_id failed for {project_id}: {e}")
+
+            # Final fallback: scan project subcollections without index
+            if not updated:
+                try:
+                    for doc in self.db.collection_group('projects').stream():
+                        data = doc.to_dict() or {}
+                        metadata = data.get('metadata', {}) if isinstance(data.get('metadata'), dict) else {}
+                        if (
+                            doc.id == project_id
+                            or metadata.get('project_id') == project_id
+                            or data.get('project_id') == project_id
+                        ):
+                            doc.reference.update(updates)
+                            updated = True
+                            break
+                except Exception as e:
+                    logger.warning(f"Collection group scan update failed for {project_id}: {e}")
+
+            # Update legacy root document if it exists
+            try:
+                doc_ref = self.db.collection('projects').document(project_id)
+                if doc_ref.get().exists:
+                    doc_ref.update(updates)
+                    updated = True
+            except Exception as e:
+                logger.warning(f"Legacy root project update failed for {project_id}: {e}")
+
+            if updated:
+                logger.info(f"Project {project_id} updated successfully")
+                return True
+
+            logger.warning(f"No project document found to update for {project_id}")
+            return False
             
         except Exception as e:
             logger.error(f"Failed to update project {project_id}: {e}")
@@ -471,6 +736,33 @@ class FirestoreService:
                 if user_project_doc.exists:
                     batch.delete(user_project_ref)
                     user_project_count += 1
+
+            # Delete user-scoped project doc stored under different document ID
+            try:
+                group_query = self.db.collection_group('projects').where(
+                    filter=FieldFilter('metadata.project_id', '==', project_id)
+                )
+                for doc in group_query.stream():
+                    batch.delete(doc.reference)
+                    user_project_count += 1
+            except Exception as e:
+                logger.warning(f"User-scoped metadata delete lookup failed for {project_id}: {e}")
+
+            # Final fallback: scan project subcollections without index
+            try:
+                for doc in self.db.collection_group('projects').stream():
+                    data = doc.to_dict() or {}
+                    metadata = data.get('metadata', {}) if isinstance(data.get('metadata'), dict) else {}
+                    if (
+                        doc.id == project_id
+                        or metadata.get('project_id') == project_id
+                        or data.get('project_id') == project_id
+                    ):
+                        batch.delete(doc.reference)
+                        user_project_count += 1
+                        break
+            except Exception as e:
+                logger.warning(f"Collection group scan delete failed for {project_id}: {e}")
             
             # Delete the main project document
             project_ref = self.db.collection('projects').document(project_id)
@@ -594,6 +886,11 @@ class FirestoreService:
                     chapter_data = chapter_doc.to_dict()
                     chapter_data['id'] = chapter_id  # Add the document ID
                     return chapter_data
+
+            # NOTE:
+            # Similar to projects, collection-group lookups by document id using FieldPath.document_id()/__name__
+            # require a Key/DocumentReference value. With a raw UUID chapter_id we can't form that safely,
+            # so skip this broken fast-path and use existing fallbacks.
             
             # If no direct path info, fall back to scanning (expensive but necessary for legacy)
             users_ref = self.db.collection('users')
@@ -635,38 +932,81 @@ class FirestoreService:
         """Get all chapters for a project from user-scoped collections."""
         try:
             chapters = []
-            
-            # Find the user who owns this project and get chapters
-            users_ref = self.db.collection('users')
-            users = users_ref.stream()
-            
-            for user_doc in users:
-                user_id = user_doc.id
-                project_ref = self.db.collection('users').document(user_id)\
-                                   .collection('projects').document(project_id)
-                project_doc = project_ref.get()
-                
-                if project_doc.exists:
-                    # Found the project, now get its chapters
-                    chapters_ref = self.db.collection('users').document(user_id)\
-                                          .collection('projects').document(project_id)\
-                                          .collection('chapters')
-                    
-                    # Order by chapter_number if available
-                    try:
-                        query = chapters_ref.order_by('chapter_number')
-                        docs = query.stream()
-                    except Exception:
-                        # If no index for chapter_number, just get all chapters
-                        docs = chapters_ref.stream()
-                    
-                    # Include document ID in the returned data
-                    chapters = []
-                    for doc in docs:
-                        chapter_data = doc.to_dict()
-                        chapter_data['id'] = doc.id  # Add the document ID
-                        chapters.append(chapter_data)
-                    break
+
+            # Fast path: resolve owning user via collection group project lookup (avoids per-user scans).
+            owner_user_id: Optional[str] = None
+
+            def _extract_owner_from_project_path(path: str) -> Optional[str]:
+                # Expected: users/{userId}/projects/{projectId}
+                parts = [p for p in path.split('/') if p]
+                try:
+                    idx = parts.index('users')
+                    return parts[idx + 1]
+                except Exception:
+                    return None
+
+            # NOTE:
+            # Avoid collection-group doc-id equality queries with raw UUIDs (see get_project()).
+            # We can still resolve the owner via metadata.project_id on the project payload.
+
+            if not owner_user_id:
+                try:
+                    group_query = self.db.collection_group('projects').where(
+                        filter=FieldFilter('metadata.project_id', '==', project_id)
+                    ).limit(1)
+                    for doc in group_query.stream():
+                        owner_user_id = _extract_owner_from_project_path(doc.reference.path)
+                        break
+                except Exception as e:
+                    logger.warning(f"[firestore] get_project_chapters: metadata.project_id lookup failed for {project_id}: {e}")
+
+            if owner_user_id:
+                chapters_ref = self.db.collection('users').document(owner_user_id)\
+                                      .collection('projects').document(project_id)\
+                                      .collection('chapters')
+                try:
+                    docs = chapters_ref.order_by('chapter_number').stream()
+                except Exception:
+                    docs = chapters_ref.stream()
+
+                chapters = []
+                for doc in docs:
+                    chapter_data = doc.to_dict()
+                    chapter_data['id'] = doc.id
+                    chapters.append(chapter_data)
+                try:
+                    chapters.sort(key=lambda ch: int(ch.get('chapter_number') or 0))
+                except Exception:
+                    chapters.sort(key=lambda ch: str(ch.get('chapter_number') or "0"))
+            else:
+                # Backwards-compatible fallback: scan users (expensive).
+                users_ref = self.db.collection('users')
+                users = users_ref.stream()
+                for user_doc in users:
+                    user_id = user_doc.id
+                    project_ref = self.db.collection('users').document(user_id)\
+                                       .collection('projects').document(project_id)
+                    project_doc = project_ref.get()
+
+                    if project_doc.exists:
+                        chapters_ref = self.db.collection('users').document(user_id)\
+                                              .collection('projects').document(project_id)\
+                                              .collection('chapters')
+                        try:
+                            docs = chapters_ref.order_by('chapter_number').stream()
+                        except Exception:
+                            docs = chapters_ref.stream()
+
+                        chapters = []
+                        for doc in docs:
+                            chapter_data = doc.to_dict()
+                            chapter_data['id'] = doc.id  # Add the document ID
+                            chapters.append(chapter_data)
+                        try:
+                            chapters.sort(key=lambda ch: int(ch.get('chapter_number') or 0))
+                        except Exception:
+                            chapters.sort(key=lambda ch: str(ch.get('chapter_number') or "0"))
+                        break
             
             # For backwards compatibility during migration, also check old root collection
             if not chapters:
@@ -682,6 +1022,11 @@ class FirestoreService:
                         chapter_data = doc.to_dict()
                         chapter_data['id'] = doc.id  # Add the document ID
                         chapters.append(chapter_data)
+                    # Deterministic ordering (defensive): keep consistent behavior across query variations.
+                    try:
+                        chapters.sort(key=lambda ch: int(ch.get('chapter_number') or 0))
+                    except Exception:
+                        chapters.sort(key=lambda ch: str(ch.get('chapter_number') or "0"))
                     
                 except Exception as e:
                     logger.warning(f"Failed to get chapters from legacy collection for project {project_id}: {e}")
@@ -691,6 +1036,41 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Failed to get chapters for project {project_id}: {e}")
             return []
+
+    async def get_user_project_chapter_by_number(
+        self,
+        user_id: str,
+        project_id: str,
+        chapter_number: int
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a single chapter by chapter_number from a known user/project path (fast)."""
+        try:
+            chapters_ref = self.db.collection('users').document(user_id)\
+                                  .collection('projects').document(project_id)\
+                                  .collection('chapters')
+            query = chapters_ref.where(filter=FieldFilter('chapter_number', '==', chapter_number)).limit(1)
+            for doc in query.stream():
+                chapter_data = doc.to_dict()
+                chapter_data['id'] = doc.id
+                return chapter_data
+
+            # Legacy fallback: root chapters collection (best-effort, avoid composite-index requirements).
+            try:
+                legacy_query = self.db.collection('chapters').where(
+                    filter=FieldFilter('project_id', '==', project_id)
+                )
+                for doc in legacy_query.stream():
+                    data = doc.to_dict() or {}
+                    if int(data.get('chapter_number') or 0) == int(chapter_number):
+                        data['id'] = doc.id
+                        return data
+            except Exception as e:
+                logger.warning(f"[firestore] Legacy chapter lookup failed for project {project_id}: {e}")
+
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get chapter {chapter_number} for project {project_id} (user {user_id}): {e}")
+            return None
     
     async def update_chapter(self, chapter_id: str, updates: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
         """Update chapter document in user-scoped collections."""
@@ -725,6 +1105,31 @@ class FirestoreService:
                     if success:
                         logger.info(f"Chapter {chapter_id} updated successfully in user-scoped collection")
                     return success
+
+            # Fast path: locate chapter via collection group doc-id query and update directly.
+            try:
+                doc_id_field = _FieldPath.document_id() if _FieldPath is not None else "__name__"
+                id_query = self.db.collection_group('chapters').where(
+                    filter=FieldFilter(doc_id_field, '==', chapter_id)
+                ).limit(1)
+                for doc in id_query.stream():
+                    chapter_ref = doc.reference
+
+                    @firestore.transactional
+                    def update_chapter_transaction(transaction):
+                        current = chapter_ref.get(transaction=transaction)
+                        if not current.exists:
+                            raise Exception(f"Chapter {chapter_id} no longer exists")
+                        transaction.update(chapter_ref, updates)
+                        return True
+
+                    transaction = self.db.transaction()
+                    success = update_chapter_transaction(transaction)
+                    if success:
+                        logger.info(f"Chapter {chapter_id} updated successfully via collection_group lookup")
+                    return success
+            except Exception as e:
+                logger.warning(f"[firestore] Collection group chapter update lookup failed for {chapter_id}: {e}")
             
             # If no direct path info, fall back to scanning (expensive but necessary for legacy)
             users_ref = self.db.collection('users')
@@ -789,6 +1194,140 @@ class FirestoreService:
             
         except Exception as e:
             logger.error(f"Failed to update chapter {chapter_id}: {e}")
+            return False
+
+    # =====================================================================
+    # STORY NOTES (DIRECTOR NOTES) OPERATIONS
+    # =====================================================================
+
+    def _resolve_project_owner_id(self, project_id: str, fallback_user_id: Optional[str] = None) -> Optional[str]:
+        """Resolve the owning user id for a project to locate user-scoped subcollections."""
+        try:
+            if fallback_user_id:
+                project_ref = self.db.collection('users').document(fallback_user_id)\
+                                   .collection('projects').document(project_id)
+                if project_ref.get().exists:
+                    return fallback_user_id
+            users_ref = self.db.collection('users')
+            for user_doc in users_ref.stream():
+                user_id = user_doc.id
+                project_ref = self.db.collection('users').document(user_id)\
+                                   .collection('projects').document(project_id)
+                if project_ref.get().exists:
+                    return user_id
+        except Exception as e:
+            logger.error(f"Failed to resolve owner for project {project_id}: {e}")
+        return None
+
+    async def create_story_note(self, project_id: str, note_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
+        """Create a story/director note under a project."""
+        try:
+            owner_id = self._resolve_project_owner_id(project_id, user_id)
+            if not owner_id:
+                raise ValueError(f"Cannot resolve owner for project {project_id}")
+
+            note_id = note_data.get('note_id') or str(uuid.uuid4())
+            now = datetime.now(timezone.utc)
+
+            payload = {
+                'note_id': note_id,
+                'project_id': project_id,
+                'chapter_id': note_data.get('chapter_id'),
+                'content': (note_data.get('content') or '').strip(),
+                'created_by': note_data.get('created_by', owner_id),
+                'created_at': now,
+                'resolved': bool(note_data.get('resolved', False)),
+                'resolved_at': note_data.get('resolved_at'),
+                'position': note_data.get('position'),
+                'selection_start': note_data.get('selection_start'),
+                'selection_end': note_data.get('selection_end'),
+                'selection_text': note_data.get('selection_text'),
+                'scope': note_data.get('scope', 'chapter'),
+                'apply_to_future': bool(note_data.get('apply_to_future', True)),
+                'intent': note_data.get('intent'),
+                'source': note_data.get('source', 'chapter_editor')
+            }
+
+            doc_ref = self.db.collection('users').document(owner_id)\
+                             .collection('projects').document(project_id)\
+                             .collection('story_notes').document(note_id)
+            doc_ref.set(payload)
+            return note_id
+        except Exception as e:
+            logger.error(f"Failed to create story note for project {project_id}: {e}")
+            return None
+
+    async def list_story_notes(self, project_id: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List story notes for a project."""
+        try:
+            owner_id = self._resolve_project_owner_id(project_id, user_id)
+            if not owner_id:
+                return []
+
+            notes_ref = self.db.collection('users').document(owner_id)\
+                               .collection('projects').document(project_id)\
+                               .collection('story_notes')
+            try:
+                query = notes_ref.order_by('created_at', direction=firestore.Query.DESCENDING)
+                docs = query.stream()
+            except Exception:
+                docs = notes_ref.stream()
+
+            notes: List[Dict[str, Any]] = []
+            for doc in docs:
+                data = doc.to_dict() or {}
+                data['note_id'] = data.get('note_id') or doc.id
+                notes.append(data)
+            return notes
+        except Exception as e:
+            logger.error(f"Failed to list story notes for project {project_id}: {e}")
+            return []
+
+    async def update_story_note(self, project_id: str, note_id: str, updates: Dict[str, Any], user_id: Optional[str] = None) -> bool:
+        """Update a story note."""
+        try:
+            owner_id = self._resolve_project_owner_id(project_id, user_id)
+            if not owner_id:
+                return False
+
+            doc_ref = self.db.collection('users').document(owner_id)\
+                             .collection('projects').document(project_id)\
+                             .collection('story_notes').document(note_id)
+            doc = doc_ref.get()
+            if not doc.exists:
+                return False
+            existing = doc.to_dict() or {}
+            if user_id and user_id != owner_id and existing.get('created_by') != user_id:
+                return False
+
+            payload = updates.copy()
+            payload['updated_at'] = datetime.now(timezone.utc)
+            doc_ref.update(payload)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update story note {note_id} for project {project_id}: {e}")
+            return False
+
+    async def delete_story_note(self, project_id: str, note_id: str, user_id: Optional[str] = None) -> bool:
+        """Delete a story note."""
+        try:
+            owner_id = self._resolve_project_owner_id(project_id, user_id)
+            if not owner_id:
+                return False
+
+            doc_ref = self.db.collection('users').document(owner_id)\
+                             .collection('projects').document(project_id)\
+                             .collection('story_notes').document(note_id)
+            doc = doc_ref.get()
+            if not doc.exists:
+                return False
+            existing = doc.to_dict() or {}
+            if user_id and user_id != owner_id and existing.get('created_by') != user_id:
+                return False
+            doc_ref.delete()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete story note {note_id} for project {project_id}: {e}")
             return False
     
     async def add_chapter_version(self, chapter_id: str, version_data: Dict[str, Any], user_id: Optional[str] = None, project_id: Optional[str] = None) -> bool:
@@ -1009,12 +1548,13 @@ class FirestoreService:
     async def create_generation_job(self, job_data: Dict[str, Any]) -> Optional[str]:
         """Create a new generation job document."""
         try:
-            job_id = str(uuid.uuid4())
+            job_id = job_data.get("job_id") or str(uuid.uuid4())
             now = datetime.now(timezone.utc)
             
             job_data.update({
                 'job_id': job_id,
-                'created_at': now,
+                'created_at': job_data.get("created_at") or now,
+                'updated_at': job_data.get("updated_at") or now,
                 'status': job_data.get('status', 'pending')
             })
             
@@ -1037,9 +1577,10 @@ class FirestoreService:
                     'generation_time': 0.0
                 }
             
-            # Save to Firestore using thread pool to avoid blocking
+            # Save using provided job_id as document id (required for status/progress endpoints).
+            # Use merge=True to avoid accidental overwrites if the job already exists (idempotency).
             doc_ref = self.db.collection('generation_jobs').document(job_id)
-            await asyncio.get_event_loop().run_in_executor(None, doc_ref.set, job_data)
+            await asyncio.get_event_loop().run_in_executor(None, lambda: doc_ref.set(job_data, merge=True))
             
             logger.info(f"Generation job {job_id} created successfully")
             return job_id
@@ -1074,6 +1615,343 @@ class FirestoreService:
         except Exception as e:
             logger.error(f"Failed to update generation job {job_id}: {e}")
             return False
+
+    async def upsert_generation_job(self, job_id: str, data: Dict[str, Any]) -> bool:
+        """Create or merge-update a generation job document by id (idempotent upsert)."""
+        try:
+            now = datetime.now(timezone.utc)
+            payload = dict(data or {})
+            payload.setdefault("job_id", job_id)
+            payload.setdefault("updated_at", now)
+            doc_ref = self.db.collection("generation_jobs").document(job_id)
+            await asyncio.get_event_loop().run_in_executor(None, lambda: doc_ref.set(payload, merge=True))
+            return True
+        except Exception as e:
+            logger.error(f"Failed to upsert generation job {job_id}: {e}")
+            return False
+
+    async def get_active_generation_job_for_project(
+        self,
+        project_id: str,
+        *,
+        user_id: Optional[str] = None,
+        statuses: Optional[List[str]] = None,
+        limit: int = 1,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find an active generation job for a project.
+
+        Note: may require a composite index on (project_id, status). We intentionally do NOT
+        deploy indexes; if Firestore returns an index error, callers should surface the
+        required index to the operator.
+        """
+        try:
+            if not project_id:
+                return None
+            active_statuses = statuses or ["initializing", "pending", "running", "generating", "paused"]
+            query = self.db.collection("generation_jobs").where(
+                filter=FieldFilter("project_id", "==", project_id)
+            ).where(
+                filter=FieldFilter("status", "in", active_statuses[:10])
+            ).limit(limit)
+            if user_id:
+                query = query.where(filter=FieldFilter("user_id", "==", user_id))
+            docs = list(query.stream())
+            if not docs:
+                return None
+            data = docs[0].to_dict() or {}
+            data.setdefault("job_id", docs[0].id)
+            return data
+        except Exception as e:
+            logger.warning(f"Failed to query active generation jobs for project {project_id}: {e}")
+            return None
+
+    async def claim_generation_job(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        lease_seconds: int = 1800,
+        allowed_statuses: Optional[List[str]] = None,
+    ) -> bool:
+        """
+        Transactionally claim a job by setting claimed_by + lease_expires_at.
+        """
+        if not job_id or not worker_id:
+            return False
+        allowed = allowed_statuses or ["pending", "initializing", "running", "generating", "paused"]
+        now = datetime.now(timezone.utc)
+        lease_until = now + timedelta(seconds=int(lease_seconds))
+        doc_ref = self.db.collection("generation_jobs").document(job_id)
+
+        def _claim_sync() -> bool:
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _tx(txn):
+                doc = doc_ref.get(transaction=txn)
+                if not doc.exists:
+                    return False
+                data = doc.to_dict() or {}
+                status = str(data.get("status") or "")
+                if status and status not in allowed:
+                    return False
+                claimed_by = data.get("claimed_by")
+                lease_expires_at = data.get("lease_expires_at")
+                expired = False
+                try:
+                    if lease_expires_at and hasattr(lease_expires_at, "timestamp"):
+                        expired = lease_expires_at < now
+                except Exception:
+                    expired = False
+                if claimed_by and claimed_by != worker_id and not expired:
+                    return False
+                txn.update(
+                    doc_ref,
+                    {
+                        "claimed_by": worker_id,
+                        "lease_expires_at": lease_until,
+                        "heartbeat_at": now,
+                        "updated_at": now,
+                        # Normalize to running when claimed for execution
+                        "status": "running" if status in {"pending", "initializing"} else status or "running",
+                    },
+                )
+                return True
+
+            return bool(_tx(transaction))
+
+        try:
+            return bool(await asyncio.get_event_loop().run_in_executor(None, _claim_sync))
+        except Exception as e:
+            logger.warning(f"Failed to claim generation job {job_id}: {e}")
+            return False
+
+    async def heartbeat_generation_job(
+        self,
+        job_id: str,
+        *,
+        worker_id: str,
+        lease_seconds: int = 1800,
+    ) -> bool:
+        """Extend a lease for a claimed job (best-effort)."""
+        if not job_id or not worker_id:
+            return False
+        now = datetime.now(timezone.utc)
+        lease_until = now + timedelta(seconds=int(lease_seconds))
+        doc_ref = self.db.collection("generation_jobs").document(job_id)
+
+        def _heartbeat_sync() -> bool:
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _tx(txn):
+                doc = doc_ref.get(transaction=txn)
+                if not doc.exists:
+                    return False
+                data = doc.to_dict() or {}
+                if data.get("claimed_by") != worker_id:
+                    return False
+                txn.update(
+                    doc_ref,
+                    {
+                        "lease_expires_at": lease_until,
+                        "heartbeat_at": now,
+                        "updated_at": now,
+                    },
+                )
+                return True
+
+            return bool(_tx(transaction))
+
+        try:
+            return bool(await asyncio.get_event_loop().run_in_executor(None, _heartbeat_sync))
+        except Exception as e:
+            logger.debug(f"Heartbeat failed for job {job_id}: {e}")
+            return False
+
+    # =====================================================================
+    # GENERATION LOCKS (per-project auto-complete exclusivity)
+    # =====================================================================
+
+    async def acquire_generation_lock(
+        self,
+        project_id: str,
+        *,
+        job_id: str,
+        worker_id: str,
+        lease_seconds: int = 1800,
+        status: str = "running",
+    ) -> Dict[str, Any]:
+        """
+        Transactionally acquire a per-project generation lock.
+
+        Returns:
+          { "acquired": bool, "active_job_id": Optional[str], "lock": Optional[dict] }
+        """
+        if not project_id or not job_id or not worker_id:
+            return {"acquired": False, "active_job_id": None, "lock": None}
+        now = datetime.now(timezone.utc)
+        lease_until = now + timedelta(seconds=int(lease_seconds))
+        doc_ref = self.db.collection("generation_locks").document(project_id)
+
+        def _acquire_sync() -> Dict[str, Any]:
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _tx(txn):
+                doc = doc_ref.get(transaction=txn)
+                current = doc.to_dict() if doc.exists else {}
+                current_job = (current or {}).get("job_id")
+                current_claimed_by = (current or {}).get("claimed_by")
+                current_lease = (current or {}).get("lease_expires_at")
+
+                expired = True
+                try:
+                    if current_lease:
+                        expired = current_lease < now
+                except Exception:
+                    expired = True
+
+                # If another active lock exists, do not acquire.
+                if current_job and not expired and current_job != job_id:
+                    return {"acquired": False, "active_job_id": current_job, "lock": current}
+
+                payload = {
+                    "project_id": project_id,
+                    "job_id": job_id,
+                    "claimed_by": worker_id,
+                    "lease_expires_at": lease_until,
+                    "heartbeat_at": now,
+                    "status": status,
+                    "updated_at": now,
+                }
+                # If we're refreshing our own lock, keep created_at stable if present.
+                if current and current.get("created_at"):
+                    payload["created_at"] = current.get("created_at")
+                else:
+                    payload["created_at"] = now
+
+                txn.set(doc_ref, payload, merge=True)
+                return {"acquired": True, "active_job_id": None, "lock": payload}
+
+            return _tx(transaction)
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, _acquire_sync)
+        except Exception as e:
+            logger.warning(f"Failed to acquire generation lock for project {project_id}: {e}")
+            return {"acquired": False, "active_job_id": None, "lock": None}
+
+    async def heartbeat_generation_lock(
+        self,
+        project_id: str,
+        *,
+        job_id: str,
+        worker_id: str,
+        lease_seconds: int = 1800,
+        status: Optional[str] = None,
+    ) -> bool:
+        """Extend a per-project generation lock lease (best-effort)."""
+        if not project_id or not job_id or not worker_id:
+            return False
+        now = datetime.now(timezone.utc)
+        lease_until = now + timedelta(seconds=int(lease_seconds))
+        doc_ref = self.db.collection("generation_locks").document(project_id)
+
+        def _heartbeat_sync() -> bool:
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _tx(txn):
+                doc = doc_ref.get(transaction=txn)
+                if not doc.exists:
+                    return False
+                data = doc.to_dict() or {}
+                if data.get("job_id") != job_id:
+                    return False
+                if data.get("claimed_by") != worker_id:
+                    return False
+                update = {
+                    "lease_expires_at": lease_until,
+                    "heartbeat_at": now,
+                    "updated_at": now,
+                }
+                if status:
+                    update["status"] = status
+                txn.update(doc_ref, update)
+                return True
+
+            return bool(_tx(transaction))
+
+        try:
+            return bool(await asyncio.get_event_loop().run_in_executor(None, _heartbeat_sync))
+        except Exception as e:
+            logger.debug(f"Heartbeat failed for generation lock {project_id}: {e}")
+            return False
+
+    async def release_generation_lock(
+        self,
+        project_id: str,
+        *,
+        job_id: str,
+        worker_id: Optional[str] = None,
+    ) -> bool:
+        """
+        Release a per-project generation lock if it is held by this job (and optionally worker).
+        """
+        if not project_id or not job_id:
+            return False
+        doc_ref = self.db.collection("generation_locks").document(project_id)
+        now = datetime.now(timezone.utc)
+
+        def _release_sync() -> bool:
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _tx(txn):
+                doc = doc_ref.get(transaction=txn)
+                if not doc.exists:
+                    return True
+                data = doc.to_dict() or {}
+                if data.get("job_id") != job_id:
+                    return False
+                if worker_id and data.get("claimed_by") != worker_id:
+                    return False
+                txn.delete(doc_ref)
+                return True
+
+            return bool(_tx(transaction))
+
+        try:
+            return bool(await asyncio.get_event_loop().run_in_executor(None, _release_sync))
+        except Exception as e:
+            logger.warning(f"Failed to release generation lock for project {project_id}: {e}")
+            return False
+
+    async def list_generation_locks_for_worker(
+        self,
+        worker_id: str,
+        *,
+        limit: int = 25,
+    ) -> List[Dict[str, Any]]:
+        """List generation locks claimed by a worker id."""
+        if not worker_id:
+            return []
+        try:
+            query = self.db.collection("generation_locks").where(
+                filter=FieldFilter("claimed_by", "==", worker_id)
+            ).limit(int(limit))
+            docs = list(query.stream())
+            out: List[Dict[str, Any]] = []
+            for doc in docs:
+                data = doc.to_dict() or {}
+                data.setdefault("project_id", doc.id)
+                out.append(data)
+            return out
+        except Exception as e:
+            logger.warning(f"Failed to list generation locks for worker {worker_id}: {e}")
+            return []
     
     async def create_cover_art_job(self, job_data: Dict[str, Any]) -> Optional[str]:
         """Create a new cover art job document."""

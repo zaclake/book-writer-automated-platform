@@ -31,7 +31,12 @@ def get_database_adapter():
     global _adapter
     if _adapter is None:
         # Check environment variables
-        use_firestore = os.getenv('USE_FIRESTORE', 'false').lower() == 'true'
+        use_firestore_env = os.getenv('USE_FIRESTORE')
+        if use_firestore_env is None:
+            # Default to Firestore when not explicitly disabled
+            use_firestore = True
+        else:
+            use_firestore = use_firestore_env.strip().lower() == 'true'
         firestore_project_id = os.getenv('GOOGLE_CLOUD_PROJECT', 'writer-bloom')
         
         logger.info(f"Creating database adapter: use_firestore={use_firestore}, project_id={firestore_project_id}")
@@ -88,6 +93,26 @@ async def add_chapter_version(chapter_id: str, version_data: Dict[str, Any], use
     adapter = get_database_adapter()
     return await adapter.add_chapter_version(chapter_id, version_data, user_id, project_id)
 
+async def create_story_note(project_id: str, note_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
+    """Create a story note for a project."""
+    adapter = get_database_adapter()
+    return await adapter.create_story_note(project_id, note_data, user_id)
+
+async def list_story_notes(project_id: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List story notes for a project."""
+    adapter = get_database_adapter()
+    return await adapter.list_story_notes(project_id, user_id)
+
+async def update_story_note(project_id: str, note_id: str, updates: Dict[str, Any], user_id: Optional[str] = None) -> bool:
+    """Update a story note."""
+    adapter = get_database_adapter()
+    return await adapter.update_story_note(project_id, note_id, updates, user_id)
+
+async def delete_story_note(project_id: str, note_id: str, user_id: Optional[str] = None) -> bool:
+    """Delete a story note."""
+    adapter = get_database_adapter()
+    return await adapter.delete_story_note(project_id, note_id, user_id)
+
 async def track_usage(user_id: str, usage_data: Dict[str, Any]) -> bool:
     """Track user usage statistics."""
     adapter = get_database_adapter()
@@ -105,6 +130,11 @@ async def create_reference_file(project_id: str, filename: str, content: str, us
     }
     adapter = get_database_adapter()
     return await adapter.create_reference_file(reference_data)
+
+async def update_reference_file(project_id: str, filename: str, content: str, user_id: str) -> bool:
+    """Update a reference file's content for a project."""
+    adapter = get_database_adapter()
+    return await adapter.update_reference_file(project_id, filename, content, user_id)
 
 async def migrate_project_from_filesystem(project_path: str, user_id: str) -> Optional[str]:
     """Migrate a project from filesystem to database."""

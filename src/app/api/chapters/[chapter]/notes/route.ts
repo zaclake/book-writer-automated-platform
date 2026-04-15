@@ -1,87 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
-interface DirectorNoteRequest {
-  content: string
-  position?: number
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+const getBackendUrl = () => process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+
+const buildHeaders = (request: NextRequest) => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const authHeader = request.headers.get('authorization')
+  if (authHeader) headers['Authorization'] = authHeader
+  return headers
 }
 
-interface DirectorNote {
-  note_id: string
-  chapter_id: string
-  content: string
-  created_by: string
-  created_at: string
-  resolved: boolean
-  resolved_at?: string
-  position?: number
-}
-
-// In-memory storage for development (replace with Firestore in production)
-const notesStorage = new Map<string, DirectorNote>()
-
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { chapter: string } }
-) {
+const safeParseBackendJson = async (backendResponse: Response) => {
+  const rawText = await backendResponse.text().catch(() => '')
+  if (!rawText) return { ok: true as const, data: null, rawText: '' }
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { chapter: chapterId } = params
-    const noteData: DirectorNoteRequest = await request.json()
-
-    // Validate required fields
-    if (!noteData.content || !noteData.content.trim()) {
-      return NextResponse.json(
-        { error: 'Note content is required' },
-        { status: 400 }
-      )
-    }
-
-    // Create director note
-    const noteId = `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    const directorNote: DirectorNote = {
-      note_id: noteId,
-      chapter_id: chapterId,
-      content: noteData.content.trim(),
-      created_by: userId,
-      created_at: new Date().toISOString(),
-      resolved: false,
-      position: noteData.position
-    }
-
-    // Store note (in production, this would save to Firestore)
-    notesStorage.set(noteId, directorNote)
-
-    console.log(`Director note created for user ${userId}:`, {
-      noteId,
-      chapterId,
-      contentLength: noteData.content.length,
-      hasPosition: noteData.position !== undefined
-    })
-
-    return NextResponse.json({
-      success: true,
-      message: 'Director note added successfully',
-      note: {
-        note_id: directorNote.note_id,
-        content: directorNote.content,
-        created_at: directorNote.created_at,
-        resolved: directorNote.resolved,
-        position: directorNote.position
-      }
-    })
-
-  } catch (error) {
-    console.error(`POST /api/chapters/${params.chapter}/notes error:`, error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return { ok: true as const, data: JSON.parse(rawText), rawText }
+  } catch {
+    return { ok: false as const, data: null, rawText }
   }
 }
 
@@ -90,39 +27,67 @@ export async function GET(
   { params }: { params: { chapter: string } }
 ) {
   try {
-    const { userId } = auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const backendBaseUrl = getBackendUrl()
+    if (!backendBaseUrl) {
+      return NextResponse.json({ error: 'Backend URL not configured' }, { status: 500 })
     }
 
-    const { chapter: chapterId } = params
+    const url = new URL(request.url)
+    const query = url.searchParams.toString()
+    const targetUrl = `${backendBaseUrl}/v2/chapters/${params.chapter}/notes${query ? `?${query}` : ''}`
 
-    // Get all notes for the chapter
-    const chapterNotes = Array.from(notesStorage.values())
-      .filter(note => note.chapter_id === chapterId)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .map(note => ({
-        note_id: note.note_id,
-        content: note.content,
-        created_by: note.created_by,
-        created_at: note.created_at,
-        resolved: note.resolved,
-        resolved_at: note.resolved_at,
-        position: note.position
-      }))
-
-    return NextResponse.json({
-      success: true,
-      notes: chapterNotes,
-      total: chapterNotes.length
+    const backendResponse = await fetch(targetUrl, {
+      method: 'GET',
+      headers: buildHeaders(request),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(45000),
     })
 
+    const parsed = await safeParseBackendJson(backendResponse)
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: 'Invalid response from backend', status: backendResponse.status, body_preview: parsed.rawText.slice(0, 2000) },
+        { status: 502 }
+      )
+    }
+    return NextResponse.json(parsed.data, { status: backendResponse.status })
   } catch (error) {
-    console.error(`GET /api/chapters/${params.chapter}/notes error:`, error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    console.error(`[chapters/notes] GET error:`, error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-} 
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { chapter: string } }
+) {
+  try {
+    const backendBaseUrl = getBackendUrl()
+    if (!backendBaseUrl) {
+      return NextResponse.json({ error: 'Backend URL not configured' }, { status: 500 })
+    }
+
+    const body = await request.text()
+    const targetUrl = `${backendBaseUrl}/v2/chapters/${params.chapter}/notes`
+
+    const backendResponse = await fetch(targetUrl, {
+      method: 'POST',
+      headers: buildHeaders(request),
+      body,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(45000),
+    })
+
+    const parsed = await safeParseBackendJson(backendResponse)
+    if (!parsed.ok) {
+      return NextResponse.json(
+        { error: 'Invalid response from backend', status: backendResponse.status, body_preview: parsed.rawText.slice(0, 2000) },
+        { status: 502 }
+      )
+    }
+    return NextResponse.json(parsed.data, { status: backendResponse.status })
+  } catch (error) {
+    console.error(`[chapters/notes] POST error:`, error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

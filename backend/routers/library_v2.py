@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 try:
     from backend.auth_middleware import get_current_user
     from backend.database_integration import get_database_adapter
-except ImportError:
+except Exception:
     from auth_middleware import get_current_user
     from database_integration import get_database_adapter
 
@@ -40,7 +42,9 @@ async def _get_latest_cover_art_url(project_id: str) -> Optional[str]:
 
         client = get_firestore_client()
         # Avoid composite index by not ordering in Firestore; pick latest client-side
-        query = client.collection('cover_art_jobs').where('project_id', '==', project_id)
+        query = client.collection('cover_art_jobs').where(
+            filter=FieldFilter('project_id', '==', project_id)
+        )
         docs = list(query.stream())
         latest = None
         latest_ts = None
@@ -55,6 +59,40 @@ async def _get_latest_cover_art_url(project_id: str) -> Optional[str]:
     except Exception as e:
         logger.warning(f"Failed to fetch latest cover art for {project_id}: {e}")
     return None
+
+async def _get_latest_publish_urls(project_id: str) -> Dict[str, Optional[str]]:
+    """Fallback: read latest publish_jobs entry for this project and extract download URLs.
+    Avoid composite indexes by scanning and selecting most recent client-side.
+    """
+    try:
+        try:
+            from backend.services.firestore_service import get_firestore_client
+        except Exception:
+            from services.firestore_service import get_firestore_client  # type: ignore
+
+        client = get_firestore_client()
+        query = client.collection('publish_jobs').where(
+            filter=FieldFilter('project_id', '==', project_id)
+        )
+        docs = list(query.stream())
+        latest = None
+        latest_ts = None
+        for d in docs:
+            data = d.to_dict() or {}
+            ts = data.get('completed_at') or data.get('created_at')
+            if ts and (latest_ts is None or ts > latest_ts):
+                latest = data
+                latest_ts = ts
+        if latest:
+            result = latest.get('result') or {}
+            dl = result.get('download_urls') or {}
+            return {
+                'epub_url': dl.get('epub'),
+                'pdf_url': dl.get('pdf'),
+            }
+    except Exception as e:
+        logger.warning(f"Failed to fetch latest publish job for {project_id}: {e}")
+    return {'epub_url': None, 'pdf_url': None}
 
 def _project_card_from_project(
     project: Dict[str, Any],
@@ -142,7 +180,14 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                 if url:
                     p = dict(p)
                     p['cover_art'] = {'image_url': url}
-            my_cards.append(_project_card_from_project(p, publishing))
+            card = _project_card_from_project(p, publishing)
+            # If no URLs yet, attempt fallback from publish_jobs
+            if project_id and not (card.get('epub_url') or card.get('pdf_url')):
+                urls = await _get_latest_publish_urls(project_id)
+                if urls.get('epub_url') or urls.get('pdf_url'):
+                    card['epub_url'] = urls.get('epub_url')
+                    card['pdf_url'] = urls.get('pdf_url')
+            my_cards.append(card)
 
         # Public projects (from root collection with visibility == public)
         public_cards: List[Dict[str, Any]] = []
@@ -156,16 +201,15 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                 from services.firestore_service import get_firestore_client  # type: ignore
 
             client = get_firestore_client()
-            query = client.collection("projects").where("metadata.visibility", "==", "public")
+            query = client.collection("projects").where(filter=FieldFilter("metadata.visibility", "==", "public"))
 
             # Pagination by updated_at desc if available, else by title
             order_by_field = "metadata.updated_at"
             try:
                 if cursor:
-                    # Interpret cursor as ISO datetime
                     try:
                         cursor_dt = datetime.fromisoformat(cursor)
-                        query = query.where(order_by_field, "<", cursor_dt)
+                        query = query.where(filter=FieldFilter(order_by_field, "<", cursor_dt))
                     except Exception:
                         pass
                 query = query.order_by(order_by_field, direction=firestore.Query.DESCENDING).limit(limit)
@@ -192,7 +236,9 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
             if not docs:
                 # Fallback: query all user subcollections via collection group 'projects'
                 try:
-                    cg = client.collection_group('projects').where('metadata.visibility', '==', 'public')
+                    cg = client.collection_group('projects').where(
+                        filter=FieldFilter('metadata.visibility', '==', 'public')
+                    )
                     # No reliable pagination without composite index on updated_at; limit for safety
                     cg_docs = list(cg.limit(limit).stream())
                     for d in cg_docs:
@@ -248,14 +294,14 @@ async def get_public_library(current_user: dict = Depends(get_current_user), lim
             from services.firestore_service import get_firestore_client  # type: ignore
 
         client = get_firestore_client()
-        query = client.collection("projects").where("metadata.visibility", "==", "public")
+        query = client.collection("projects").where(filter=FieldFilter("metadata.visibility", "==", "public"))
         order_by_field = "metadata.updated_at"
         next_cursor: Optional[str] = None
         try:
             if cursor:
                 try:
                     cursor_dt = datetime.fromisoformat(cursor)
-                    query = query.where(order_by_field, "<", cursor_dt)
+                    query = query.where(filter=FieldFilter(order_by_field, "<", cursor_dt))
                 except Exception:
                     pass
             query = query.order_by(order_by_field, direction=firestore.Query.DESCENDING).limit(limit)
@@ -354,16 +400,22 @@ async def stream_book_epub(project_id: str, current_user: dict = Depends(get_cur
         if not epub_url:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EPUB not available")
 
-        # Stream via httpx to avoid CORS and present as same-origin
         async with httpx.AsyncClient(timeout=None) as client:
             r = await client.get(epub_url, follow_redirects=True)
             if r.status_code != 200:
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch EPUB from storage")
 
+            raw_title = card.get("title") or "book"
+            title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_title).strip().replace(" ", "-").lower()[:60] or "book"
+            content_length = r.headers.get("content-length")
+
             headers = {
                 "Content-Type": "application/epub+zip",
-                "Content-Disposition": f"inline; filename=book-{project_id}.epub",
+                "Content-Disposition": f'attachment; filename="{title_slug}.epub"',
+                "Cache-Control": "private, max-age=3600",
             }
+            if content_length:
+                headers["Content-Length"] = content_length
 
             async def file_iterator(chunk_size: int = 1024 * 128):
                 async for chunk in r.aiter_bytes(chunk_size=chunk_size):
@@ -400,10 +452,17 @@ async def stream_book_pdf(project_id: str, current_user: dict = Depends(get_curr
             if r.status_code != 200:
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch PDF from storage")
 
+            raw_title = db_card.get("title") or "book"
+            title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_title).strip().replace(" ", "-").lower()[:60] or "book"
+            content_length = r.headers.get("content-length")
+
             headers = {
                 "Content-Type": "application/pdf",
-                "Content-Disposition": f"inline; filename=book-{project_id}.pdf",
+                "Content-Disposition": f'attachment; filename="{title_slug}.pdf"',
+                "Cache-Control": "private, max-age=3600",
             }
+            if content_length:
+                headers["Content-Length"] = content_length
 
             async def file_iterator(chunk_size: int = 1024 * 128):
                 async for chunk in r.aiter_bytes(chunk_size=chunk_size):

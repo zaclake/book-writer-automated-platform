@@ -45,17 +45,25 @@ module.exports = {
           900: '#1e3a8a',
           950: '#172554',
         },
+        muted: {
+          DEFAULT: '#f1f5f9',
+          foreground: '#64748b',
+        },
+        gold: {
+          50: '#fefce8',
+          100: '#fef9c3',
+          200: '#fef08a',
+          800: '#854d0e',
+        },
         brand: {
           'soft-purple': '#9BA4FF',
           'leaf': '#9ED2C6',
           'sand': '#F8F4EC',
-          // WriterBloom specific palette
           'lavender': '#B18EFF',
           'forest': '#1F4737',
           'beige': '#FAF8F3',
           'orange': '#FF8A47',
           'off-white': '#FEFDFB',
-          // New immersive hero colors
           'ink-blue': '#363B6C',
           'blush-orange': '#FF9A6B',
         },

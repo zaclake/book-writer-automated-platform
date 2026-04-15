@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&family=Inter:wght@300..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -198,7 +198,7 @@
   }
   
   .chapter-nav select {
-    @apply px-3 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+    @apply px-3 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-brand-soft-purple focus:border-transparent;
     border-radius: var(--radius-md);
     transition: all var(--transition-normal);
   }
@@ -365,6 +365,39 @@
   
   .bg-clean {
     background-color: #FFFFFF;
+  }
+}
+
+/* TipTap Chapter Editor */
+.chapter-editor-content {
+  font-family: 'Literata', 'Charter', Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.8;
+  color: var(--brand-forest, #2D4A3E);
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+}
+
+.chapter-editor-content p {
+  margin-bottom: 1em;
+}
+
+.chapter-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chapter-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgba(45, 74, 62, 0.35);
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .chapter-editor-content {
+    font-size: 1rem;
+    line-height: 1.7;
   }
 }
 

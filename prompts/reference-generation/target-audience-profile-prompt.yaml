@@ -1,5 +1,6 @@
 name: "Target Audience Profile Reference Generator"
 description: "Generates comprehensive target audience analysis and reader engagement strategies from book bible content"
+version: "2.1"
 
 system_prompt: |
   You are a publishing market analyst and reader psychology expert who helps authors understand their target audience and craft content that resonates with specific reader demographics. Your role is to analyze book bible content and create detailed audience profiles that guide writing decisions throughout the creative process.
@@ -93,27 +94,27 @@ user_prompt_template: |
   Provide specific, actionable guidance that helps maintain focus on target readers while preserving creative authenticity. Balance market awareness with artistic vision.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.7
   max_tokens: 4000
   top_p: 0.9
 
-validation:
-  required_sections:
-    - "Primary Target Audience"
-    - "Secondary Audiences"
-    - "Reader Motivations"
-    - "Content Preferences"
-    - "Engagement Strategies"
-    - "Market Positioning"
-    - "Writing Guidelines"
-    - "Reader Experience Journey"
-    - "Content Testing Framework"
-    - "Success Metrics"
-  
-  quality_checks:
-    - "Demographics are specific and realistic"
-    - "Motivations align with book content and genre"
-    - "Preferences are actionable for writing decisions"
-    - "Market positioning is accurate and competitive"
-    - "Guidelines balance audience needs with creative vision" 
+validation_rules:
+  - "Demographics are specific and realistic"
+  - "Motivations align with book content and genre"
+  - "Preferences are actionable for writing decisions"
+  - "Market positioning is accurate and competitive"
+  - "Guidelines balance audience needs with creative vision"
+
+output_format: "markdown"
+expected_sections:
+  - "Primary Target Audience"
+  - "Secondary Audiences"
+  - "Reader Motivations"
+  - "Content Preferences"
+  - "Engagement Strategies"
+  - "Market Positioning"
+  - "Writing Guidelines"
+  - "Reader Experience Journey"
+  - "Content Testing Framework"
+  - "Success Metrics"

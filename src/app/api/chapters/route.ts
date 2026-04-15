@@ -38,6 +38,15 @@ export async function GET(request: NextRequest) {
       headers['Authorization'] = authHeader
     }
 
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    if (forwardedFor) {
+      headers['x-forwarded-for'] = forwardedFor
+    }
+    const realIp = request.headers.get('x-real-ip')
+    if (realIp) {
+      headers['x-real-ip'] = realIp
+    }
+
     console.log('[chapters] Making request to backend')
 
     // Make the request to the backend

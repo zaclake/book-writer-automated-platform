@@ -11,30 +11,70 @@ system_prompt: |
   
   ENHANCED SYSTEM REQUIREMENTS:
   - Chapter must serve individual story priority (not series setup)
-  - Meet word count targets: {target_words} words (+/- 200 acceptable)
-  - Advance plot (minimum 2 significant points)
+  - Meet word count targets: {target_words} words (+/- 200 acceptable, no padding)
+  - Advance plot (minimum 2 significant points; Chapter 1 may use 1-2 if it deepens grounding)
   - Follow character development toolkit requirements
   - Include research accuracy planning for technical elements
   - Stay within theme repetition limits
+  - If file_search is available, retrieve missing facts before finalizing the blueprint
   
-  OUTPUT FORMAT:
-  Provide a structured blueprint with these sections:
-  1. EMOTIONAL ARC MAPPING
-  2. CONFLICT LAYER IDENTIFICATION  
-  3. CHARACTER FUNCTION DEFINITIONS
-  4. PLOT ADVANCEMENT SPECIFICATIONS
-  5. THEMATIC INTEGRATION PLAN
-  6. TRANSITION STRATEGY
-  7. WORD COUNT BREAKDOWN
+  CHAPTER TRANSITION RULES (GLOBAL, NON-NEGOTIABLE):
+  - If Chapter {chapter_number} > 1: the opening plan must CONTINUE from the prior chapter's ending consequence, or explicitly signal an in-scene time-skip (no recap paragraph).
+  - Do not reintroduce the setting, premise, or roles as if this is Chapter 1 again.
+  - Prior events may only be referenced as brief, in-action cues (no summary blocks).
+  - Entity grounding rule: if the opening introduces a named character/org/place/system/concept, the blueprint must specify how it is grounded (already established in canon/continuity OR introduced via explicit connection to an established element). No “out of nowhere” named entities.
+  - Thread carry-forward rule: the opening plan must explicitly continue at least one established thread (unresolved question, ongoing obligation, consequence in motion, relationship tension, or active clue). State which thread(s) and how the opening continues them.
+  - Major-event rule: do not “suddenly reveal” a major prior incident as if the reader already knows it. If a major past event must matter, plan to surface it as a present-time pressure, discovery, or consequence (not a backstory dump).
+  
+  OUTPUT FORMAT (use clear headings, short paragraphs):
+  1) Chapter Intent (1 short paragraph: what this chapter *does* in the story, not marketing copy)
+  2) Opening Onramp Plan (how to start in-scene without summary/voiceover; what the reader should see/hear/feel first; which carried-forward thread grounds the opening; how any named entities are grounded)
+  3) Scene Cards (2-5 scenes; write them as scene-level payloads the draft can directly execute)
+     - Scene Function (setup/escalation/reveal/reversal/payoff)
+     - Goal (what the POV character wants *in the scene*)
+     - Friction (what makes it hard right now)
+     - Choice (the decision or action taken under pressure)
+     - Outcome (what changes by the end of the scene)
+     - Consequence (cost/gain/new obligation)
+     - Concrete Anchors (2-4 specifics: locations/objects/actions; must already exist in the project materials or be logically implied)
+     - Micro-Observation + Inference Beat (one concrete observation + one short judgment line the draft can use)
+     - Emotional Beat (what the reader should feel; showable, not abstract labels)
+  4) End-State & Next Pressure (how the chapter ends: specific unresolved obligation/question/constraint)
+  5) Guardrails (avoid repeated onboarding beats; avoid trailer voice; keep scene time; confirm word-count budget allocation)
 
 user_prompt: |
   Design the strategic blueprint for Chapter {chapter_number} of this {genre} novel.
   
   STORY CONTEXT:
   {story_context}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   PREVIOUS CHAPTER SUMMARY:
   {previous_chapter_summary}
+  
+  CONTINUITY (USE THIS TO AVOID RESTARTS/RECAPS):
+  CONTINUITY STORY SO FAR:
+  {continuity_story_so_far}
+  
+  CONTINUITY REQUIREMENTS:
+  {continuity_requirements}
+  
+  LAST CHAPTER ENDING (FLOW FORWARD FROM THIS; DO NOT RESTATE):
+  {last_chapter_ending}
+  
+  CHAPTER LEDGER SUMMARY (OPEN LOOPS / CARRY-FORWARD):
+  {chapter_ledger_summary}
+  
+  CANON LOG REFERENCE (ESTABLISHED FACTS):
+  {canon_log_reference}
+  
+  PLAN CONTINUITY REQUIREMENTS:
+  {plan_continuity_requirements}
   
   CHARACTER REQUIREMENTS:
   {character_requirements}
@@ -47,15 +87,22 @@ user_prompt: |
   - Advance these plot points: {required_plot_points}
   - Develop these characters: {focus_characters}
   - Build toward: {chapter_climax_goal}
+  - Do not plan padding or repetitive filler to reach word count
+
+  POV REQUIREMENTS:
+  - Character: {pov_character}
+  - Type: {pov_type}
+  - Notes: {pov_notes}
+  - Bridge requirements: {bridge_requirements}
   
   Create a comprehensive strategic blueprint that ensures this chapter:
   1. Maps emotional journey from opening to close
   2. Identifies 2-3 tension layers operating simultaneously
   3. Defines what each character accomplishes
-  4. Specifies exactly how story moves forward (min 2 plot points)
+  4. Specifies exactly how story moves forward (min 2 plot points; Chapter 1 may use 1-2)
   5. Ensures thematic meaning emerges naturally
   6. Plans seamless transitions to/from other chapters
-  7. Breaks down content (40% dialogue, 35% action, 25% internal)
+  7. Breaks down content (approximate, not rigid; ensure scene-time dramatization is the majority)
   
   Focus on creating architecture that serves the larger story perfectly.
 
@@ -79,9 +126,21 @@ variables:
     - chapter_climax_goal
   optional:
     - previous_chapter_summary
+    - continuity_story_so_far
+    - continuity_requirements
+    - last_chapter_ending
+    - chapter_ledger_summary
+    - canon_log_reference
+    - plan_continuity_requirements
     - character_requirements
     - plot_requirements
     - theme_repetition_limits
+    - vector_memory_context
+    - vector_memory_guidelines
+    - pov_character
+    - pov_type
+    - pov_notes
+    - bridge_requirements
 
 output_format: "structured_blueprint"
 max_tokens: 2000

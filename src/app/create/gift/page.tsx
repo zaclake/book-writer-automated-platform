@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@clerk/nextjs'
+import { useAuthToken } from '@/lib/auth'
+import { createBookBibleProject } from '@/lib/book-bible-client'
 import { BookLengthTier, BookBibleData } from '@/lib/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,7 @@ import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 
 export default function CreateGiftBookPage() {
   const router = useRouter()
-  const { getToken, isSignedIn } = useAuth()
+  const { getAuthHeaders, isSignedIn } = useAuthToken()
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
@@ -84,25 +85,34 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
 `
   }
 
+  const [error, setError] = useState<string | null>(null)
+
   const handleSubmit = async () => {
-    if (!isSignedIn) return
-    if (!form.recipient_name.trim() || !form.favorite_themes.trim()) return
+    setError(null)
+    if (!isSignedIn) {
+      setError('Please sign in to create a gift book.')
+      return
+    }
+    if (!form.recipient_name.trim() || !form.favorite_themes.trim()) {
+      setError('Recipient name and theme are required.')
+      return
+    }
     setIsSubmitting(true)
     GlobalLoader.show({
       title: 'Creating Gift Project',
       stage: 'Preparing content...',
       showProgress: false,
-      size: 'md',
+      safeToLeave: false,
+      canMinimize: false,
       customMessages: [
-        '🎁 Personalizing your story...',
-        '📚 Building your book bible...',
-        '✨ Setting up your creative space...',
+        'Personalizing your story...',
+        'Building book foundation...',
+        'Setting up workspace...',
       ],
       timeoutMs: 900000,
     })
     try {
-      const token = await getToken()
-      if (!token) throw new Error('No auth token')
+      const authHeaders = await getAuthHeaders()
 
       const content = generateGiftBookBible()
       const generatedTitle = `${form.recipient_name ? form.recipient_name + "'s " : ''}${form.favorite_themes} Adventure`
@@ -127,14 +137,7 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
         include_series_bible: false
       }
 
-      const res = await fetch('/api/book-bible/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      })
+      const res = await createBookBibleProject(payload, authHeaders)
 
       if (!res.ok) throw new Error(await res.text())
       const result = await res.json()
@@ -150,6 +153,7 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
       }, 800)
     } catch (e) {
       console.error('Gift book creation failed', e)
+      setError(e instanceof Error ? e.message : 'Failed to create gift book. Please try again.')
       setIsSubmitting(false)
       GlobalLoader.hide()
     }
@@ -158,25 +162,21 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
   return (
     <div className="min-h-screen bg-brand-off-white">
       {/* Hero */}
-      <div className="relative min-h-[32vh] bg-gradient-to-br from-brand-lavender via-brand-ink-blue to-brand-blush-orange overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white/20 rounded-full animate-float"></div>
-          <div className="absolute top-1/3 right-1/4 w-1 h-1 bg-white/30 rounded-full animate-float" style={{animationDelay: '2s'}}></div>
-          <div className="absolute bottom-1/3 left-1/3 w-3 h-3 bg-white/10 rounded-full animate-float" style={{animationDelay: '4s'}}></div>
-        </div>
-        <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-black/10"></div>
-        <div className="relative z-10 flex items-center justify-center min-h-[32vh] px-6 md:px-8 lg:px-12">
+      <div className="relative min-h-[28vh] bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-violet-500/10 rounded-full blur-3xl" />
+        <div className="relative z-10 flex items-center justify-center min-h-[28vh] px-4 sm:px-6 md:px-8 lg:px-12">
           <div className="text-center max-w-3xl">
-            <h1 className="text-4xl font-black text-white mb-3 tracking-tight">Create a Gift Book</h1>
-            <p className="text-white/90 text-lg font-medium">Craft a personalized story — thoughtful, joyful, and uniquely theirs.</p>
+            <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3 tracking-tight">Create a Gift Book</h1>
+            <p className="text-white/60 text-base sm:text-lg">Craft a personalized story — thoughtful, joyful, and uniquely theirs.</p>
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="w-full px-6 md:px-8 lg:px-12 py-10">
-        <Card className="bg-white/60 backdrop-blur-sm border border-white/50 shadow-xl max-w-4xl mx-auto">
-          <CardContent className="p-6 md:p-8 space-y-6">
+      <div className="w-full px-4 sm:px-6 md:px-8 lg:px-12 py-10">
+        <Card className="bg-white border border-gray-200 shadow-sm max-w-4xl md:max-w-5xl mx-auto rounded-xl">
+          <CardContent className="p-4 sm:p-6 md:p-8 space-y-6">
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Recipient Name *</Label>
@@ -267,11 +267,15 @@ In this heart-forward ${form.favorite_themes.toLowerCase()} tale, ${form.recipie
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="outline" onClick={() => router.back()}>
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">{error}</div>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => router.back()} className="w-full sm:w-auto">
                 Cancel
               </Button>
-              <Button onClick={handleSubmit} disabled={isSubmitting || !form.recipient_name.trim() || !form.favorite_themes.trim()}>
+              <Button onClick={handleSubmit} disabled={isSubmitting || !form.recipient_name.trim() || !form.favorite_themes.trim()} className="w-full sm:w-auto">
                 {isSubmitting ? 'Creating…' : 'Create Gift Book'}
               </Button>
             </div>

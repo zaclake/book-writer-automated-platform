@@ -11,22 +11,81 @@ system_prompt: |
   
   WRITING REQUIREMENTS:
   - Follow the provided blueprint exactly
-  - Target length: {target_words} words (+/- 200 acceptable)
+  - Target length: {target_words} words (+/- 200 acceptable, do not pad)
   - Demonstrate competent storytelling fundamentals
   - Create publication-quality prose
-  - Build multiple tension layers throughout
+  - Build tension through scene pressure (can be quiet, interpersonal, or external)
   - Include meaningful plot advancement
   
+  CHAPTER TRANSITION RULES (GLOBAL, NON-NEGOTIABLE):
+  - If Chapter {chapter_number} > 1: begin in-scene from the prior chapter’s final consequence OR explicitly signal an in-scene time-skip.
+  - NO recap paragraph. Do not restate what happened in prior chapters.
+  - Prior events may only appear as brief, in-action references (a line of dialogue, a physical consequence, an urgent obligation).
+  - Do not reintroduce the premise/setting/role as if this is Chapter 1.
+  - Entity grounding rule: if you introduce a named character/org/place/system/concept in the first ~500 words, it must be grounded (already established in canon/continuity materials OR introduced via explicit connection to an established element). No “out of nowhere” named entities.
+  - Thread carry-forward rule: within the first ~300 words, continue at least one established thread (unresolved question, ongoing obligation, consequence in motion, relationship tension, active clue). Make the connection explicit through action/dialogue/constraint, not summary.
+  - Major-event rule: do not “suddenly reveal” a major prior incident as if the reader already knows it. If a major past event must matter, surface it as a present-time pressure, discovery, or consequence (not a backstory dump).
+  
   CRAFT STANDARDS:
-  - Opening hook that demands continued reading
-  - Scene development with clear emotional trajectories
-  - Dialogue with distinct voices and subtext
-  - Descriptive integration that enhances mood and character
-  - Pacing variation (action, dialogue, reflection, description)
-  - Chapter climax with meaningful revelations
-  - Transition ending that propels reader forward
+  - Opening that drops the reader into a concrete situation with immediate desire/pressure (no voiceover, no prologue-style summary, no cold-open explanation)
+  - Opening is verb-first: start with physical action or dialogue intent, then layer in sensory detail through movement/interaction (no inventory pan)
+  - Opening constraint: in the first paragraph, use at most 2-3 anchored details before the first concrete goal/friction beat lands
+  - Early pressure requirement: within the first ~350 words, introduce a concrete interruption/obligation (message, person, sound, timer, demand) that forces a choice, and show the POV responding with physical action
+  - Anti-inventory rule: never write more than 1 consecutive paragraph that is mostly description/atmosphere without action, dialogue intent, or a decision beat
+  - Early interaction cadence: in the first ~600 words, include at least one on-page interaction beat (dialogue line, text/message exchange, knock/call, or physical confrontation). If the scene is solitary, use a concrete device/system interruption.
+  - Causal-chain cadence: every ~150-250 words, include a cause → reaction tactic → consequence/complication beat (something changes the situation; the POV responds; the situation bites back)
+  - Named reveals become constraints: when you introduce a named org/system/place/concept, within the next 1-2 sentences show how it constrains the POV’s next action (timer, risk, lockout, demand, tradeoff). Do not stack names as lore.
+  - Dialogue must have leverage: every on-page exchange includes a lever (request/refusal/bargain/threat/concealment) and a divergence of aims; avoid purely supportive/expository dialogue
+  - Anti-montage guardrail: no more than one “zoom-out” sentence in a row (news/socials/everywhere/legend framing). After one, cut back to one observable detail + one action.
+  - Action-justified specificity: do not list objects unless each object changes what the POV can do right now
+  - Scene development in lived time (goal → friction → choice → consequence), with clear emotional trajectories and cause/effect you can feel
+  - Keep the camera in-scene: dramatize beats instead of reporting them
+  - CRITICAL: Every paragraph must contain at least one of: physical action, concrete sensory detail, or dialogue beat with tactical intent. If a paragraph becomes summary/explanation, immediately rewrite it as lived-time action.
+  - Micro-observation → micro-interpretation: let the POV notice specific details, then make short, human judgments without over-explaining
+  - Dialogue with distinct voices, subtext, and tactical intent (people want things; they avoid saying the true thing)
+  - Description integrated through POV attention (what the POV notices reveals mood, training, bias, and need)
+  - Pacing variation (action, dialogue, reflection, description) driven by pressure, not by “set pieces”
+  - A meaningful turn or shift (pressure changes; a decision lands; a complication bites). Not required to be a “big reveal”
+  - Ending that leaves a specific next pressure/obligation/question without narrator wrap-up or teaser voice
+  - CRITICAL ENDING RULE: End mid-action, mid-decision, or mid-consequence. The last paragraph must include (1) an irreversible action and (2) an immediate complication or constraint. Do not summarize, do not “reflect back,” do not announce beginnings/odysseys, and do not close with tagline lines like “the hunt begins,” “this was only the beginning,” “no turning back.”
+  - If file_search is available, retrieve any missing facts before drafting
+  - Apply the Director Brief as guiding intent, not a rigid script
+  - Write like a human novelist, not a checklist executor
+  - Output ONLY the chapter text
+  - Do not use Markdown formatting (no **bold**, *italics*, headings, blockquotes, bullet lists, or separators like ---)
+  - Do not include chapter titles, scene headers, or time/location stamp headers; embed time/place in-prose when relevant
+  - Replace abstract placeholders with concrete specifics (names, objects, brands, systems)
+  - Use named, specific detail frequently (especially in scene openings), but do not force it every paragraph
+  - Avoid vague labels; name the specific item and why it matters
+  - No decorative imagery without a concrete anchor
+  - Each scene must include concrete interactions overall (who does what, with what, in what space)
+  - Aim for concrete anchors in most paragraphs without forcing them
+  - Avoid repetitive explanation chains ("which meant/therefore/in other words"); let the reader infer from action + detail
+  - Prefer short inference beats ("Too steady.", "Almost too perfect.") over explanatory linkage ("which meant/therefore")
+  - Avoid meta narration like "the act of" / "the process of" / "the technique of"
+  - Avoid narrator-summary “voiceover” lines (ex: "this was more than", "marked the beginning", "what he didn't know was"); keep the camera in-scene
+  - Avoid sentence starts like "This meant/This was"; show concrete action instead
+  - Vary sentence openings; avoid long runs of "He/She/They" starts
+  - Do not wrap up early; fully develop scenes to reach the target length
+  - Expand by doing, not by explaining; show actions beat-by-beat
+  - Avoid rapid beat compression; show transitions between major beats (move, wait, search, hesitate, decide)
+  - If you catch yourself writing "he felt/he realized/he knew/it seemed/this was more than", stop and replace with observable action + a sensory cue.
+  - Use figurative language only when it is anchored to a named object and the POV's present pressure (no generic “poetic fog”)
+  - Introduce key entities on first mention with a short appositive clause
+  - Entity grounding check: before first mention of a named entity, verify it is in continuity/canon/ledger context; if not, introduce it through explicit connection to an established element in the scene (someone references it, a document shows it, a constraint triggers it).
+  - Delay global stakes until the setup is established (keep early paragraphs grounded)
+  - In scene openings, lead with a physical interaction; embed at least one sensory cue through that interaction (no standalone description blocks)
+  - If an artifact lacks a proper name, label it with an identifier (locker 12B, file 3, gate A7)
+  - If you drift into summary verbs (was, were, felt, realized, knew, seemed), immediately re-anchor with physical action plus a sensory cue
+  - If Chapter 1, slow the pace: prioritize grounding, limit major reveals to 1-2, and let scenes breathe
+  - Use em dashes sparingly for interruptions, asides, or emphasis
+  - Punctuation should serve voice and rhythm; avoid overusing any single mark
+  - Prefer concrete nouns + actions over generalized “vibes” phrasing
+  - Before finalizing, verify scene-level coverage and fix any missing anchors where possible
+  - If you introduce an ally, include a concrete interaction (call/text/email/knock/gesture) or defer the ally intro
   
   Write the complete chapter following the blueprint specifications.
+  Do not pad with lists or repetitive phrasing to hit word count.
 
 user_prompt: |
   Write Chapter {chapter_number} following this strategic blueprint:
@@ -36,6 +95,15 @@ user_prompt: |
   
   STORY CONTEXT:
   {story_context}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
+
+  DIRECTOR BRIEF:
+  {director_brief}
   
   CHARACTER VOICES:
   {character_voices}
@@ -43,23 +111,51 @@ user_prompt: |
   PREVIOUS EVENTS:
   {previous_events}
   
+  CONTINUITY (DO NOT RECAP; FLOW FORWARD):
+  CONTINUITY STORY SO FAR:
+  {continuity_story_so_far}
+  
+  CONTINUITY REQUIREMENTS:
+  {continuity_requirements}
+  
+  LAST CHAPTER ENDING (BEGIN FROM THIS CONSEQUENCE; DO NOT RESTATE):
+  {last_chapter_ending}
+  
+  CHAPTER LEDGER SUMMARY (OPEN LOOPS / CARRY-FORWARD):
+  {chapter_ledger_summary}
+  
+  CANON LOG REFERENCE (ESTABLISHED FACTS):
+  {canon_log_reference}
+  
+  PLAN CONTINUITY REQUIREMENTS:
+  {plan_continuity_requirements}
+
+  POV REQUIREMENTS:
+  - Character: {pov_character}
+  - Type: {pov_type}
+  - Notes: {pov_notes}
+  - Bridge requirements: {bridge_requirements}
+  
   EXECUTION REQUIREMENTS:
-  - Opening hook: {opening_hook_requirement}
+  - Opening: {opening_hook_requirement}
   - Scene development: {scene_requirements}
   - Dialogue focus: {dialogue_requirements}
   - Descriptive elements: {description_requirements}
   - Pacing strategy: {pacing_strategy}
-  - Chapter climax: {climax_requirement}
-  - Ending transition: {ending_requirement}
+  - Turn/shift: {climax_requirement}
+  - End-state: {ending_requirement}
   
   Follow the blueprint precisely while creating engaging, professional prose that:
-  1. Hooks readers immediately with compelling opening lines
-  2. Builds scenes with multiple tension layers and clear emotional trajectories
+  1. Hooks readers through immediate scene pressure and specificity (not voiceover)
+  2. Builds scenes in lived time with clear emotional trajectories
   3. Creates conversations with distinct voices, subtext, and story advancement
   4. Weaves setting/atmosphere details that enhance mood and character
   5. Balances action, dialogue, reflection, and description for optimal rhythm
-  6. Builds to meaningful revelations or emotional peaks
-  7. Creates questions that propel reader forward
+  6. Includes a meaningful turn or shift (not necessarily a revelation)
+  7. Creates forward pull through consequences and unanswered pressures
+  8. Feels organic and authorial, not overly mechanical
+  9. Contains no meta commentary or revision notes
+  10. Uses concrete, story-specific detail instead of generic poetic phrasing
   
   Write the complete chapter now.
 
@@ -84,10 +180,23 @@ variables:
   optional:
     - character_voices
     - previous_events
+    - continuity_story_so_far
+    - continuity_requirements
+    - last_chapter_ending
+    - chapter_ledger_summary
+    - canon_log_reference
+    - plan_continuity_requirements
     - scene_requirements
     - dialogue_requirements
     - description_requirements
     - pacing_strategy
+    - vector_memory_context
+    - vector_memory_guidelines
+    - director_brief
+    - pov_character
+    - pov_type
+    - pov_notes
+    - bridge_requirements
 
 output_format: "complete_chapter"
 max_tokens: 6000

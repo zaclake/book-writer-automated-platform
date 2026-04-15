@@ -8,18 +8,20 @@ interface ProjectLayoutProps {
   projectId: string
   projectTitle?: string
   className?: string
+  hideNavigation?: boolean
 }
 
 export function ProjectLayout({ 
   children, 
   projectId, 
   projectTitle, 
-  className = '' 
+  className = '',
+  hideNavigation = false
 }: ProjectLayoutProps) {
   return (
-    <div className={`min-h-screen bg-brand-off-white ${className}`}>
+    <div className={`min-h-screen bg-gray-50 ${className}`}>
       {/* Project Navigation */}
-      <ProjectNavigation projectTitle={projectTitle} />
+      {!hideNavigation && <ProjectNavigation projectTitle={projectTitle} />}
       
       {/* Main Content */}
       <main className="relative">

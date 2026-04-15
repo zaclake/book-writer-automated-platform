@@ -37,6 +37,36 @@
 - **Tools:** tools/frameworks/series-balance-guidelines.md
 - **Result:** Standalone satisfaction with series potential
 
+#### 6. **SCENE INTEGRITY ENGINE**
+- **Problem:** Static scenes, travelogues, and consequence-free chapters
+- **Solution:** Mandatory scene structure and consequence enforcement
+- **Result:** Every scene changes story state with clear progression
+
+#### 7. **CONSISTENCY & REDUNDANCY GATE**
+- **Problem:** POV/name drift and repeated scene functions
+- **Solution:** Identity enforcement and beat-function deduplication
+- **Result:** Consistent protagonist identity with zero duplicate scene functions
+
+#### 8. **DISTINCTIVENESS & SPECIFICITY TESTS**
+- **Problem:** Generic prose and stock genre texture
+- **Solution:** Unique-world-marker rule and concrete detail requirements
+- **Result:** Proprietary world texture in every scene
+
+#### 9. **SHOW-VS-SUMMARY BALANCER**
+- **Problem:** Abstract telling overtakes narrative momentum
+- **Solution:** Summary ratio caps and emotion-by-action requirements
+- **Result:** Balanced prose with visible action and sensory grounding
+
+#### 10. **HOOK & PROMISE REINFORCEMENT**
+- **Problem:** Chapters end without pull or specific obligation
+- **Solution:** Chapter promise and hook enforcement with escalation ladder
+- **Result:** Consistent momentum and clear reader pull
+
+#### 11. **DIRECTOR SYSTEM**
+- **Problem:** First drafts feel mechanical or generic despite strong structure
+- **Solution:** Director brief that converts inputs into scene payloads and onramp guidance
+- **Result:** Natural, authorial first drafts guided by concrete intent
+
 ---
 
 ## PHASE-BY-PHASE IMPLEMENTATION
@@ -93,6 +123,19 @@
 
 **Checkpoint:** Complete plot outline with advancement verification
 
+#### Step 5: Scene Function Map (NEW)
+**Time Required:** 1-2 hours
+**Tool:** Scene Integrity Engine
+
+**Actions:**
+1. Tag each planned scene with function (setup, escalation, reveal, reversal, payoff)
+2. Ensure Goal → Obstacle → Choice → Result for every scene
+3. Confirm explicit consequence for each scene (cost, gain, or new obligation)
+4. Verify no duplicate scene functions back-to-back without escalation
+5. Identify where unique-world markers will appear
+
+**Checkpoint:** Scene function map completed with consequence notes
+
 ### PHASE 2: WRITING IMPLEMENTATION (ONGOING)
 
 #### Daily Writing Protocol
@@ -101,12 +144,18 @@
 2. Calculate target word count for chapter
 3. Complete chapter planning worksheet
 4. Verify mandatory plot advancement points
+5. Confirm scene function tags and consequence targets
+6. Confirm unique-world-marker target for each scene
+7. Generate the Director Brief using book bible, references, and vector context
 
 **During Writing:**
 1. Track word count progress toward target
 2. Monitor voice consistency for POV character
 3. Check theme repetition tracker
 4. Ensure no forbidden elements included
+5. Maintain Goal → Obstacle → Choice → Result in each scene
+6. Ensure each paragraph has concrete action or sensory anchor
+7. Follow Director Brief intent while writing naturally
 
 **After Each Chapter:**
 1. **MANDATORY EM-DASH CHECK: Search entire chapter for "—" symbols (ZERO TOLERANCE)**
@@ -114,6 +163,10 @@
 3. Update plot advancement tracker
 4. Record actual word count vs. target
 5. Update character development progress
+6. Verify no POV/name drift and no duplicate scene functions
+7. Validate summary ratio and emotion-by-action compliance
+8. Confirm chapter ends with a specific unresolved obligation
+9. Record whether Director Brief goals were met
 
 #### Milestone Checkpoints
 **Every 5 Chapters:**
@@ -167,6 +220,16 @@
 3. Standalone reading experience optimization
 4. Future book potential establishment
 
+#### Fifth Revision: Scene Integrity and Specificity (NEW)
+**Tool Integration:** Scene Integrity Engine + Distinctiveness & Specificity Tests + Show-vs-Summary Balancer + Hook & Promise Reinforcement
+
+**Focus Areas:**
+1. Scene function integrity and consequence verification
+2. Unique-world-marker compliance per scene
+3. Concrete action/sensory anchor validation
+4. Summary-heavy paragraph conversion
+5. Chapter-end hook verification
+
 ---
 
 ## SYSTEM COMPLIANCE REQUIREMENTS
@@ -179,6 +242,12 @@
 - [ ] **frameworks/frameworks/research-tracking-system.md - COMPLETED**
 - [ ] **tools/tools/plot-tracker.md - COMPLETED**
 - [ ] **tools/frameworks/series-balance-guidelines.md - COMPLETED**
+- [ ] **Scene Integrity Engine - COMPLETED**
+- [ ] **Consistency & Redundancy Gate - COMPLETED**
+- [ ] **Distinctiveness & Specificity Tests - COMPLETED**
+- [ ] **Show-vs-Summary Balancer - COMPLETED**
+- [ ] **Hook & Promise Reinforcement - COMPLETED**
+- [ ] **Director System - COMPLETED**
 
 #### MINIMUM QUALITY THRESHOLDS
 - [ ] **Word Count: Within 2,000 words of target**
@@ -188,6 +257,13 @@
 - [ ] **Punctuation Compliance: All prohibited punctuation eliminated**
 - [ ] **Plot Advancement: All checkpoints passed**
 - [ ] **Standalone Satisfaction: 8/10 minimum**
+- [ ] **Scene Integrity: 100% scenes with explicit consequence**
+- [ ] **Consistency: Zero POV/name drift**
+- [ ] **Redundancy: No duplicate scene functions per chapter**
+- [ ] **Distinctiveness: 1+ unique-world marker per scene**
+- [ ] **Summary Balance: No more than 1 summary paragraph between action beats**
+- [ ] **Hooks: Every chapter ends with specific unresolved obligation**
+- [ ] **Director Brief: Created for every chapter**
 
 #### EXPERT VERIFICATION REQUIREMENTS
 - [ ] **Minimum 2 expert consultations per technical area**

@@ -35,8 +35,6 @@ import {
   Auth,
   User 
 } from 'firebase/auth'
-import { useAuth } from '@clerk/nextjs'
-
 // Firebase configuration with fallbacks
 const getFirebaseConfig = () => {
   // Helper to clean environment variables that might be the string "undefined"
@@ -316,6 +314,7 @@ export { db }
 export { getFirebaseConfig }
 
 // Persistence is now handled automatically by cache settings during initialization
+let persistenceEnabled = false
 let initializationAttempted = false
 
 /**

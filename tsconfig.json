@@ -21,7 +21,10 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@clerk/nextjs": ["./src/lib/clerk-shim.tsx"],
+      "@clerk/clerk-react": ["./src/lib/clerk-shim.tsx"],
+      "@clerk/nextjs/server": ["./src/lib/server-auth.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

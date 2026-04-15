@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth, currentUser } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@/lib/server-auth'
 
 interface BookBibleData {
   title: string
@@ -29,36 +29,66 @@ interface ProjectCreationData {
   }
 }
 
+class BackendApiError extends Error {
+  status: number
+  details?: string
+
+  constructor(message: string, status: number, details?: string) {
+    super(message)
+    this.name = 'BackendApiError'
+    this.status = status
+    this.details = details
+  }
+}
+
 // Helper function to call backend API
-async function createProjectInBackend(projectData: any, authToken: string): Promise<string> {
-  const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+async function createProjectInBackend(projectData: any, authToken: string | null): Promise<string> {
+  const backendBaseUrl =
+    process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
   if (!backendBaseUrl) {
-    throw new Error('Backend URL not configured')
+    throw new BackendApiError('Backend URL not configured', 500)
   }
 
   console.log('[book-bible/create] Making backend request to:', `${backendBaseUrl}/v2/projects/`)
 
-  const response = await fetch(`${backendBaseUrl}/v2/projects/`, {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  }
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`
+  }
+
+  const payload = {
+    title: projectData.title,
+    genre: projectData.genre,
+    target_chapters: projectData.settings?.target_chapters,
+    word_count_per_chapter: projectData.settings?.word_count_per_chapter,
+    book_bible_content: projectData.book_bible_content,
+    must_include_sections: projectData.must_include_sections || [],
+    creation_mode: projectData.creation_mode,
+    book_length_tier: projectData.book_length_tier,
+    estimated_chapters: projectData.estimated_chapters,
+    target_word_count: projectData.target_word_count,
+    include_series_bible: projectData.include_series_bible || false,
+    source_data: projectData.source_data,
+  }
+
+  const response = await fetch(`${backendBaseUrl.replace(/\/$/, '')}/v2/projects`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${authToken}`
-    },
-    body: JSON.stringify({
-      title: projectData.title,
-      genre: projectData.genre,
-      target_chapters: projectData.settings.target_chapters,
-      word_count_per_chapter: projectData.settings.word_count_per_chapter,
-      book_bible_content: projectData.book_bible_content
-    }),
+    headers,
+    body: JSON.stringify(payload),
     // Add timeout to prevent function timeout
-    signal: AbortSignal.timeout(20000) // 20 seconds, leaving 10 seconds buffer for Vercel
+    signal: AbortSignal.timeout(60000) // 60 seconds to handle large paste content
   })
 
   if (!response.ok) {
     const errorText = await response.text()
     console.error('[book-bible/create] Backend error:', response.status, errorText)
-    throw new Error(`Backend API error: ${response.status} - ${errorText}`)
+    throw new BackendApiError(
+      `Backend API error: ${response.status}`,
+      response.status,
+      errorText
+    )
   }
 
   const result = await response.json()
@@ -76,10 +106,60 @@ async function createProjectInBackend(projectData: any, authToken: string): Prom
   return projectId
 }
 
-async function generateExpandedBookBible(data: any, mode: string): Promise<string> {
-  // Simplified template generation to reduce processing time
+async function expandBookBibleViaBackend(
+  data: any,
+  mode: string,
+  bookSpecs: Record<string, any>,
+  authToken: string | null
+): Promise<string | null> {
+  const backendBaseUrl =
+    process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || process.env.BACKEND_URL?.trim()
+  if (!backendBaseUrl || !authToken) {
+    return null
+  }
+
+  try {
+    const response = await fetch(`${backendBaseUrl.replace(/\/$/, '')}/v2/projects/expand-book-bible`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`
+      },
+      body: JSON.stringify({
+        source_data: data,
+        creation_mode: mode,
+        book_specs: bookSpecs
+      }),
+      signal: AbortSignal.timeout(60000)
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.warn('[book-bible/create] Backend expansion failed:', response.status, errorText)
+      return null
+    }
+    const result = await response.json()
+    return result?.expanded_content || null
+  } catch (error) {
+    console.warn('[book-bible/create] Backend expansion error:', error)
+    return null
+  }
+}
+
+async function generateExpandedBookBible(
+  data: any,
+  mode: string,
+  bookSpecs: Record<string, any>,
+  authToken: string | null
+): Promise<string> {
   console.log('[book-bible/create] Generating expanded book bible for mode:', mode)
-  
+
+  if (mode === 'quickstart' || mode === 'guided') {
+    const expanded = await expandBookBibleViaBackend(data, mode, bookSpecs, authToken)
+    if (expanded) {
+      return expanded
+    }
+  }
+
   if (mode === 'quickstart') {
     return `# ${data.title}
 
@@ -183,13 +263,13 @@ export async function POST(request: NextRequest) {
     }
     
     if (!userId) {
-      console.error('[book-bible/create] No user ID found')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      console.warn('[book-bible/create] No user ID found; continuing as anonymous')
+      userId = 'anonymous-user'
+      authToken = null
     }
 
     if (!authToken) {
-      console.error('[book-bible/create] No auth token found')
-      return NextResponse.json({ error: 'Failed to get auth token' }, { status: 401 })
+      console.warn('[book-bible/create] No auth token found; proceeding as anonymous')
     }
 
     const bookBibleData: BookBibleData = await request.json()
@@ -220,8 +300,14 @@ export async function POST(request: NextRequest) {
     if (bookBibleData.creation_mode !== 'paste' && bookBibleData.source_data) {
       try {
         finalContent = await generateExpandedBookBible(
-          bookBibleData.source_data, 
-          bookBibleData.creation_mode
+          bookBibleData.source_data,
+          bookBibleData.creation_mode,
+          {
+            target_chapters: bookBibleData.target_chapters,
+            target_word_count: bookBibleData.target_word_count,
+            word_count_per_chapter: bookBibleData.word_count_per_chapter
+          },
+          authToken
         )
         console.log('[book-bible/create] Generated expanded content length:', finalContent.length)
       } catch (error) {
@@ -247,13 +333,20 @@ export async function POST(request: NextRequest) {
       title: bookBibleData.title,
       genre: bookBibleData.genre,
       book_bible_content: finalContent,
-      must_include_sections: bookBibleData.must_include_sections,
+      must_include_sections: bookBibleData.must_include_sections || [],
       settings: {
         ...defaultSettings,
         genre: bookBibleData.genre,
-        target_chapters: bookBibleData.target_chapters,
-        word_count_per_chapter: bookBibleData.word_count_per_chapter
+        target_chapters: bookBibleData.target_chapters ?? defaultSettings.target_chapters,
+        word_count_per_chapter:
+          bookBibleData.word_count_per_chapter ?? defaultSettings.word_count_per_chapter
       },
+      creation_mode: bookBibleData.creation_mode,
+      book_length_tier: bookBibleData.book_length_tier,
+      estimated_chapters: bookBibleData.estimated_chapters,
+      target_word_count: bookBibleData.target_word_count,
+      include_series_bible: bookBibleData.include_series_bible || false,
+      source_data: bookBibleData.source_data,
       owner_id: userId,
       created_at: new Date().toISOString(),
       status: 'active'
@@ -269,7 +362,7 @@ export async function POST(request: NextRequest) {
       title: bookBibleData.title,
       mode: bookBibleData.creation_mode,
       contentLength: finalContent.length,
-      mustIncludeCount: bookBibleData.must_include_sections.length
+      mustIncludeCount: (bookBibleData.must_include_sections || []).length
     })
 
     return NextResponse.json({
@@ -293,6 +386,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Request timeout - please try again with a simpler book bible' },
         { status: 408 }
+      )
+    }
+
+    if (error instanceof BackendApiError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          details: error.details
+        },
+        { status: error.status || 502 }
       )
     }
     

@@ -1,11 +1,11 @@
 name: "World Building Generator"
-description: "Creates comprehensive setting and environmental details from book bible content"
-version: "2.0"
+description: "Creates comprehensive setting, proper noun registry, rules engine, sensory palettes, and environmental details from book bible content"
+version: "3.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.72
-  max_tokens: 6500
+  max_tokens: 9000
   top_p: 0.9
 
 system_prompt: |
@@ -17,6 +17,7 @@ system_prompt: |
   3. **Environmental Storytelling**: Using setting details to advance plot and reveal character
   4. **Genre-Specific World Rules**: Understanding how different genres require different approaches to world-building
   5. **Research-Based Accuracy**: Grounding fictional elements in realistic historical/geographical/cultural foundations
+  6. **Machine-Readable Structure**: Include structured registries and tables that downstream writing systems can parse reliably
 
   APPROACH FOR INCOMPLETE BOOK BIBLES:
   When setting details are sparse or missing:
@@ -36,6 +37,10 @@ system_prompt: |
 user_prompt_template: |
   Analyze this book bible thoroughly and create a comprehensive world-building reference. Focus on extracting atmospheric cues, genre requirements, and thematic needs to build a setting that enhances every aspect of the story experience.
 
+  {book_length_context}
+
+  {prior_references}
+
   ---
   BOOK BIBLE:
   {book_bible_content}
@@ -44,6 +49,32 @@ user_prompt_template: |
   Create a detailed world-building guide following this structure:
 
   # World-Building Reference Guide
+
+  ## Proper Noun Registry
+
+  Provide a structured table of EVERY invented or story-specific name. This is the authoritative source for spelling, categorization, and definitions of all world-specific terms.
+
+  ### Places
+  | Name | Type | Region/Parent | One-Line Description |
+  |---|---|---|---|
+  | [Exact spelling] | [city/town/building/landmark/district/country/continent] | [Where it sits in the larger geography] | [What it is and why it matters] |
+
+  ### Organizations & Factions
+  | Name | Type | Allegiance | One-Line Description |
+  |---|---|---|---|
+  | [Exact spelling] | [government/military/religious/criminal/corporate/social] | [Allied with/opposed to whom] | [What they do and their role in the story] |
+
+  ### Systems & Technologies
+  | Term | Category | One-Line Definition | Hard Rules |
+  |---|---|---|---|
+  | [Exact spelling] | [magic/technology/political/economic/religious] | [What it is] | [What it can and cannot do — immutable constraints] |
+
+  ### Cultural Terms & Customs
+  | Term | Context | Definition |
+  |---|---|---|
+  | [Exact spelling] | [When/where this term is used] | [What it means in this world] |
+
+  (Include every proper noun, invented term, fictional system, and world-specific concept. This registry feeds into the canon log for consistency checking.)
 
   ## Setting Foundation Analysis
 
@@ -83,124 +114,131 @@ user_prompt_template: |
   - **Climate & Weather:** [How environmental conditions shape daily life and story events]
   - **Natural Resources:** [What the land provides and what's scarce]
 
-  **Sensory Environment:**
-  - **Visual Landscape:** [What characters see that immediately establishes place]
-  - **Soundscape:** [Ambient sounds that create atmosphere]
-  - **Scent & Air Quality:** [Smells that ground readers in the environment]
-  - **Tactile Elements:** [Textures, temperatures, physical sensations]
-  - **Taste Elements:** [Food, drink, air quality that adds authenticity]
-
   **Environmental Storytelling:**
   - **Symbolic Landscapes:** [How geography reflects themes or character states]
   - **Setting as Character:** [How the environment actively affects the story]
   - **Pathetic Fallacy Opportunities:** [When weather/environment should mirror emotion]
   - **Contrast Points:** [Where environmental beauty/harshness creates thematic tension]
 
+  ## World Rules Engine
+
+  Hard constraints that must NEVER be violated during chapter generation. These are immutable facts about how this world works.
+
+  ### Physical Laws & Constraints
+  - **Travel Rules:** [How long it takes to get from A to B by available means — specific distances and times]
+  - **Communication Rules:** [How fast information travels — instant, days, weeks?]
+  - **Environmental Hazards:** [What the natural world makes dangerous or impossible]
+  - **Resource Scarcities:** [What's hard to get and what that means for plot possibilities]
+  - **Seasonal Constraints:** [What can and cannot happen in each season]
+
+  ### Genre-Specific Rules (if applicable)
+  - **Magic/Technology System:** [Exactly what it can do, what it costs, what it cannot do]
+  - **Power Scaling:** [Who is stronger/weaker than whom and why — and what can shift this]
+  - **System Limitations:** [Hard boundaries that create conflict — e.g., magic cannot resurrect, FTL has a cooldown]
+  - **Discovery/Learning Curve:** [How characters gain new abilities or access — and what it costs them]
+
+  ### Social Rules
+  - **Authority Structures:** [Who has power over whom and how that power is exercised]
+  - **Legal Boundaries:** [What the law allows, forbids, and the consequences of violation]
+  - **Cultural Taboos:** [What is forbidden, and what happens to those who violate taboos]
+  - **Social Mobility:** [Can people change their status? How? What blocks them?]
+  - **Information Control:** [What knowledge is restricted, by whom, and what the penalty is for sharing it]
+
+  ## Key Location Profiles with Sensory Palettes
+
+  For each major location where scenes take place, provide a complete sensory profile ready for direct use in prose generation.
+
+  ### [Primary Location Name]
+  **Physical Description:**
+  - **First Impression:** [What strikes someone seeing it for the first time — the one detail that defines this place]
+  - **Architectural Character:** [Building styles, age, condition, materials]
+  - **Layout & Scale:** [How spaces are organized, size, density]
+
+  **Sensory Palette:**
+  - **Sights:** [Specific visual details — colors, light quality, textures, movement patterns]
+  - **Sounds:** [Ambient noise, distinctive sounds, silence patterns — be specific: "the hum of fluorescent lights" not "city sounds"]
+  - **Smells:** [Dominant scents and undertones — "damp concrete and frying garlic" not "urban smells"]
+  - **Touch/Temperature:** [Air quality, surface textures, temperature, humidity]
+  - **Taste (if relevant):** [What the air or local food/drink tastes like]
+
+  **Time-of-Day Variations:**
+  - **Morning:** [How this place looks, sounds, smells in early hours]
+  - **Midday:** [Peak activity — sensory differences from morning]
+  - **Evening/Night:** [How atmosphere shifts — lighting, sounds, who's present]
+
+  **Mood & Atmosphere:**
+  - **Emotional Signature:** [The default feeling of being in this space — claustrophobic, serene, charged, melancholic]
+  - **Thematic Resonance:** [How this location embodies or challenges the story's themes]
+  - **Character Associations:** [Which characters have history here, and how the place reflects them]
+
+  **Story Function:**
+  - **Plot Significance:** [Why important events happen here — what the location enables]
+  - **Conflict Opportunities:** [What kinds of problems naturally arise in this setting]
+  - **Scene Types:** [What kinds of scenes work best here — confrontation, intimacy, revelation, action]
+
+  ### [Secondary Location Name]
+  [Same full structure — every recurring location needs a sensory palette]
+
+  ### [Tertiary Location]
+  [Abbreviated: First Impression, Sensory Palette (3 senses), Emotional Signature, Story Function]
+
+  ## Daily Life & Material Culture
+
+  These details make the world feel inhabited. They provide texture for scenes and grounding for character behavior.
+
+  **Food & Drink:**
+  - **Common Meals:** [What ordinary people eat at different meals — specific dishes, preparation]
+  - **Class Markers:** [How food differs by social status]
+  - **Social Rituals:** [How eating and drinking function socially — shared meals, toasts, taboos]
+  - **Scarcity & Abundance:** [What's plentiful, what's a luxury, what's rationed]
+
+  **Clothing & Appearance:**
+  - **Standard Dress:** [What most people wear day-to-day — fabrics, cuts, colors]
+  - **Status Signifiers:** [How clothing communicates social position]
+  - **Functional Gear:** [Work clothes, protective wear, specialized equipment]
+  - **Grooming Standards:** [Hair, body modification, personal presentation norms]
+
+  **Work & Economy:**
+  - **Common Occupations:** [What most people do for a living]
+  - **Currency & Exchange:** [How trade works — coins, barter, credit, digital]
+  - **Work Rhythms:** [When people work, how long, what rest looks like]
+  - **Economic Pressures:** [What financial stresses affect daily decisions]
+
+  **Social Interaction:**
+  - **Greetings & Farewells:** [How people acknowledge each other — handshake, bow, nod, specific phrases]
+  - **Forms of Address:** [How people address each other based on relationship, status, context]
+  - **Personal Space & Touch:** [Cultural norms about physical proximity and contact]
+  - **Conflict Conventions:** [How disagreements are handled — direct confrontation, passive aggression, formal mediation]
+
+  **Leisure & Ritual:**
+  - **Entertainment:** [How people relax — games, stories, music, sports, substances]
+  - **Celebrations:** [Major holidays, personal milestones, community events]
+  - **Mourning & Grief:** [How loss is handled publicly and privately]
+  - **Spiritual Practice:** [Daily or weekly observances, superstitions, small rituals]
+
   ## Cultural & Social Architecture
 
-  ### Social Structure Design
-  **Power Dynamics:**
+  ### Power Dynamics
   - **Authority Systems:** [Who holds power and how it's exercised]
   - **Class/Economic Stratification:** [Social layers and mobility between them]
   - **Professional Hierarchies:** [Work structures that affect character interactions]
   - **Gender/Age Dynamics:** [Social expectations based on demographics]
   - **Outsider/Insider Status:** [How belonging and exclusion work in this world]
 
-  **Institutional Framework:**
+  ### Institutional Framework
   - **Government Structure:** [How official power operates]
   - **Legal System:** [Laws, enforcement, justice mechanisms]
   - **Educational System:** [How knowledge is transmitted and controlled]
   - **Religious/Spiritual Institutions:** [Belief systems and their social influence]
   - **Economic Institutions:** [How money, trade, and resources flow]
 
-  ### Daily Life Texture
-
-  **Routine & Rhythm:**
-  - **Daily Schedules:** [How people structure their time]
-  - **Weekly/Seasonal Patterns:** [Longer rhythms that shape life]
-  - **Work Patterns:** [How people earn living and what this reveals about society]
-  - **Social Gatherings:** [How and when people come together]
-  - **Privacy vs. Community:** [Balance between individual and group life]
-
-  **Material Culture:**
-  - **Architecture & Housing:** [How buildings reflect values and practical needs]
-  - **Clothing & Fashion:** [How people present themselves and what it signifies]
-  - **Food & Drink:** [What people eat, how it's prepared, what it means socially]
-  - **Transportation:** [How people and goods move]
-  - **Technology & Tools:** [What's available and how it shapes daily life]
-
-  **Communication & Information:**
-  - **Language Patterns:** [How people speak, regional/class dialects]
-  - **Information Flow:** [How news, gossip, knowledge travels]
-  - **Written Culture:** [Literacy levels, what gets written down]
-  - **Art & Entertainment:** [How people express creativity and find pleasure]
-
-  ## Key Location Profiles
-
-  ### [Primary Location Name]
-  **Physical Description:**
-  - **Overall Appearance:** [What strikes someone seeing it for the first time]
-  - **Architectural Character:** [Building styles, age, condition]
-  - **Layout & Geography:** [How spaces are organized and why]
-  - **Scale & Population:** [Size and density that affects atmosphere]
-
-  **Cultural Significance:**
-  - **Historical Importance:** [Why this place matters and what happened here]
-  - **Current Function:** [How it's used now and by whom]
-  - **Social Dynamics:** [Who belongs here, who doesn't, and why]
-  - **Economic Role:** [How this place fits into broader economic patterns]
-
-  **Atmospheric Qualities:**
-  - **Mood & Feeling:** [The emotional impact of being in this space]
-  - **Sensory Details:** [Specific sights, sounds, smells that make it real]
-  - **Time of Day Variations:** [How it changes from morning to night]
-  - **Seasonal Changes:** [How weather and time affect its character]
-
-  **Story Function:**
-  - **Plot Significance:** [Why important story events happen here]
-  - **Character Connections:** [Which characters have history with this place]
-  - **Thematic Resonance:** [How this location embodies or challenges the story's themes]
-  - **Conflict Opportunities:** [What kinds of problems naturally arise here]
-
-  ### [Secondary Location Name]
-  [Abbreviated version focusing on distinctive features and story function]
-
-  ## World Rules & Constraints
-
-  ### Physical Laws & Limitations
-  **Natural World Rules:**
-  - **Environmental Constraints:** [What the natural world makes difficult or impossible]
-  - **Seasonal Limitations:** [How weather and climate affect plot possibilities]
-  - **Geographic Barriers:** [Mountains, rivers, distances that shape story]
-  - **Resource Scarcities:** [What's hard to get and how this creates conflict]
-
-  **Technological Boundaries:**
-  - **Available Technology:** [What tools and capabilities exist]
-  - **Missing Technology:** [What doesn't exist that modern readers might expect]
-  - **Technology Access:** [Who can use what, and how it's controlled]
-  - **Innovation Pace:** [How quickly things change and who drives change]
-
-  ### Social Rules & Cultural Laws
-
-  **Behavioral Expectations:**
-  - **Social Etiquette:** [Unwritten rules that govern interaction]
-  - **Cultural Taboos:** [What's forbidden and what happens if violated]
-  - **Ritual & Ceremony:** [Formal occasions and their significance]
-  - **Hospitality Codes:** [How strangers and guests are treated]
-
-  **Power & Authority Constraints:**
-  - **Legal Boundaries:** [What the law allows and forbids]
-  - **Social Mobility Rules:** [How people can (or can't) change their status]
-  - **Information Control:** [What knowledge is restricted and by whom]
-  - **Economic Limitations:** [What money can and can't do in this world]
-
-  ## Atmosphere & Mood Creation
+  ## Atmosphere & Mood Toolkit
 
   **Environmental Mood Tools:**
-  - **Weather as Story Element:** [How to use climate to enhance scenes]
-  - **Light & Shadow:** [How illumination affects atmosphere and revelation]
-  - **Space & Scale:** [How size relationships create feelings]
-  - **Color & Texture:** [Visual elements that support emotional tone]
+  - **Weather as Story Element:** [Specific weather patterns to use for emotional enhancement — not generic, tied to this world's climate]
+  - **Light & Shadow:** [How illumination works in this world and how to use it for atmosphere]
+  - **Space & Scale:** [Claustrophobic interiors vs. overwhelming landscapes — what this world offers]
+  - **Color Palette:** [Dominant colors in this world and what they signify]
 
   **Cultural Mood Elements:**
   - **Social Tension Points:** [Where cultural conflicts create atmospheric pressure]
@@ -211,19 +249,14 @@ user_prompt_template: |
   ## Writer's World-Building Toolkit
 
   **Consistency Maintenance:**
-  - **World Logic Checklist:** [Rules to follow for internal consistency]
-  - **Detail Tracking:** [What to remember about established world elements]
-  - **Research Integration Points:** [Where to weave in authentic historical/cultural details]
+  - **World Logic Checklist:** [Rules to follow for internal consistency — reference the Rules Engine section]
+  - **Distance/Time Reference:** [Quick-lookup travel times between major locations]
+  - **Technology/Magic Limits:** [What characters cannot do, summarized for quick reference]
 
   **Scene Enhancement Techniques:**
-  - **Setting as Plot Device:** [How to use environment to advance story]
-  - **Atmosphere Intensification:** [Techniques for deepening mood through setting]
-  - **Character-Environment Interaction:** [How characters should relate to their world]
-
-  **Expansion Guidelines:**
-  - **Detail Addition Priorities:** [What world elements to develop first when expanding]
-  - **Authenticity Preservation:** [How to add details without losing consistency]
-  - **Reader Orientation:** [How much world information to provide when]
+  - **Setting as Plot Device:** [How to use environment to advance story naturally]
+  - **Grounding Details:** [The 2-3 sensory details to include in any scene set in this world to keep it feeling real]
+  - **Character-Environment Interaction:** [How different characters relate to the same spaces differently]
 
   INSTRUCTIONS FOR INCOMPLETE INFORMATION:
   When the book bible lacks specific setting details:
@@ -232,6 +265,7 @@ user_prompt_template: |
   3. Create settings that enhance character psychology and support plot needs
   4. Build cultural details that feel authentic to the established tone and period
   5. Ensure every world-building element serves story function rather than decoration
+  6. Populate the Proper Noun Registry with at least 8-12 place names and any invented terms, even if the bible only names a few
 
   Ground all fictional elements in research-based authenticity while ensuring every detail enhances the story's emotional and thematic impact.
 
@@ -243,13 +277,19 @@ validation_rules:
   - "Must provide specific, sensory details that help writers create vivid scenes"
   - "Should extrapolate intelligently from genre, tone, and reference works when details are sparse"
   - "Settings must feel lived-in and historically grounded, not artificially constructed"
+  - "Must include a complete Proper Noun Registry with all invented names and terms"
+  - "Must include a World Rules Engine with hard constraints"
+  - "Must include Sensory Palettes for every key location"
+  - "Must include Daily Life details for scene grounding"
 
 output_format: "markdown"
 expected_sections:
+  - "Proper Noun Registry"
   - "Setting Foundation Analysis"
   - "Primary Setting Architecture"
+  - "World Rules Engine"
+  - "Key Location Profiles with Sensory Palettes"
+  - "Daily Life & Material Culture"
   - "Cultural & Social Architecture"
-  - "Key Location Profiles"
-  - "World Rules & Constraints"
-  - "Atmosphere & Mood Creation"
-  - "Writer's World-Building Toolkit" 
+  - "Atmosphere & Mood Toolkit"
+  - "Writer's World-Building Toolkit"

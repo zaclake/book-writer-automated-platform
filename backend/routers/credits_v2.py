@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 # Robust auth import to work in both /app and /app/backend execution contexts
 try:
     from backend.auth_middleware import verify_token
-except ImportError:
+except Exception:
     from auth_middleware import verify_token
 
 # Import credit services
@@ -130,10 +130,13 @@ def get_pricing_registry_instance():
         return get_pricing_registry(db_adapter.firestore)
     return None
 
-def check_credits_feature_enabled():
+def credits_feature_enabled() -> bool:
     """Check if credits feature is enabled."""
-    enabled = os.getenv('ENABLE_CREDITS_SYSTEM', 'false').lower() == 'true'
-    if not enabled:
+    return os.getenv('ENABLE_CREDITS_SYSTEM', 'false').lower() == 'true'
+
+def check_credits_feature_enabled():
+    """Raise when credits are disabled (legacy behavior)."""
+    if not credits_feature_enabled():
         raise HTTPException(
             status_code=501,
             detail="Credits system is not enabled on this server"
@@ -159,7 +162,14 @@ async def get_balance(
     """
     Get current credit balance for the authenticated user.
     """
-    check_credits_feature_enabled()
+    if not credits_feature_enabled():
+        now = datetime.now(timezone.utc)
+        return BalanceResponse(
+            balance=0,
+            pending_debits=0,
+            available_balance=0,
+            last_updated=now
+        )
     
     try:
         user_id = user_info['user_id']
@@ -223,7 +233,8 @@ async def get_transactions(
     """
     Get transaction history for the authenticated user.
     """
-    check_credits_feature_enabled()
+    if not credits_feature_enabled():
+        return TransactionListResponse(transactions=[], has_more=False, next_cursor=None)
     
     try:
         user_id = user_info['user_id']
@@ -293,7 +304,13 @@ async def estimate_credits(request: EstimateRequest):
     """
     Estimate credits required for an operation.
     """
-    check_credits_feature_enabled()
+    if not credits_feature_enabled():
+        return EstimateResponse(
+            estimated_credits=0,
+            estimated_cost_usd=0.0,
+            markup_applied=1.0,
+            calculation_details={"credits_disabled": True}
+        )
     
     try:
         # Get pricing registry
@@ -363,6 +380,14 @@ async def grant_credits(
     """
     Grant credits to a user (admin only).
     """
+    if not credits_feature_enabled():
+        return {
+            "success": True,
+            "transaction_id": None,
+            "amount_granted": 0,
+            "new_balance": 0,
+            "message": "Credits system disabled"
+        }
     check_credits_feature_enabled()
     check_admin_permissions(user_info)
     
@@ -426,6 +451,11 @@ async def purchase_credits(
     """
     Purchase credits (stub for future Stripe integration).
     """
+    if not credits_feature_enabled():
+        return {
+            "success": True,
+            "message": "Credits system disabled"
+        }
     check_credits_feature_enabled()
     
     # This is a stub endpoint for future Stripe integration
@@ -446,6 +476,13 @@ async def get_pricing_info(
     """
     Get current pricing information (admin only).
     """
+    if not credits_feature_enabled():
+        return {
+            "pricing": {},
+            "credit_conversion_rate": 100,
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "credits_disabled": True
+        }
     check_credits_feature_enabled()
     check_admin_permissions(user_info)
     
@@ -461,7 +498,9 @@ async def get_pricing_info(
         # Get current pricing for common models
         models = [
             ('openai', 'gpt-4o'),
+            ('openai', 'gpt-4o'),
             ('openai', 'gpt-4o-mini'),
+            ('openai', 'gpt-image-1'),
             ('openai', 'dall-e-3'),
             ('replicate', 'stable-diffusion-3')
         ]
@@ -504,6 +543,13 @@ async def initialize_beta_credits(
     """
     Initialize beta credits for the authenticated user (controlled by ENABLE_BETA_CREDITS env).
     """
+    if not credits_feature_enabled():
+        return {
+            "success": True,
+            "credits_granted": 0,
+            "new_balance": 0,
+            "message": "Credits system disabled"
+        }
     check_credits_feature_enabled()
     
     try:

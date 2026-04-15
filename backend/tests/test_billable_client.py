@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from fastapi import HTTPException
 
 from backend.services.billable_client import (
     BillableOpenAIClient,
@@ -123,8 +122,8 @@ async def test_chat_completion_billing_flow(mock_pricing_registry, mock_credits_
 
 
 @pytest.mark.asyncio
-async def test_insufficient_credits_raises_http_402(mock_pricing_registry, mock_credits_service):
-    """Test that insufficient credits raises HTTPException with 402 status."""
+async def test_insufficient_credits_returns_zero_charged(mock_pricing_registry, mock_credits_service):
+    """Test that insufficient credits does not block requests."""
     user_id = "test_user_123"
     
     # Mock credit calculation
@@ -143,7 +142,11 @@ async def test_insufficient_credits_raises_http_402(mock_pricing_registry, mock_
     
     with patch('backend.services.billable_client.OpenAI') as mock_openai_class:
         mock_openai_instance = Mock()
-        mock_openai_instance.chat.completions.create.return_value = Mock()
+        mock_openai_response = Mock()
+        mock_openai_response.usage.prompt_tokens = 10
+        mock_openai_response.usage.completion_tokens = 5
+        mock_openai_response.usage.total_tokens = 15
+        mock_openai_instance.chat.completions.create.return_value = mock_openai_response
         mock_openai_class.return_value = mock_openai_instance
         
         client = BillableOpenAIClient(
@@ -154,16 +157,14 @@ async def test_insufficient_credits_raises_http_402(mock_pricing_registry, mock_
             enable_billing=True
         )
         
-        # Should raise HTTPException with 402 status
-        with pytest.raises(HTTPException) as exc_info:
-            await client.chat_completions_create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": "Test"}]
-            )
+        result = await client.chat_completions_create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "Test"}]
+        )
         
-        assert exc_info.value.status_code == 402
-        assert exc_info.value.detail["error"] == "INSUFFICIENT_CREDITS"
-        assert exc_info.value.detail["user_id"] == user_id
+        assert isinstance(result, BillableResponse)
+        assert result.credits_charged == 0
+        assert result.transaction_id is None
 
 
 @pytest.mark.asyncio
@@ -207,7 +208,7 @@ async def test_image_generation_billing(mock_pricing_registry, mock_credits_serv
         
         # Make image generation call
         result = await client.images_generate(
-            model="dall-e-3",
+            model="gpt-image-1",
             prompt="A test image",
             n=1,
             size="1024x1024"
@@ -215,10 +216,10 @@ async def test_image_generation_billing(mock_pricing_registry, mock_credits_serv
         
         # Verify billing was called correctly
         mock_pricing_registry.calculate_credits.assert_called_once_with(
-            'openai', 'dall-e-3',
+            'openai', 'gpt-image-1',
             {
                 'job_count': 1,
-                'model': 'dall-e-3',
+                'model': 'gpt-image-1',
                 'size': '1024x1024',
                 'quality': 'standard'
             }
@@ -228,7 +229,7 @@ async def test_image_generation_billing(mock_pricing_registry, mock_credits_serv
         assert isinstance(result, BillableResponse)
         assert result.credits_charged == 20
         assert result.provider == "openai"
-        assert result.model == "dall-e-3"
+        assert result.model == "gpt-image-1"
 
 
 @pytest.mark.asyncio
@@ -307,7 +308,7 @@ async def test_token_counting_accuracy():
 async def test_image_estimation():
     """Test image generation credit estimation."""
     user_id = "test_user_123"
-    model = "dall-e-3"
+    model = "gpt-image-1"
     count = 2
     
     # Mock pricing registry

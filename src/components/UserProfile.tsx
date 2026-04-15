@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAuth, useUser } from '@clerk/nextjs'
+import { useAuthToken } from '@/lib/auth'
 import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -45,14 +45,14 @@ interface UsageData {
 }
 
 export default function UserProfile() {
-  const { user, isLoaded } = useUser()
-  const { getToken } = useAuth()
+  const { getAuthHeaders, user, isLoaded } = useAuthToken()
   const searchParams = useSearchParams()
+  const creditsEnabled = process.env.NEXT_PUBLIC_CREDITS_ENABLED === 'true'
   const [profileData, setProfileData] = useState<UserProfileData | null>(null)
   const [usageData, setUsageData] = useState<UsageData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
-  const [isEditing, setIsEditing] = useState(false)
+
   
   // Credits state
   const creditsApi = useCreditsApi()
@@ -62,8 +62,7 @@ export default function UserProfile() {
   const [hasMoreTransactions, setHasMoreTransactions] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | undefined>()
   
-  // Get active tab from URL params
-  const activeTab = searchParams.get('tab') || 'profile'
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile')
 
   useEffect(() => {
     if (isLoaded) {
@@ -74,11 +73,11 @@ export default function UserProfile() {
   const fetchProfileData = async () => {
     try {
       setIsLoading(true)
-      const token = await getToken()
-      
+      const authHeaders = await getAuthHeaders()
+
       const response = await fetch('/api/users/v2/onboarding', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
           'Content-Type': 'application/json'
         }
       })
@@ -124,10 +123,11 @@ export default function UserProfile() {
 
   // Load transactions when Credits tab is active
   useEffect(() => {
+    if (!creditsEnabled) return
     if (activeTab === 'credits' && user) {
       loadTransactions()
     }
-  }, [activeTab, user])
+  }, [activeTab, user, creditsEnabled])
 
   const getPurposeIcon = (purpose: string) => {
     switch (purpose) {
@@ -201,10 +201,10 @@ export default function UserProfile() {
     return reasonMap[reason] || reason.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
   }
 
-  if (!isLoaded || isLoading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-brand-off-white py-8">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 lg:px-12">
           <div className="animate-pulse space-y-6">
             <div className="h-32 bg-gray-200 rounded-xl"></div>
             <div className="grid md:grid-cols-2 gap-6">
@@ -217,59 +217,47 @@ export default function UserProfile() {
     )
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-brand-off-white flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Please Sign In</h1>
-          <p className="text-gray-600">You need to be signed in to view your profile.</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-brand-off-white py-8">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-brand-off-white py-6 sm:py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 lg:px-12">
         {/* Profile Header */}
         <Card className="mb-8 overflow-hidden">
           <div className="bg-gradient-to-r from-brand-soft-purple via-brand-lavender to-brand-forest px-6 py-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center space-x-4">
-                <div className="w-20 h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-                  <span className="text-3xl font-bold text-white">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                  <span className="text-2xl sm:text-3xl font-bold text-white">
                     {user.firstName?.charAt(0) || user.emailAddresses[0]?.emailAddress.charAt(0) || 'U'}
                   </span>
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-white">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white">
                     {user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user.emailAddresses[0]?.emailAddress || 'User'}
                   </h1>
                   <p className="text-white text-opacity-90 text-lg">
                     {profileData ? getExperienceLevel(profileData.writing_experience) + ' Writer' : 'Writer'}
                   </p>
-                  <p className="text-white text-opacity-80 text-sm">
-                    Member since {new Date(user.createdAt || Date.now()).toLocaleDateString()}
-                  </p>
+                  {user.createdAt && (
+                    <p className="text-white text-opacity-80 text-sm">
+                      Member since {new Date(user.createdAt).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
               </div>
-              <Button 
-                variant="outline" 
-                className="bg-white bg-opacity-20 border-white border-opacity-30 text-white hover:bg-white hover:bg-opacity-30"
-                onClick={() => setIsEditing(!isEditing)}
-              >
-                <PencilIcon className="w-4 h-4 mr-2" />
-                Edit Profile
-              </Button>
+              {error && (
+                <div className="px-4 py-2 bg-red-100 border border-red-200 rounded-lg text-sm text-red-800">
+                  {error}
+                </div>
+              )}
             </div>
           </div>
         </Card>
 
         {/* Tabbed Content */}
-        <Tabs value={activeTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+        <Tabs value={activeTab} onValueChange={(tab: string) => setActiveTab(tab)} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
             <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="credits">Credits</TabsTrigger>
+            {creditsEnabled && <TabsTrigger value="credits">Credits</TabsTrigger>}
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
@@ -362,35 +350,15 @@ export default function UserProfile() {
             </CardContent>
           </Card>
 
-              {/* Usage Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <ChartBarIcon className="w-5 h-5 mr-2 text-brand-soft-purple" />
-                    Usage Stats
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-3 bg-brand-sand/20 rounded-lg">
-                      <div className="text-lg font-bold text-brand-forest">--</div>
-                      <div className="text-xs text-gray-600">Chapters Generated</div>
-                    </div>
-                    <div className="text-center p-3 bg-brand-sand/20 rounded-lg">
-                      <div className="text-lg font-bold text-brand-forest">--</div>
-                      <div className="text-xs text-gray-600">Words Written</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             </div>
           </TabsContent>
 
           {/* Credits Tab */}
+          {creditsEnabled && (
           <TabsContent value="credits">
             <div className="space-y-6">
               {/* Credit Balance Overview */}
-              <div className="grid md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="md:col-span-2">
                   <CreditBalance variant="full" />
                 </div>
@@ -496,6 +464,7 @@ export default function UserProfile() {
               </Card>
             </div>
           </TabsContent>
+          )}
 
           {/* Account Tab */}
           <TabsContent value="account">

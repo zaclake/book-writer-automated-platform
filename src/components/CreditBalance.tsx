@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useUser } from '@clerk/nextjs'
 import { Zap, Plus, AlertCircle, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useAuthToken } from '@/lib/auth'
 import { showBuyCreditsModal } from '@/components/BuyCreditsModal'
 import { toast } from 'sonner'
-import apiClient from '@/lib/apiClient'
+import { fetchApi } from '@/lib/api-client'
 
 export interface CreditBalance {
   balance: number
@@ -24,35 +23,41 @@ export interface CreditBalanceProps {
   className?: string
 }
 
-export function CreditBalance({ 
-  variant = 'compact', 
-  showActions = true, 
-  className = '' 
+export function CreditBalance({
+  variant = 'compact',
+  showActions = true,
+  className = ''
 }: CreditBalanceProps) {
-  const { user } = useUser()
-  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
+  const { getAuthHeaders, isLoaded, isSignedIn, user } = useAuthToken()
   const [balance, setBalance] = useState<CreditBalance | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [authFailed, setAuthFailed] = useState(false)
+  const creditsEnabled = process.env.NEXT_PUBLIC_CREDITS_ENABLED === 'true'
 
   useEffect(() => {
-    if (!user) {
+    if (!creditsEnabled) {
       setLoading(false)
-      setAuthFailed(false) // Reset auth failure state when user changes
+      setAuthFailed(false)
       return
     }
 
-    setAuthFailed(false) // Reset auth failure state for new user
+    if (!isLoaded || !isSignedIn || !user) {
+      setLoading(false)
+      setAuthFailed(false)
+      return
+    }
+
+    setAuthFailed(false)
     loadBalance()
-    
+
     // Set up periodic refresh every 30 seconds, but stop if auth fails
     const interval = setInterval(() => {
       if (!authFailed) {
         loadBalance()
       }
     }, 30000)
-    
+
     // Listen for manual refresh events
     const handleRefresh = () => {
       if (!authFailed) {
@@ -60,23 +65,23 @@ export function CreditBalance({
       }
     }
     window.addEventListener('refreshCreditBalance', handleRefresh)
-    
+
     return () => {
       clearInterval(interval)
       window.removeEventListener('refreshCreditBalance', handleRefresh)
     }
-  }, [user, authFailed])
+  }, [creditsEnabled, isLoaded, isSignedIn, user, authFailed])
 
   const loadBalance = async () => {
     // Don't attempt to load balance if user is not available or not signed in
-    if (!user || !isSignedIn) {
+    if (!creditsEnabled || !isLoaded || !isSignedIn || !user) {
       setLoading(false)
       return
     }
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/v2/credits/balance', { headers: authHeaders })
+      const response = await fetchApi('/api/v2/credits/balance', { headers: authHeaders })
       
       if (response.ok) {
         const data = await response.json()
@@ -94,6 +99,17 @@ export function CreditBalance({
         setLoading(false)
         console.log('Credits: Authentication failed, stopping balance polling')
         return
+      } else if (response.status === 404) {
+        setBalance({
+          balance: 0,
+          pending_debits: 0,
+          available_balance: 0,
+          last_updated: new Date().toISOString()
+        } as any)
+        setError(null)
+      } else if (response.status === 500) {
+        setError('Unable to load credit balance')
+        setBalance(null)
       } else {
         const errorData = await response.json().catch(() => ({} as any))
         setError((errorData as any).error || 'Failed to load balance')
@@ -118,7 +134,7 @@ export function CreditBalance({
 
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/v2/credits/initialize-beta', {
+      const response = await fetchApi('/api/v2/credits/initialize-beta', {
         method: 'POST',
         headers: authHeaders
       })
@@ -150,7 +166,7 @@ export function CreditBalance({
   }
 
   // Don't render if user not loaded or credits system not available
-  if (!user || (!loading && !balance && !error) || authFailed) {
+  if (!creditsEnabled || !user || (!loading && !balance && !error) || authFailed) {
     return null
   }
 
@@ -328,19 +344,20 @@ export function CreditBalance({
 export function useCreditsCheck() {
   const { getAuthHeaders, isSignedIn } = useAuthToken()
   const [balance, setBalance] = useState<CreditBalance | null>(null)
+  const creditsEnabled = process.env.NEXT_PUBLIC_CREDITS_ENABLED === 'true'
 
   useEffect(() => {
-    if (isSignedIn) {
+    if (creditsEnabled && isSignedIn) {
       loadBalance()
     }
-  }, [isSignedIn])
+  }, [creditsEnabled, isSignedIn])
 
   const loadBalance = async () => {
-    if (!isSignedIn) return
+    if (!creditsEnabled || !isSignedIn) return
     
     try {
       const authHeaders = await getAuthHeaders()
-      const response = await fetch('/api/v2/credits/balance', { headers: authHeaders })
+      const response = await fetchApi('/api/v2/credits/balance', { headers: authHeaders })
       
       if (response.ok) {
         const data = await response.json()
@@ -352,11 +369,12 @@ export function useCreditsCheck() {
   }
 
   const checkSufficient = (requiredCredits: number): boolean => {
-    if (!balance) return true // Allow if credits system not available
+    if (!creditsEnabled || !balance) return true
     return balance.available_balance >= requiredCredits
   }
 
   const getAvailableCredits = (): number => {
+    if (!creditsEnabled) return 0
     return balance?.available_balance || 0
   }
 

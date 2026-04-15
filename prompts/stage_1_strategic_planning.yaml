@@ -12,20 +12,26 @@ system_prompt: |
   ENHANCED SYSTEM REQUIREMENTS:
   - Chapter must serve individual story priority (not series setup)
   - Meet word count targets: {target_words} words (+/- 200 acceptable)
-  - Advance plot (minimum 2 significant points)
+  - Advance plot (minimum 2 significant points; Chapter 1 may use 1-2 if it deepens grounding)
   - Follow character development toolkit requirements
   - Include research accuracy planning for technical elements
   - Stay within theme repetition limits
   
-  OUTPUT FORMAT:
-  Provide a structured blueprint with these sections:
-  1. EMOTIONAL ARC MAPPING
-  2. CONFLICT LAYER IDENTIFICATION  
-  3. CHARACTER FUNCTION DEFINITIONS
-  4. PLOT ADVANCEMENT SPECIFICATIONS
-  5. THEMATIC INTEGRATION PLAN
-  6. TRANSITION STRATEGY
-  7. WORD COUNT BREAKDOWN
+  OUTPUT FORMAT (use clear headings, short paragraphs):
+  1) Chapter Intent (1 short paragraph: what this chapter *does* in the story, not marketing copy)
+  2) Opening Onramp Plan (how to start in-scene without summary/voiceover; what the reader should see/hear/feel first)
+  3) Scene Cards (2-5 scenes; write them as scene-level payloads the draft can directly execute)
+     - Scene Function (setup/escalation/reveal/reversal/payoff)
+     - Goal (what the POV character wants *in the scene*)
+     - Friction (what makes it hard right now)
+     - Choice (the decision or action taken under pressure)
+     - Outcome (what changes by the end of the scene)
+     - Consequence (cost/gain/new obligation)
+     - Concrete Anchors (2-4 specifics: locations/objects/actions; must already exist in the project materials or be logically implied)
+     - Micro-Observation + Inference Beat (one concrete observation + one short judgment line the draft can use)
+     - Emotional Beat (what the reader should feel; showable, not abstract labels)
+  4) End-State & Next Pressure (how the chapter ends: specific unresolved obligation/question/constraint)
+  5) Guardrails (avoid repeated onboarding beats; avoid trailer voice; keep scene time; confirm word-count budget allocation)
 
 user_prompt: |
   Design the strategic blueprint for Chapter {chapter_number} of this {genre} novel.
@@ -48,14 +54,20 @@ user_prompt: |
   - Develop these characters: {focus_characters}
   - Build toward: {chapter_climax_goal}
   
+  POV REQUIREMENTS:
+  - Character: {pov_character}
+  - Type: {pov_type}
+  - Notes: {pov_notes}
+  - Bridge requirements: {bridge_requirements}
+  
   Create a comprehensive strategic blueprint that ensures this chapter:
   1. Maps emotional journey from opening to close
   2. Identifies 2-3 tension layers operating simultaneously
   3. Defines what each character accomplishes
-  4. Specifies exactly how story moves forward (min 2 plot points)
+  4. Specifies exactly how story moves forward (min 2 plot points; Chapter 1 may use 1-2)
   5. Ensures thematic meaning emerges naturally
   6. Plans seamless transitions to/from other chapters
-  7. Breaks down content (40% dialogue, 35% action, 25% internal)
+  7. Breaks down content (approximate, not rigid; ensure scene-time dramatization is the majority)
   
   Focus on creating architecture that serves the larger story perfectly.
 
@@ -82,6 +94,10 @@ variables:
     - character_requirements
     - plot_requirements
     - theme_repetition_limits
+    - pov_character
+    - pov_type
+    - pov_notes
+    - bridge_requirements
 
 output_format: "structured_blueprint"
 max_tokens: 2000

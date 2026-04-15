@@ -22,7 +22,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Write Chapter - Integrated Generation & Assessment")
     parser.add_argument("--chapter", type=int, required=True, help="Chapter number to generate")
-    parser.add_argument("--model", default="gpt-4o", help="OpenAI model to use")
+    parser.add_argument("--model", default="gpt-5.2-pro", help="OpenAI model to use")
     parser.add_argument("--words", type=int, default=3800, help="Target word count")
     parser.add_argument("--stage", default="complete", choices=["spike", "complete", "5-stage"], 
                        help="Generation stage")

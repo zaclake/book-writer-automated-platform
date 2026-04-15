@@ -36,10 +36,16 @@ export default function FirebaseClientDebugPage() {
   }, [])
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <h2>Firebase Client Debug</h2>
-      <pre>{JSON.stringify({ config, initError }, null, 2)}</pre>
-      <p>Open the browser console for full logs.</p>
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 md:px-8">
+        <div className="bg-white rounded-lg shadow p-6 sm:p-8">
+          <h2 className="text-2xl font-bold text-gray-900">Firebase Client Debug</h2>
+          <pre className="mt-4 rounded-lg bg-gray-100 p-4 text-sm overflow-auto">
+            {JSON.stringify({ config, initError }, null, 2)}
+          </pre>
+          <p className="mt-4 text-sm text-gray-600">Open the browser console for full logs.</p>
+        </div>
+      </div>
     </div>
   )
 } 

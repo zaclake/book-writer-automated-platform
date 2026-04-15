@@ -4,12 +4,11 @@ from unittest.mock import Mock, MagicMock, AsyncMock
 from datetime import datetime, timezone
 
 from backend.services.credits_service import (
-    CreditsService, 
-    CreditTransaction, 
+    CreditsService,
+    CreditTransaction,
     CreditBalance,
-    TransactionType, 
-    TransactionStatus,
-    InsufficientCreditsError
+    TransactionType,
+    TransactionStatus
 )
 
 
@@ -113,8 +112,8 @@ async def test_add_credits_atomic_transaction(credits_service, mock_firestore_se
 
 
 @pytest.mark.asyncio
-async def test_deduct_credits_insufficient_balance_raises_error(credits_service, mock_firestore_service):
-    """Test that deduct_credits raises InsufficientCreditsError when balance too low."""
+async def test_deduct_credits_allows_overdraft_when_limits_disabled(credits_service, mock_firestore_service):
+    """Test that deduct_credits allows overdraft when limits are disabled."""
     user_id = "test_user_123"
     amount = 1000  # More than available balance
     reason = "test_deduction"
@@ -142,13 +141,13 @@ async def test_deduct_credits_insufficient_balance_raises_error(credits_service,
     
     mock_firestore_service.db.transactional = mock_transactional
     
-    # Should raise InsufficientCreditsError
-    with pytest.raises(InsufficientCreditsError) as exc_info:
-        await credits_service.deduct_credits(user_id, amount, reason)
+    result = await credits_service.deduct_credits(user_id, amount, reason)
     
-    assert exc_info.value.required == amount
-    assert exc_info.value.available == 100
-    assert exc_info.value.user_id == user_id
+    assert result is not None
+    assert result.amount == amount
+    assert result.type == TransactionType.DEBIT
+    assert result.status == TransactionStatus.COMPLETED
+    assert result.balance_after == -900  # 100 - 1000
 
 
 @pytest.mark.asyncio

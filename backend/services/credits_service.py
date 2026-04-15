@@ -5,16 +5,19 @@ Manages user credit balances with transaction-safe operations and provisional de
 """
 
 import logging
+import os
 import uuid
 import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Optional, Any, List
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from dataclasses import dataclass
 from enum import Enum
 import json
 
 logger = logging.getLogger(__name__)
+_CREDIT_LIMITS_LOGGED = False
 
 class TransactionType(Enum):
     """Credit transaction types."""
@@ -74,13 +77,26 @@ class CreditsService:
         """Initialize the credits service."""
         self.firestore_service = firestore_service
         self._available = firestore_service and firestore_service.available
+        self._limits_enabled = False
         
         if not self._available:
             logger.warning("CreditsService initialized without Firestore - credits system disabled")
+        if not self._limits_enabled:
+            global _CREDIT_LIMITS_LOGGED
+            if not _CREDIT_LIMITS_LOGGED:
+                _CREDIT_LIMITS_LOGGED = True
+                if os.getenv("LOG_CREDITS_LIMITS", "false").lower() == "true":
+                    logger.info("Credit limits are disabled - overdrafts allowed")
+                else:
+                    logger.debug("Credit limits are disabled - overdrafts allowed")
     
     def is_available(self) -> bool:
         """Check if credits service is available."""
         return self._available
+
+    def limits_enabled(self) -> bool:
+        """Return True if credit limits are enforced."""
+        return self._limits_enabled
     
     async def get_balance(self, user_id: str) -> Optional[CreditBalance]:
         """
@@ -126,8 +142,8 @@ class CreditsService:
             # Query for pending provisional debits
             query = self.firestore_service.db.collection('users').document(user_id)\
                         .collection('credits_transactions')\
-                        .where('type', '==', TransactionType.PROVISIONAL_DEBIT.value)\
-                        .where('status', '==', TransactionStatus.PENDING.value)
+                        .where(filter=FieldFilter('type', '==', TransactionType.PROVISIONAL_DEBIT.value))\
+                        .where(filter=FieldFilter('status', '==', TransactionStatus.PENDING.value))
             
             docs = await asyncio.get_event_loop().run_in_executor(None, lambda: list(query.stream()))
             
@@ -177,13 +193,21 @@ class CreditsService:
                 # Get current user document
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
                 user_doc = user_ref.get(transaction=transaction)
-                
+
                 if not user_doc.exists:
-                    raise ValueError(f"User {user_id} not found")
-                
-                user_data = user_doc.to_dict()
-                credits_data = user_data.get('credits', {})
-                current_balance = credits_data.get('balance', 0)
+                    # Initialize missing user document with zero balance
+                    transaction.set(user_ref, {
+                        'credits': {
+                            'balance': 0,
+                            'last_updated': now,
+                            'created_at': now
+                        }
+                    }, merge=True)
+                    current_balance = 0
+                else:
+                    user_data = user_doc.to_dict()
+                    credits_data = user_data.get('credits', {})
+                    current_balance = credits_data.get('balance', 0)
                 new_balance = current_balance + amount
                 
                 # Update user balance
@@ -261,6 +285,9 @@ class CreditsService:
         
         if amount <= 0:
             raise ValueError("Debit amount must be positive")
+
+        if not self._limits_enabled:
+            allow_overdraft = True
         
         try:
             txn_id = str(uuid.uuid4())
@@ -279,16 +306,24 @@ class CreditsService:
                 # Get current user document
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
                 user_doc = user_ref.get(transaction=transaction)
-                
+
                 if not user_doc.exists:
-                    raise ValueError(f"User {user_id} not found")
-                
-                user_data = user_doc.to_dict()
-                credits_data = user_data.get('credits', {})
-                current_balance = credits_data.get('balance', 0)
+                    # Initialize missing user document with zero balance
+                    transaction.set(user_ref, {
+                        'credits': {
+                            'balance': 0,
+                            'last_updated': now,
+                            'created_at': now
+                        }
+                    }, merge=True)
+                    current_balance = 0
+                else:
+                    user_data = user_doc.to_dict()
+                    credits_data = user_data.get('credits', {})
+                    current_balance = credits_data.get('balance', 0)
                 
                 # Check for sufficient credits
-                if not allow_overdraft and current_balance < amount:
+                if self._limits_enabled and not allow_overdraft and current_balance < amount:
                     raise InsufficientCreditsError(amount, current_balance, user_id)
                 
                 new_balance = current_balance - amount
@@ -387,18 +422,26 @@ class CreditsService:
                 # Get current user document
                 user_ref = self.firestore_service.db.collection('users').document(user_id)
                 user_doc = user_ref.get(transaction=transaction)
-                
+
                 if not user_doc.exists:
-                    raise ValueError(f"User {user_id} not found")
-                
-                user_data = user_doc.to_dict()
-                credits_data = user_data.get('credits', {})
-                current_balance = credits_data.get('balance', 0)
+                    # Initialize missing user document with zero balance
+                    transaction.set(user_ref, {
+                        'credits': {
+                            'balance': 0,
+                            'last_updated': now,
+                            'created_at': now
+                        }
+                    }, merge=True)
+                    current_balance = 0
+                else:
+                    user_data = user_doc.to_dict()
+                    credits_data = user_data.get('credits', {})
+                    current_balance = credits_data.get('balance', 0)
                 
                 # Check for sufficient credits (including existing pending debits)
                 # Note: This is a simplified check - in production you might want to
                 # calculate pending debits within the transaction for perfect accuracy
-                if current_balance < amount:
+                if self._limits_enabled and current_balance < amount:
                     raise InsufficientCreditsError(amount, current_balance, user_id)
                 
                 # Create transaction record (no balance change yet)
@@ -487,14 +530,22 @@ class CreditsService:
                 # Get current user balance
                 user_doc = user_ref.get(transaction=transaction)
                 if not user_doc.exists:
-                    raise ValueError(f"User {user_id} not found")
-                
-                user_data = user_doc.to_dict()
-                credits_data = user_data.get('credits', {})
-                current_balance = credits_data.get('balance', 0)
+                    # Initialize missing user document with zero balance
+                    transaction.set(user_ref, {
+                        'credits': {
+                            'balance': 0,
+                            'last_updated': now,
+                            'created_at': now
+                        }
+                    }, merge=True)
+                    current_balance = 0
+                else:
+                    user_data = user_doc.to_dict()
+                    credits_data = user_data.get('credits', {})
+                    current_balance = credits_data.get('balance', 0)
                 
                 # Check for sufficient credits
-                if current_balance < amount_to_deduct:
+                if self._limits_enabled and current_balance < amount_to_deduct:
                     raise InsufficientCreditsError(amount_to_deduct, current_balance, user_id)
                 
                 new_balance = current_balance - amount_to_deduct
@@ -656,7 +707,7 @@ class CreditsService:
         try:
             query = self.firestore_service.db.collection('users').document(user_id)\
                         .collection('credits_transactions')\
-                        .where('dedupe_key', '==', dedupe_key)\
+                        .where(filter=FieldFilter('dedupe_key', '==', dedupe_key))\
                         .limit(1)
             
             docs = await asyncio.get_event_loop().run_in_executor(None, lambda: list(query.stream()))
@@ -703,15 +754,22 @@ class CreditsService:
         
         try:
             now = datetime.now(timezone.utc)
-            
-            # Update user document with credits structure
+
+            # Ensure user document exists and merge in credits fields atomically
             user_ref = self.firestore_service.db.collection('users').document(user_id)
-            await asyncio.get_event_loop().run_in_executor(None, user_ref.update, {
-                'credits.balance': initial_balance,
-                'credits.last_updated': now,
-                'credits.created_at': now
-            })
-            
+
+            def _merge_credits_fields():
+                # Use set(..., merge=True) so it works whether the doc exists or not
+                user_ref.set({
+                    'credits': {
+                        'balance': initial_balance,
+                        'last_updated': now,
+                        'created_at': now
+                    }
+                }, merge=True)
+
+            await asyncio.get_event_loop().run_in_executor(None, _merge_credits_fields)
+
             # If initial balance > 0, create a credit transaction
             if initial_balance > 0:
                 await self.add_credits(
@@ -720,10 +778,10 @@ class CreditsService:
                     reason=reason,
                     meta={'initialization': True}
                 )
-            
+
             logger.info(f"Initialized credits for user {user_id} with balance {initial_balance}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize credits for user {user_id}: {e}")
             return False

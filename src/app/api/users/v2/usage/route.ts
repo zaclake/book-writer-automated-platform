@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth, currentUser } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@/lib/server-auth'
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 

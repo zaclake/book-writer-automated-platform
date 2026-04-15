@@ -7,7 +7,7 @@ Parses quality-gates.yml and provides quality assessment functionality.
 import yaml
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
 
 @dataclass
@@ -50,29 +50,42 @@ class QualityGateValidator:
         """Get critical failure conditions."""
         return self.config.get('critical_failures', {}).get('automatic_failures', [])
     
-    def validate_word_count(self, word_count: int) -> QualityScore:
-        """Validate chapter word count against requirements."""
+    def validate_word_count(
+        self,
+        word_count: int,
+        target_range: Optional[Tuple[int, int]] = None,
+        acceptable_variance: Optional[int] = None,
+        target_words: Optional[int] = None
+    ) -> QualityScore:
+        """Validate chapter word count against requirements or dynamic targets."""
         compliance = self.config['enhanced_system_compliance']['requirements']['word_count_verification']
-        target_range = compliance['target_range_words']
-        variance = compliance['acceptable_variance']
-        
-        min_words = target_range[0] - variance
-        max_words = target_range[1] + variance
-        target_words = sum(target_range) // 2
+
+        if target_range and all(isinstance(val, (int, float)) for val in target_range):
+            min_range, max_range = target_range
+            variance = acceptable_variance if acceptable_variance is not None else max(50, int((max_range - min_range) / 2))
+            min_words = max(0, int(min_range - variance))
+            max_words = int(max_range + variance)
+            resolved_target = target_words if target_words is not None else int((min_range + max_range) / 2)
+        else:
+            target_range = compliance['target_range_words']
+            variance = compliance['acceptable_variance']
+            min_words = target_range[0] - variance
+            max_words = target_range[1] + variance
+            resolved_target = sum(target_range) // 2
         
         # Calculate score based on how close to target
         if min_words <= word_count <= max_words:
             # Perfect score if within range
-            distance_from_target = abs(word_count - target_words)
+            distance_from_target = abs(word_count - resolved_target)
             max_distance = variance
             score = 10.0 - (distance_from_target / max_distance) * 2.0
             score = max(8.0, score)  # Minimum 8.0 if within range
         else:
             # Score decreases with distance outside range
             if word_count < min_words:
-                variance_pct = ((min_words - word_count) / target_words) * 100
+                variance_pct = ((min_words - word_count) / max(1, resolved_target)) * 100
             else:
-                variance_pct = ((word_count - max_words) / target_words) * 100
+                variance_pct = ((word_count - max_words) / max(1, resolved_target)) * 100
             
             if variance_pct <= 5:
                 score = 7.0
@@ -91,23 +104,26 @@ class QualityGateValidator:
             minimum_required=compliance['minimum'],
             target=10.0,
             passed=score >= compliance['minimum'],
-            notes=[f"Word count: {word_count} (target: {target_range[0]}-{target_range[1]})"]
+            notes=[f"Word count: {word_count} (target: {min_words}-{max_words})"]
         )
     
     def check_critical_failures(self, chapter_text: str, metadata: Dict = None) -> List[str]:
         """Check for critical failure conditions."""
         failures = []
-        
-        # Check for em-dash usage
-        if '—' in chapter_text:
-            failures.append("EM-DASH USAGE (—) - Automatic failure")
+        # Em-dash usage is a style choice; do not treat as a critical failure.
         
         # Check word count if metadata provided
         if metadata and 'word_count' in metadata:
             word_count = metadata['word_count']
-            target_range = self.config['enhanced_system_compliance']['requirements']['word_count_verification']['target_range_words']
-            target = sum(target_range) // 2
-            variance_pct = abs(word_count - target) / target * 100
+            target_range = metadata.get('target_range_words')
+            if not (
+                isinstance(target_range, (list, tuple))
+                and len(target_range) == 2
+                and all(isinstance(val, (int, float)) for val in target_range)
+            ):
+                target_range = self.config['enhanced_system_compliance']['requirements']['word_count_verification']['target_range_words']
+            target = int(sum(target_range) // 2)
+            variance_pct = abs(word_count - target) / max(1, target) * 100
             
             if variance_pct > 30:
                 failures.append("Word count more than 30% off target")

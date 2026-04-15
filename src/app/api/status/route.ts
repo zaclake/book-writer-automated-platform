@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
 import { readdirSync, statSync } from 'fs'
 import path from 'path'
 
@@ -7,20 +6,16 @@ export async function GET(request: NextRequest) {
   try {
     const projectRoot = process.cwd()
     
-    // Check API connection
+    // Check backend API connection (avoid Python/OpenAI dependency in Vercel)
     let apiConnection = false
     try {
-      // Test OpenAI API connection with a minimal request
-      const testCommand = `cd "${projectRoot}" && python -c "import openai; client = openai.OpenAI(); print('API connection OK')"`
-      execSync(testCommand, {
-        encoding: 'utf8',
-        timeout: 10000,
-        env: {
-          ...process.env,
-          OPENAI_API_KEY: process.env.OPENAI_API_KEY
-        }
-      })
-      apiConnection = true
+      const backendBaseUrl =
+        process.env.BACKEND_URL?.trim() || process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
+      if (backendBaseUrl) {
+        const healthUrl = `${backendBaseUrl.replace(/\/$/, '')}/health`
+        const response = await fetch(healthUrl, { cache: 'no-store' })
+        apiConnection = response.ok
+      }
     } catch {
       apiConnection = false
     }

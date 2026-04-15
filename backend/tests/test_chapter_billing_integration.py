@@ -4,7 +4,6 @@ from unittest.mock import Mock, AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from backend.main import app
-from backend.services.credits_service import InsufficientCreditsError
 
 
 @pytest.fixture
@@ -121,9 +120,9 @@ async def test_chapter_generation_successful_billing_flow():
 
 
 @pytest.mark.asyncio
-async def test_chapter_generation_insufficient_credits_returns_402():
+async def test_chapter_generation_low_credits_allows_generation():
     """
-    Integration test: Chapter generation fails with HTTP 402 when insufficient credits.
+    Integration test: Chapter generation proceeds even when credits are low.
     """
     user_id = "test_user_low_credits_123"
     project_id = "test_project_integration_456"
@@ -142,18 +141,14 @@ async def test_chapter_generation_insufficient_credits_returns_402():
         mock_credits_service.get_balance = AsyncMock(return_value=mock_balance)
         mock_get_credits_service.return_value = mock_credits_service
         
-        # Mock billable OpenAI client that raises insufficient credits error
+        # Mock billable OpenAI client that returns a valid response with zero credits
         mock_openai_client = Mock()
-        from fastapi import HTTPException
-        insufficient_credits_error = HTTPException(
-            status_code=402, 
-            detail={
-                "error": "INSUFFICIENT_CREDITS",
-                "message": "Insufficient credits for this operation",
-                "user_id": user_id
-            }
-        )
-        mock_openai_client.chat_completions_create = AsyncMock(side_effect=insufficient_credits_error)
+        mock_billable_response = Mock()
+        mock_billable_response.response.choices = [Mock()]
+        mock_billable_response.response.choices[0].message.content = "Generated chapter content"
+        mock_billable_response.credits_charged = 0
+        mock_billable_response.transaction_id = None
+        mock_openai_client.chat_completions_create = AsyncMock(return_value=mock_billable_response)
         mock_create_client.return_value = mock_openai_client
         
         # Mock user and project data
@@ -177,12 +172,12 @@ async def test_chapter_generation_insufficient_credits_returns_402():
             headers={"Authorization": f"Bearer mock_token_{user_id}"}
         )
         
-        # Verify 402 Payment Required response
-        assert response.status_code == 402
+        # Verify success response
+        assert response.status_code == 200
         response_data = response.json()
         
-        assert response_data["detail"]["error"] == "INSUFFICIENT_CREDITS"
-        assert response_data["detail"]["user_id"] == user_id
+        assert "content" in response_data
+        assert response_data["credits_charged"] == 0
 
 
 @pytest.mark.asyncio

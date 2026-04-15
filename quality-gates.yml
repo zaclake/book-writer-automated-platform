@@ -329,10 +329,6 @@ readability_requirements:
 # Critical Failure Triggers
 critical_failures:
   automatic_failures:
-    - condition: "em_dash_usage"
-      description: "EM-DASH USAGE (—) - Automatic failure"
-      penalty: "automatic_0_execution_quality"
-    
     - condition: "word_count_variance_over_30_percent"
       description: "Word count more than 30% off target"
       penalty: "structural_integrity_failure"

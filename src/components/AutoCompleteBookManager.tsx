@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { PlayIcon, PauseIcon, StopIcon, Cog6ToothIcon, BoltIcon } from '@heroicons/react/24/outline'
-import { useAuthToken } from '@/lib/auth'
-import { useUser } from '@clerk/nextjs'
+import { useAuthToken, ANONYMOUS_USER } from '@/lib/auth'
+import { useProject } from '@/hooks/useFirestore'
 import { AutoCompleteEstimate } from '@/types/project'
-import apiClient from '@/lib/apiClient'
+import { fetchApi } from '@/lib/api-client'
 import JobProgressBanner from '@/components/JobProgressBanner'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
-import { useToast } from '@/components/ui/use-toast'
+import { toast } from '@/hooks/useAppToast'
 
 interface AutoCompleteConfig {
   targetWordCount: number
@@ -53,6 +53,14 @@ interface AutoCompleteJob {
   progress: JobProgress
 }
 
+const TERMINAL_JOB_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+const RUNNING_JOB_STATUSES = new Set(['running', 'generating', 'retrying', 'quality_checking'])
+const CONTROLLABLE_JOB_STATUSES = new Set(['pending', 'initializing', 'paused', ...Array.from(RUNNING_JOB_STATUSES)])
+
+function normalizeJobStatus(status: unknown) {
+  return String(status || '').trim().toLowerCase()
+}
+
 interface AutoCompleteBookManagerProps {
   onJobStarted?: (jobId: string) => void
   onJobCompleted?: (jobId: string, result: any) => void
@@ -64,9 +72,10 @@ export function AutoCompleteBookManager({
   onJobCompleted,
   projectId
 }: AutoCompleteBookManagerProps) {
-  const { getAuthHeaders, isLoaded, isSignedIn } = useAuthToken()
-  const { user } = useUser()
-  const { toast } = useToast()
+  const { getAuthHeaders, isLoaded, isSignedIn, user: authUser } = useAuthToken()
+  const user = authUser || ANONYMOUS_USER
+  const { project } = useProject(projectId)
+  // Unified toast (sonner-rendered via AppLayout)
   const [currentJob, setCurrentJob] = useState<AutoCompleteJob | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [isEstimating, setIsEstimating] = useState(false)
@@ -76,6 +85,8 @@ export function AutoCompleteBookManager({
   const [progressStream, setProgressStream] = useState<EventSource | null>(null)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [confirmText, setConfirmText] = useState('')
+  const [showStopModal, setShowStopModal] = useState(false)
+  const [stopConfirmText, setStopConfirmText] = useState('')
   const [userUsage, setUserUsage] = useState<any>(null)
   
   const [config, setConfig] = useState<AutoCompleteConfig>({
@@ -88,6 +99,7 @@ export function AutoCompleteBookManager({
     qualityGatesEnabled: true,
     userReviewRequired: false
   })
+  const [hasUserCustomizedConfig, setHasUserCustomizedConfig] = useState(false)
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const isInitializedRef = useRef(false)
@@ -95,24 +107,11 @@ export function AutoCompleteBookManager({
   const estimationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-  // localStorage helper functions for job persistence
-  const getStoredJobId = () => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem(`runningJobId-${projectId}`)
-  }
-
-  const storeJobId = (jobId: string) => {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(`runningJobId-${projectId}`, jobId)
-  }
-
-  const clearStoredJobId = () => {
-    if (typeof window === 'undefined') return
-    localStorage.removeItem(`runningJobId-${projectId}`)
-  }
+  const jobFinishedRef = useRef(false)
+  const connectionModeRef = useRef<'sse' | 'polling'>('sse')
 
   // Cleanup function to prevent resource leaks
+  // IMPORTANT: must be defined before any effect that references it (avoids TDZ runtime crash in prod bundles)
   const cleanupProgress = useCallback(() => {
     setProgressStream(prev => {
       if (prev) {
@@ -134,6 +133,63 @@ export function AutoCompleteBookManager({
     }
     progressTrackingRef.current = null
     reconnectAttemptsRef.current = 0
+    jobFinishedRef.current = false
+    connectionModeRef.current = 'sse'
+  }, [])
+
+  useEffect(() => {
+    setHasUserCustomizedConfig(false)
+  }, [projectId])
+
+  // When project changes, reset job tracking/UI state so we don't leak state across projects.
+  useEffect(() => {
+    isInitializedRef.current = false
+    cleanupProgress()
+    setCurrentJob(null)
+    setStatus('')
+    setEstimation(null)
+    setShowConfirmModal(false)
+    setConfirmText('')
+    setShowStopModal(false)
+    setStopConfirmText('')
+  }, [projectId, cleanupProgress])
+
+  useEffect(() => {
+    if (!project || hasUserCustomizedConfig) return
+    const derivedWordCount = project.book_bible?.target_word_count
+      || (project.settings?.target_chapters && project.settings?.word_count_per_chapter
+        ? project.settings.target_chapters * project.settings.word_count_per_chapter
+        : undefined)
+    const derivedChapters = project.settings?.target_chapters
+
+    if (derivedWordCount && derivedChapters) {
+      setConfig(prev => ({
+        ...prev,
+        targetWordCount: derivedWordCount,
+        targetChapterCount: derivedChapters
+      }))
+    }
+  }, [project, hasUserCustomizedConfig])
+
+  // localStorage helper functions for job persistence
+  const getStoredJobId = () => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem(`runningJobId-${projectId}`)
+  }
+
+  const storeJobId = (jobId: string) => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(`runningJobId-${projectId}`, jobId)
+  }
+
+  const clearStoredJobId = () => {
+    if (typeof window === 'undefined') return
+    localStorage.removeItem(`runningJobId-${projectId}`)
+  }
+
+  const updateConfig = useCallback((updates: Partial<AutoCompleteConfig>) => {
+    setConfig(prev => ({ ...prev, ...updates }))
+    setHasUserCustomizedConfig(true)
   }, [])
 
   // Fetch user usage data
@@ -202,7 +258,11 @@ export function AutoCompleteBookManager({
       }
       
       // Handle progress tracking when job changes
-      if (currentJob?.job_id && ['pending', 'running', 'generating'].includes(currentJob.status)) {
+      if (
+        currentJob?.job_id &&
+        CONTROLLABLE_JOB_STATUSES.has(normalizeJobStatus(currentJob.status)) &&
+        !TERMINAL_JOB_STATUSES.has(normalizeJobStatus(currentJob.status))
+      ) {
         // Prevent starting tracking for the same job twice
         if (progressTrackingRef.current !== currentJob.job_id) {
           cleanupProgress()
@@ -252,7 +312,10 @@ export function AutoCompleteBookManager({
 
   // Clear stored job ID when job completes or fails
   useEffect(() => {
-    if (currentJob && (currentJob.status === 'completed' || currentJob.status === 'failed')) {
+    if (
+      currentJob &&
+      ['completed', 'failed', 'cancelled'].includes(normalizeJobStatus(currentJob.status))
+    ) {
       clearStoredJobId()
     }
   }, [currentJob?.status])
@@ -260,14 +323,23 @@ export function AutoCompleteBookManager({
   const checkForExistingJob = async () => {
     try {
       const authHeaders = await getAuthHeaders()
-      // Use Next.js proxy to avoid CORS
-      const response = await fetch(`/api/auto-complete/jobs?limit=1&status=active`, { headers: authHeaders })
+      // Use Next.js proxy to avoid CORS.
+      // Backend only supports exact status filters, so we fetch a small page and filter client-side.
+      const response = await fetchApi(`/api/auto-complete/jobs?limit=25`, { headers: authHeaders })
       if (response.ok) {
         const data = await response.json()
-        if (data && Array.isArray(data.jobs) && data.jobs.length > 0) {
-          const job = data.jobs[0]
-          setCurrentJob(job)
-        }
+        const jobs = (data && Array.isArray((data as any).jobs) ? (data as any).jobs : []) as any[]
+        const relevant = jobs
+          .filter((job: any) => String(job?.project_id || '') === String(projectId || ''))
+          .filter((job: any) => String(job?.job_type || '') === 'auto_complete_book')
+          .sort((a: any, b: any) => {
+            const aTime = Date.parse(String(a?.created_at || a?.started_at || 0))
+            const bTime = Date.parse(String(b?.created_at || b?.started_at || 0))
+            return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0)
+          })
+
+        const active = relevant.find((job: any) => !TERMINAL_JOB_STATUSES.has(normalizeJobStatus(job?.status)))
+        if (active) setCurrentJob(active)
       }
     } catch (error) {
       console.error('Failed to check for existing job:', error)
@@ -290,7 +362,11 @@ export function AutoCompleteBookManager({
       return
     }
 
-    if (currentJob && ['pending', 'running', 'generating'].includes(currentJob.status)) {
+    if (
+      currentJob &&
+      CONTROLLABLE_JOB_STATUSES.has(normalizeJobStatus(currentJob.status)) &&
+      !TERMINAL_JOB_STATUSES.has(normalizeJobStatus(currentJob.status))
+    ) {
       setStatus('❌ A job is already running')
       return
     }
@@ -384,24 +460,22 @@ export function AutoCompleteBookManager({
             description: "This process takes ~30–45 minutes. You can safely navigate away; progress will continue and update here.",
             variant: "default"
           })
-          setTimeout(() => {
-            GlobalLoader.show({
-              title: 'Auto-completing Your Book',
-              stage: 'Initializing...',
-              progress: 0,
-              showProgress: true,
-              size: 'md',
-              customMessages: [
-                '📚 Outlining chapters...',
-                '🧭 Plotting narrative arcs...',
-                '🎭 Deepening character arcs...',
-                '🧵 Weaving continuity between chapters...',
-                '✨ Refining prose and pacing...',
-                '🧪 Running quality gates...',
-              ],
-              timeoutMs: 3600000,
-            })
-          }, 0)
+          GlobalLoader.show({
+            title: 'Auto-completing Your Book',
+            stage: 'Initializing...',
+            progress: 0,
+            showProgress: true,
+            safeToLeave: true,
+            canMinimize: true,
+            customMessages: [
+              'Planning chapter structure...',
+              'Writing chapter content...',
+              'Running quality checks...',
+              'Refining prose...',
+              'Checking consistency...',
+            ],
+            timeoutMs: 14400000,
+          })
           // Wait a moment for the job to initialize before starting tracking
           setTimeout(() => {
             startProgressTracking(jobId).catch(console.error)
@@ -578,6 +652,7 @@ export function AutoCompleteBookManager({
       // Connect to Next.js server-side proxy for SSE to avoid CORS
       const eventSource = new EventSource(`/api/auto-complete/${jobId}/progress`)
       setProgressStream(eventSource)
+      connectionModeRef.current = 'sse'
       
       // Reset reconnect attempts on successful connection
       if (!isReconnect) {
@@ -602,14 +677,14 @@ export function AutoCompleteBookManager({
         }
         
         if (data.job_id && data.progress) {
-          // Update job status from SSE data - read from nested progress object
-          const updatedJob = { ...currentJob } as AutoCompleteJob
-          if (updatedJob) {
-            updatedJob.status = data.status
-            updatedJob.error = data.error
-            updatedJob.result = data.result
-            updatedJob.progress = {
-              ...updatedJob.progress,
+          setCurrentJob(prev => {
+            const previous = (prev || {}) as any
+            const next: any = { ...previous }
+            next.status = data.status
+            next.error = data.error
+            next.result = data.result
+            next.progress = {
+              ...(previous.progress || {}),
               progress_percentage: data.progress.progress_percentage || 0,
               current_step: data.progress.current_step || 0,
               current_chapter: data.progress.current_chapter || 0,
@@ -619,18 +694,27 @@ export function AutoCompleteBookManager({
               last_update: data.progress.last_update || data.timestamp,
               detailed_status: data.progress.detailed_status || `Processing chapter ${data.progress.current_chapter || 0}...`
             }
-            setCurrentJob(updatedJob)
-            
-            // Handle job completion
+            // Keep global loader in sync during progress
+            GlobalLoader.update({
+              progress: next.progress.progress_percentage,
+              stage: next.progress.detailed_status,
+              showProgress: true,
+            })
+            // Handle completion
             if (data.status === 'completed') {
+              jobFinishedRef.current = true
               onJobCompleted?.(jobId, data.result)
-              // Clean up SSE connection and localStorage
-              eventSource.close()
+              try { eventSource.close() } catch {}
               setProgressStream(null)
               reconnectAttemptsRef.current = 0
               clearStoredJobId()
+              // Finalize loader
+              GlobalLoader.hide()
+              // Safety: force close after short delay if any other operations kept it open
+              setTimeout(() => GlobalLoader.forceHide?.(), 1500)
             }
-          }
+            return next as AutoCompleteJob
+          })
         }
       }
       
@@ -639,14 +723,14 @@ export function AutoCompleteBookManager({
         const data = JSON.parse(event.data)
         
         if (data.job_id && data.progress) {
-          // Update job status from named progress event
-          const updatedJob = { ...currentJob } as AutoCompleteJob
-          if (updatedJob) {
-            updatedJob.status = data.status
-            updatedJob.error = data.error
-            updatedJob.result = data.result
-            updatedJob.progress = {
-              ...updatedJob.progress,
+          setCurrentJob(prev => {
+            const previous = (prev || {}) as any
+            const next: any = { ...previous }
+            next.status = data.status
+            next.error = data.error
+            next.result = data.result
+            next.progress = {
+              ...(previous.progress || {}),
               progress_percentage: data.progress.progress_percentage || 0,
               current_step: data.progress.current_step || 0,
               current_chapter: data.progress.current_chapter || 0,
@@ -656,8 +740,13 @@ export function AutoCompleteBookManager({
               last_update: data.progress.last_update || data.timestamp,
               detailed_status: data.progress.detailed_status || `Processing chapter ${data.progress.current_chapter || 0}...`
             }
-            setCurrentJob(updatedJob)
-          }
+            GlobalLoader.update({
+              progress: next.progress.progress_percentage,
+              stage: next.progress.detailed_status,
+              showProgress: true,
+            })
+            return next as AutoCompleteJob
+          })
         }
       })
       
@@ -666,13 +755,15 @@ export function AutoCompleteBookManager({
         
         if (data.job_id && data.progress) {
           // Update job with final status
-          const updatedJob = { ...currentJob } as AutoCompleteJob
-          if (updatedJob) {
-            updatedJob.status = data.status
-            updatedJob.error = data.error
-            updatedJob.result = data.result
-            updatedJob.progress = {
-              ...updatedJob.progress,
+          jobFinishedRef.current = true
+          setCurrentJob(prev => {
+            const previous = (prev || {}) as any
+            const next: any = { ...previous }
+            next.status = data.status
+            next.error = data.error
+            next.result = data.result
+            next.progress = {
+              ...(previous.progress || {}),
               progress_percentage: data.progress.progress_percentage || 0,
               current_step: data.progress.current_step || 0,
               current_chapter: data.progress.current_chapter || 0,
@@ -682,12 +773,14 @@ export function AutoCompleteBookManager({
               last_update: data.progress.last_update || data.timestamp,
               detailed_status: data.progress.detailed_status || `${data.status === 'completed' ? 'Completed' : 'Failed'}`
             }
-            setCurrentJob(updatedJob)
-          }
+            return next as AutoCompleteJob
+          })
           
           // Handle completion
           if (data.status === 'completed') {
+            GlobalLoader.hide()
             onJobCompleted?.(jobId, data.result)
+            setTimeout(() => GlobalLoader.forceHide?.(), 1500)
           }
           
           // Clean up SSE connection and localStorage
@@ -699,6 +792,10 @@ export function AutoCompleteBookManager({
       })
       
       eventSource.addEventListener('error', (event) => {
+        // Ignore errors after completion/intentional close
+        if (jobFinishedRef.current) {
+          return
+        }
         const messageEvent = event as MessageEvent
         if (messageEvent.data) {
           try {
@@ -716,20 +813,35 @@ export function AutoCompleteBookManager({
         
         // Trigger reconnection
         attemptReconnection(jobId)
+        // Do not hide the global loader on transient stream errors; show reconnecting
+        GlobalLoader.update({ stage: 'Connection lost. Reconnecting...', showProgress: true })
       })
       
       eventSource.onerror = (event) => {
+        // Ignore errors after completion/intentional close
+        if (jobFinishedRef.current) {
+          return
+        }
         console.error('SSE connection error:', event)
-        eventSource.close()
+        try { eventSource.close() } catch {}
         setProgressStream(null)
-        
-        // Attempt reconnection with exponential backoff
-        attemptReconnection(jobId)
+        // Switch to polling quietly to avoid alarming message
+        if (connectionModeRef.current !== 'polling') {
+          connectionModeRef.current = 'polling'
+          setStatus('Using polling updates for progress...')
+          GlobalLoader.update({ stage: 'Syncing progress...', showProgress: true })
+          fallbackToPolling(jobId)
+        }
       }
     } catch (error) {
       console.error('Failed to create SSE connection:', error)
       // Fallback to polling immediately
-      fallbackToPolling(jobId)
+      if (connectionModeRef.current !== 'polling') {
+        connectionModeRef.current = 'polling'
+        setStatus('Using polling updates for progress...')
+        GlobalLoader.update({ stage: 'Syncing progress...', showProgress: true })
+        fallbackToPolling(jobId)
+      }
     }
   }
 
@@ -739,7 +851,8 @@ export function AutoCompleteBookManager({
     
     if (reconnectAttemptsRef.current >= maxAttempts) {
       console.log('Max reconnection attempts reached, falling back to polling')
-      setStatus('❌ Connection lost - using polling updates')
+      setStatus('Using polling updates for progress...')
+      GlobalLoader.update({ stage: 'Syncing progress...', showProgress: true })
       fallbackToPolling(jobId)
       return
     }
@@ -747,7 +860,7 @@ export function AutoCompleteBookManager({
     reconnectAttemptsRef.current++
     const delay = baseDelay * Math.pow(2, reconnectAttemptsRef.current - 1) // Exponential backoff
     
-    setStatus(`🔄 Connection lost, reconnecting in ${delay/1000}s... (${reconnectAttemptsRef.current}/${maxAttempts})`)
+    setStatus(`🔄 Reconnecting for live updates in ${Math.round(delay/1000)}s... (${reconnectAttemptsRef.current}/${maxAttempts})`)
     
     reconnectTimeoutRef.current = setTimeout(async () => {
       console.log(`Attempting reconnection ${reconnectAttemptsRef.current}/${maxAttempts}`)
@@ -778,18 +891,24 @@ export function AutoCompleteBookManager({
         setCurrentJob(data)
         
         // Check if job is completed
-        if (['completed', 'failed', 'cancelled'].includes((data as any)?.status)) {
+        const normalizedStatus = normalizeJobStatus((data as any)?.status)
+        if (['completed', 'failed', 'cancelled'].includes(normalizedStatus)) {
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
+          clearStoredJobId()
           
-          if ((data as any)?.status === 'completed') {
+          if (normalizedStatus === 'completed') {
             GlobalLoader.hide()
             onJobCompleted?.(jobId, (data as any)?.result)
+            setTimeout(() => GlobalLoader.forceHide?.(), 1500)
           }
-          if ((data as any)?.status === 'failed' || (data as any)?.status === 'cancelled') {
+          if (normalizedStatus === 'failed' || normalizedStatus === 'cancelled') {
             GlobalLoader.hide()
+            setTimeout(() => GlobalLoader.forceHide?.(), 1500)
+            const errorMessage = (data as any)?.error || (data as any)?.error_message || 'Job failed. Check logs for details.'
+            setStatus(`❌ Generation failed: ${errorMessage}`)
           }
         }
       } else {
@@ -817,6 +936,12 @@ export function AutoCompleteBookManager({
 
     try {
       const authHeaders = await getAuthHeaders()
+      // Optimistic UI update (server is source of truth; we still refresh status after)
+      const nextStatus =
+        action === 'pause' ? 'paused' :
+        action === 'resume' ? 'generating' :
+        'cancelled'
+      setCurrentJob(prev => (prev ? ({ ...(prev as any), status: nextStatus } as any) : prev))
       const response = await fetch(`/api/auto-complete/${currentJob.job_id}/control`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
@@ -825,13 +950,20 @@ export function AutoCompleteBookManager({
 
       if (response.ok) {
         setStatus(`✅ Job ${action}d successfully`)
+        if (action === 'cancel') {
+          clearStoredJobId()
+          setShowStopModal(false)
+          setStopConfirmText('')
+        }
         fetchJobStatus(currentJob.job_id)
       } else {
         const err = await response.json().catch(() => ({}))
         setStatus(`❌ Failed to ${action}: ${err.error || response.status}`)
+        fetchJobStatus(currentJob.job_id)
       }
     } catch (error) {
       setStatus(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      fetchJobStatus(currentJob.job_id)
     }
   }
 
@@ -882,41 +1014,9 @@ export function AutoCompleteBookManager({
     }
   }
 
-  // If user is not authenticated, show sign-in prompt
-  if (!isLoaded) {
-    return (
-      <div className="card">
-        <div className="text-center py-8">
-          <div className="animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto mb-2"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isSignedIn) {
-    return (
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Auto-Complete Book
-          </h2>
-        </div>
-        <div className="text-center py-8">
-          <div className="text-gray-500 mb-4">Please sign in to use auto-completion</div>
-          <p className="text-sm text-gray-400">
-            Authentication is required to start and manage auto-completion jobs.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
         <h2 className="text-lg font-semibold text-gray-900">
           Auto-Complete Book
         </h2>
@@ -938,9 +1038,11 @@ export function AutoCompleteBookManager({
                 Target Word Count
               </label>
               <input
+                id="auto-complete-target-words"
+                name="targetWordCount"
                 type="number"
                 value={config.targetWordCount}
-                onChange={(e) => setConfig({...config, targetWordCount: parseInt(e.target.value)})}
+                onChange={(e) => updateConfig({ targetWordCount: parseInt(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
@@ -949,9 +1051,11 @@ export function AutoCompleteBookManager({
                 Target Chapter Count
               </label>
               <input
+                id="auto-complete-target-chapters"
+                name="targetChapterCount"
                 type="number"
                 value={config.targetChapterCount}
-                onChange={(e) => setConfig({...config, targetChapterCount: parseInt(e.target.value)})}
+                onChange={(e) => updateConfig({ targetChapterCount: parseInt(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
@@ -960,12 +1064,14 @@ export function AutoCompleteBookManager({
                 Minimum Quality Score
               </label>
               <input
+                id="auto-complete-min-quality"
+                name="minimumQualityScore"
                 type="number"
                 step="0.1"
                 min="0"
                 max="100"
                 value={config.minimumQualityScore}
-                onChange={(e) => setConfig({...config, minimumQualityScore: parseFloat(e.target.value)})}
+                onChange={(e) => updateConfig({ minimumQualityScore: parseFloat(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
@@ -974,46 +1080,56 @@ export function AutoCompleteBookManager({
                 Max Retries Per Chapter
               </label>
               <input
+                id="auto-complete-max-retries"
+                name="maxRetriesPerChapter"
                 type="number"
                 value={config.maxRetriesPerChapter}
-                onChange={(e) => setConfig({...config, maxRetriesPerChapter: parseInt(e.target.value)})}
+                onChange={(e) => updateConfig({ maxRetriesPerChapter: parseInt(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
               />
             </div>
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label className="flex items-center">
               <input
+                id="auto-complete-auto-pause"
+                name="autoPauseOnFailure"
                 type="checkbox"
                 checked={config.autoPauseOnFailure}
-                onChange={(e) => setConfig({...config, autoPauseOnFailure: e.target.checked})}
+                onChange={(e) => updateConfig({ autoPauseOnFailure: e.target.checked })}
                 className="mr-2"
               />
               <span className="text-sm text-gray-700">Auto-pause on failure</span>
             </label>
             <label className="flex items-center">
               <input
+                id="auto-complete-context-improve"
+                name="contextImprovementEnabled"
                 type="checkbox"
                 checked={config.contextImprovementEnabled}
-                onChange={(e) => setConfig({...config, contextImprovementEnabled: e.target.checked})}
+                onChange={(e) => updateConfig({ contextImprovementEnabled: e.target.checked })}
                 className="mr-2"
               />
               <span className="text-sm text-gray-700">Context improvement enabled</span>
             </label>
             <label className="flex items-center">
               <input
+                id="auto-complete-quality-gates"
+                name="qualityGatesEnabled"
                 type="checkbox"
                 checked={config.qualityGatesEnabled}
-                onChange={(e) => setConfig({...config, qualityGatesEnabled: e.target.checked})}
+                onChange={(e) => updateConfig({ qualityGatesEnabled: e.target.checked })}
                 className="mr-2"
               />
               <span className="text-sm text-gray-700">Quality gates enabled</span>
             </label>
             <label className="flex items-center">
               <input
+                id="auto-complete-user-review"
+                name="userReviewRequired"
                 type="checkbox"
                 checked={config.userReviewRequired}
-                onChange={(e) => setConfig({...config, userReviewRequired: e.target.checked})}
+                onChange={(e) => updateConfig({ userReviewRequired: e.target.checked })}
                 className="mr-2"
               />
               <span className="text-sm text-gray-700">User review required</span>
@@ -1024,7 +1140,7 @@ export function AutoCompleteBookManager({
 
       {/* Job Progress Banner */}
       {currentJob && (() => {
-        const s = currentJob.status as string
+        const s = normalizeJobStatus(currentJob.status as any)
         const displayStatus: 'running' | 'pending' | 'completed' | 'failed' =
           ['running','generating','retrying','quality_checking'].includes(s) ? 'running' :
           ['pending','initializing','paused'].includes(s) ? 'pending' :
@@ -1052,15 +1168,15 @@ export function AutoCompleteBookManager({
       {/* Current Job Status */}
       {currentJob ? (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center space-x-2">
               <span className="text-lg">{getStatusIcon(currentJob.status)}</span>
               <span className={`font-medium ${getStatusColor(currentJob.status)}`}>
                 {currentJob.status.toUpperCase()}
               </span>
             </div>
-            <div className="flex space-x-2">
-              {currentJob.status === 'running' && (
+            <div className="flex flex-wrap gap-2">
+              {RUNNING_JOB_STATUSES.has(normalizeJobStatus(currentJob.status)) && (
                 <button
                   onClick={() => controlJob('pause')}
                   className="flex items-center px-3 py-1 bg-yellow-100 text-yellow-800 rounded-md hover:bg-yellow-200"
@@ -1069,7 +1185,7 @@ export function AutoCompleteBookManager({
                   Pause
                 </button>
               )}
-              {currentJob.status === 'paused' && (
+              {normalizeJobStatus(currentJob.status) === 'paused' && (
                 <button
                   onClick={() => controlJob('resume')}
                   className="flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
@@ -1078,16 +1194,20 @@ export function AutoCompleteBookManager({
                   Resume
                 </button>
               )}
-              {['running', 'paused'].includes(currentJob.status) && (
+              {CONTROLLABLE_JOB_STATUSES.has(normalizeJobStatus(currentJob.status)) &&
+                !TERMINAL_JOB_STATUSES.has(normalizeJobStatus(currentJob.status)) && (
                 <button
-                  onClick={() => controlJob('cancel')}
+                  onClick={() => setShowStopModal(true)}
                   className="flex items-center px-3 py-1 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
                 >
                   <StopIcon className="w-4 h-4 mr-1" />
-                  Cancel
+                  Stop
                 </button>
               )}
             </div>
+          </div>
+          <div className="text-xs text-gray-500">
+            Pause takes effect between chapters. Stop cancels the job.
           </div>
 
           {/* Progress Bar */}
@@ -1105,7 +1225,7 @@ export function AutoCompleteBookManager({
           </div>
 
           {/* Chapter Progress */}
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-gray-600">Current Chapter:</span>
               <span className="ml-2 font-medium">{currentJob.progress.current_chapter}</span>
@@ -1143,7 +1263,7 @@ export function AutoCompleteBookManager({
           )}
 
           {/* Job Info */}
-          <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-gray-600">
             <div>
               <span>Started:</span>
               <span className="ml-2">{formatDate(currentJob.started_at)}</span>
@@ -1190,7 +1310,7 @@ export function AutoCompleteBookManager({
           {estimation && (
             <div className="mb-6 p-4 bg-blue-50 rounded-lg text-left">
               <h4 className="font-medium text-blue-900 mb-2"><span aria-label="Credits icon">🔢</span> Credit Estimation</h4>
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-blue-700">Total Chapters:</span>
                   <span className="ml-2 font-medium">{estimation.total_chapters}</span>
@@ -1212,11 +1332,11 @@ export function AutoCompleteBookManager({
           )}
           
           {/* Action Buttons */}
-          <div className="flex justify-center space-x-4">
+          <div className="flex flex-col sm:flex-row justify-center gap-3">
             <button
               onClick={estimateAutoCompletion}
               disabled={isEstimating}
-              className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all ${
+              className={`flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all w-full sm:w-auto ${
                 isEstimating
                   ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
                   : 'bg-brand-soft-purple text-white hover:bg-brand-lavender shadow-lg hover:shadow-xl'
@@ -1229,7 +1349,7 @@ export function AutoCompleteBookManager({
             <button
               onClick={() => setShowConfirmModal(true)}
               disabled={isStarting || !estimation}
-              className={`flex items-center px-6 py-3 rounded-lg font-medium transition-all ${
+              className={`flex items-center justify-center px-6 py-3 rounded-lg font-medium transition-all w-full sm:w-auto ${
                 isStarting || !estimation
                   ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
                   : 'bg-brand-forest text-white hover:bg-brand-forest/90 shadow-lg hover:shadow-xl hover:scale-105'
@@ -1298,7 +1418,7 @@ export function AutoCompleteBookManager({
               {/* Credit Breakdown */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="font-medium text-gray-900 mb-3">Credit Breakdown</h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-gray-600">Chapters:</span>
                     <span className="ml-2 font-medium">{estimation.total_chapters}</span>
@@ -1335,6 +1455,8 @@ export function AutoCompleteBookManager({
                   To confirm, type <strong>CONFIRM</strong> below:
                 </label>
                 <input
+                  id="auto-complete-confirm"
+                  name="confirmText"
                   type="text"
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
@@ -1344,7 +1466,7 @@ export function AutoCompleteBookManager({
               </div>
 
               {/* Action Buttons */}
-              <div className="flex space-x-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={() => {
                     setShowConfirmModal(false)
@@ -1370,6 +1492,89 @@ export function AutoCompleteBookManager({
                   }`}
                 >
                   {isStarting ? 'Starting...' : `Confirm & Start (${estimation.estimated_total_credits.toLocaleString()} credits)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stop Modal */}
+      {showStopModal && currentJob && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="stop-modal-title"
+        >
+          <div className="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 id="stop-modal-title" className="text-xl font-semibold text-gray-900">Stop Auto-Complete?</h2>
+                <button
+                  onClick={() => {
+                    setShowStopModal(false)
+                    setStopConfirmText('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                  aria-label="Close stop dialog"
+                >
+                  <span className="sr-only">Close</span>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="text-sm text-red-800 space-y-1">
+                  <div className="font-semibold">This will cancel the running job.</div>
+                  <div>It may take a moment to stop if a chapter is currently generating.</div>
+                  <div>You can start a new auto-complete run later.</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  To confirm, type <strong>STOP</strong>:
+                </label>
+                <input
+                  id="auto-complete-stop-confirm"
+                  name="stopConfirmText"
+                  type="text"
+                  value={stopConfirmText}
+                  onChange={(e) => setStopConfirmText(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  placeholder="Type STOP to cancel the job"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => {
+                    setShowStopModal(false)
+                    setStopConfirmText('')
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Keep Running
+                </button>
+                <button
+                  onClick={() => {
+                    if (stopConfirmText === 'STOP') {
+                      controlJob('cancel')
+                    }
+                  }}
+                  disabled={stopConfirmText !== 'STOP'}
+                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    stopConfirmText === 'STOP'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  Stop Now
                 </button>
               </div>
             </div>

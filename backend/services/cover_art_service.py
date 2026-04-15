@@ -213,7 +213,13 @@ class CoverArtService:
         """Check if the service is available."""
         return self.available
 
-    async def _generate_visual_spec(self, book_bible_content: str, reference_files: Dict[str, str], ui_options: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    async def _generate_visual_spec(
+        self,
+        book_bible_content: str,
+        reference_files: Dict[str, str],
+        ui_options: Optional[Dict[str, Any]] = None,
+        vector_context: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """Use a text model to synthesize a concrete visual spec from the book bible and references.
         Returns a dict with keys like: visual_elements (list), composition (str), palette (list), mood (str).
         """
@@ -238,27 +244,47 @@ class CoverArtService:
                 "You are a senior book cover art director. From the given context, produce a concise, concrete visual brief strictly grounded in the material. "
                 "Do not invent settings or motifs that are not present. Output valid JSON only with keys: visual_elements (list of 3-6 concise nouns), composition (one sentence), palette (list of 2-4 colors by common names), mood (one word)."
             )
+            vector_block = ""
+            if vector_context:
+                vector_block = f"\n\nVECTOR MEMORY (authoritative cues):\n{vector_context}\n"
+
             user_msg = (
                 f"Title: {title_txt}\nAuthor: {author_txt}\n\n"
                 f"Book Bible (excerpt):\n{bible_excerpt}\n\n"
                 f"References (snippets):\n{refs_joined}\n\n"
+                f"{vector_block}"
                 "Constraints: No text rendering; we will add typography later. Choose only elements clearly supported by the context."
             )
 
-            import functools
-            with thread_semaphore(get_image_thread_semaphore()):
-                response = await asyncio.to_thread(
-                    functools.partial(
-                        getattr(self.openai_client.chat.completions, "create"),
-                        model=os.getenv("DEFAULT_AI_MODEL", "gpt-4o-mini"),
+            if self.billable_client:
+                async with semaphore(get_image_semaphore()):
+                    billable_response = await self.openai_client.chat_completions_create(
+                        model=os.getenv("DEFAULT_AI_MODEL", "gpt-4o"),
                         messages=[
                             {"role": "system", "content": system_msg},
                             {"role": "user", "content": user_msg},
                         ],
                         temperature=0.2,
                         max_tokens=400,
+                        timeout=90
                     )
-                )
+                response = billable_response.response
+            else:
+                import functools
+                with thread_semaphore(get_image_thread_semaphore()):
+                    response = await asyncio.to_thread(
+                        functools.partial(
+                            getattr(self.openai_client.chat.completions, "create"),
+                            model=os.getenv("DEFAULT_AI_MODEL", "gpt-4o"),
+                            messages=[
+                                {"role": "system", "content": system_msg},
+                                {"role": "user", "content": user_msg},
+                            ],
+                            temperature=0.2,
+                            max_tokens=400,
+                            timeout=90
+                        )
+                    )
             # OpenAI SDK returns ChatCompletion with message.content
             content = response.choices[0].message.content
             import json as _json
@@ -603,7 +629,16 @@ class CoverArtService:
                     break
         details['color_palette'] = palette
     
-    def generate_cover_prompt(self, book_details: Dict[str, Any], user_feedback: Optional[str] = None, options: Optional[Dict[str, Any]] = None, requirements: Optional[str] = None, raw_bible_excerpt: Optional[str] = None, references_digest: Optional[str] = None) -> str:
+    def generate_cover_prompt(
+        self,
+        book_details: Dict[str, Any],
+        user_feedback: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        requirements: Optional[str] = None,
+        raw_bible_excerpt: Optional[str] = None,
+        references_digest: Optional[str] = None,
+        vector_context: Optional[str] = None
+    ) -> str:
         """
         Generate a DALL-E 3 prompt for cover art based on book details.
         
@@ -621,6 +656,29 @@ class CoverArtService:
         # Strict grounding policy: derive everything from references; avoid assumptions
         prompt_parts.append("Ground every visual decision strictly in the provided book bible and reference files; do not invent details, settings, characters, symbols, or moods that are not supported by those materials")
 
+        # Enforce exact title/author rendering policy at the top to avoid truncation
+        include_title_opt = bool((options or {}).get('include_title'))
+        include_author_opt = bool((options or {}).get('include_author'))
+        title_text_opt = ((options or {}).get('title_text') or '').strip()
+        author_text_opt = ((options or {}).get('author_text') or '').strip()
+
+        if include_title_opt or include_author_opt:
+            # Hard constraints for on-image text fidelity
+            prompt_parts.append(
+                "Render ONLY the exact text strings provided below on the cover. Do not invent, paraphrase, translate, or replace with placeholders. Do not add ANY other text (no subtitles, taglines, logos, publisher marks, numbers, or series names). Do not include quotation marks around the text. Use standard Latin letters only."
+            )
+            if include_title_opt and title_text_opt:
+                prompt_parts.append(
+                    f'Title (render exactly as given, without quotes): {title_text_opt}'
+                )
+            if include_author_opt and author_text_opt:
+                prompt_parts.append(
+                    f'Author (render exactly as given, without quotes): {author_text_opt}'
+                )
+        else:
+            # When no typography is requested, strictly forbid any text
+            prompt_parts.append("Do NOT render any text anywhere on the image.")
+
         # Add optional user requirements early and give them precedence
         if requirements:
             prompt_parts.append(
@@ -632,11 +690,11 @@ class CoverArtService:
         prompt_parts.append(
             "Follow this priority of guidance: (1) user requirements (if provided), (2) book bible main content, (3) reference files. "
             "When using reference files: derive concrete visual elements only from (a) setting/world-building (environments, landscapes, architecture), (b) characters (include named characters but do not fabricate appearance details that are not specified; use non-specific silhouettes if needed), (c) themes (only symbolic elements explicitly mentioned), and (d) color palette if specified. "
-            "If information is missing or ambiguous, keep the composition simple and neutral rather than assuming details. No logos or series marks. No text unless title/author options are explicitly provided."
+            "If information is missing or ambiguous, keep the composition simple and neutral rather than assuming details. No logos or series marks. No other text besides the exact title and/or author when provided."
         )
 
         # Add explicit grounding context (not to be rendered on image)
-        if raw_bible_excerpt or references_digest:
+        if raw_bible_excerpt or references_digest or vector_context:
             prompt_parts.append(
                 "Grounding context (for guidance only; do NOT render any of this text on the image):"
             )
@@ -644,6 +702,8 @@ class CoverArtService:
                 prompt_parts.append(f"Book bible core excerpt: {raw_bible_excerpt}")
             if references_digest:
                 prompt_parts.append(f"Reference highlights: {references_digest}")
+            if vector_context:
+                prompt_parts.append(f"Vector memory cues: {vector_context}")
         
         # Optionally acknowledge genre without prescribing a style
         genre = book_details.get('genre', '').lower()
@@ -669,7 +729,7 @@ class CoverArtService:
             prompt_parts.append(f"featuring {elements_str}")
         else:
             # Explicitly instruct neutrality when we found no credible environment evidence
-            prompt_parts.append("Use a simple, neutral background and focus on strong typography and a minimal symbolic element derived only from explicit references, if any")
+            prompt_parts.append("Use a simple, neutral background and a minimal symbolic element derived only from explicit references, if any")
         
         # Add mood/tone (neutral phrasing, no hardcoded adjectives beyond extracted label)
         # Do not inject tone descriptors automatically; tone should emerge from user requirements and reference content
@@ -699,55 +759,9 @@ class CoverArtService:
             prompt_parts.append(f"Incorporating this feedback: {user_feedback}")
 
         # When requirements present, they already appeared earlier with precedence
-
-        # Handle options for title/author – ask the image model to render exact text (no invention)
-        if options:
-            include_title = options.get('include_title', False)
-            include_author = options.get('include_author', False)
-            title_text = (options.get('title_text') or '').strip()
-            author_text = (options.get('author_text') or '').strip()
-
-            if include_title and title_text:
-                prompt_parts.append(
-                    f"Render EXACTLY this book title text: \"{title_text}\" — case-sensitive, character-for-character, no paraphrasing, no translation, no abbreviations. Place large and readable near the upper third."
-                )
-            elif include_title:
-                prompt_parts.append("Reserve ample space near the upper third for the book title typography.")
-
-            if include_author and author_text:
-                prompt_parts.append(
-                    f"Render EXACTLY this author name: \"{author_text}\" — case-sensitive, character-for-character. Place smaller, complementary typography near the lower portion."
-                )
-            elif include_author:
-                prompt_parts.append("Reserve subtle space near the lower portion for the author name typography.")
-
-            if not include_title and not include_author:
-                prompt_parts.append("No text on the image.")
-
-            # Typesetting hard constraints (highest priority)
-            if include_title or include_author:
-                typeset_lines = ["Typesetting (MUST FOLLOW EXACTLY):"]
-                if include_title and title_text:
-                    typeset_lines.append(f"TitleText: {title_text}")
-                if include_author and author_text:
-                    typeset_lines.append(f"AuthorText: {author_text}")
-                typeset_lines.append(
-                    "Render only the exact strings above. Do not add subtitles, taglines, series names, punctuation, or any extra words."
-                )
-                typeset_lines.append(
-                    "If any instruction conflicts, prioritize rendering these exact strings over all other instructions. Do not translate, localize, or stylistically modify the characters."
-                )
-                prompt_parts.append(' '.join(typeset_lines))
-
-            # Repeat as a final checklist at the end to maximize adherence
-            if include_title or include_author:
-                checklist = ["Final typesetting checklist (repeat):"]
-                if include_title and title_text:
-                    checklist.append(f"TitleText: {title_text}")
-                if include_author and author_text:
-                    checklist.append(f"AuthorText: {author_text}")
-                checklist.append("Render only these exact strings. No other words anywhere on the cover.")
-                prompt_parts.append(' '.join(checklist))
+        # Typography guidance was already added at the top to avoid truncation. Reinforce minimalism only.
+        if include_title_opt or include_author_opt:
+            prompt_parts.append("Ensure high-contrast, clean, legible typography for the provided strings; no other text anywhere on the cover.")
 
         # Critical: ONLY the front cover, no 3D book mockup
         prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
@@ -762,6 +776,7 @@ class CoverArtService:
         
         # Ensure prompt isn't too long
         if len(full_prompt) > 1800:
+            # Prefer trimming the end (palette and context) while keeping typographic constraints at the start
             full_prompt = full_prompt[:1800] + '...'
         
         logger.info(f"Generated cover art prompt: {full_prompt[:200]}...")
@@ -968,63 +983,116 @@ class CoverArtService:
             return image_bytes
 
     def _overlay_text(self, image_bytes: bytes, title_text: Optional[str], author_text: Optional[str]) -> bytes:
-        """Overlay title and author text onto the image using PIL.
-        Tries common system fonts; falls back to PIL's default font.
+        """Overlay title and author text onto the image using PIL with alpha-safe compositing.
+        - Loads a readable sans-serif font
+        - Fits text within safe margins
+        - Draws semi-transparent background plates for contrast
         """
         try:
-            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             from PIL import ImageDraw, ImageFont
-
-            draw = ImageDraw.Draw(image)
-            width, height = image.size
+            base = Image.open(io.BytesIO(image_bytes)).convert('RGBA')
+            width, height = base.size
 
             # Try to load a decent sans-serif font; fallback to default
             font_paths = [
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             ]
-            title_font = None
-            author_font = None
-            for path in font_paths:
-                try:
-                    title_font = ImageFont.truetype(path, size=max(36, height // 18))
-                    author_font = ImageFont.truetype(path, size=max(24, height // 28))
-                    break
-                except Exception:
-                    continue
-            if title_font is None:
-                title_font = ImageFont.load_default()
-                author_font = ImageFont.load_default()
+            def load_font(target_size: int):
+                for path in font_paths:
+                    try:
+                        return ImageFont.truetype(path, size=max(16, target_size))
+                    except Exception:
+                        continue
+                return ImageFont.load_default()
 
-            # Helper to draw text with outline for readability
-            def draw_text_centered(y_pos: int, text: str, font, pad_y: int = 10):
-                if not text:
-                    return
-                text_bbox = draw.textbbox((0, 0), text, font=font)
-                text_w = text_bbox[2] - text_bbox[0]
-                text_h = text_bbox[3] - text_bbox[1]
-                x = (width - text_w) // 2
-                y = y_pos
-                # Semi-transparent dark rectangle behind text
-                rect_pad = 14
-                rect = [x - rect_pad, y - rect_pad, x + text_w + rect_pad, y + text_h + rect_pad]
-                draw.rectangle(rect, fill=(0, 0, 0, 160))
-                # Text (white)
-                draw.text((x, y), text, font=font, fill=(255, 255, 255))
-                return y + text_h + pad_y
+            # Dynamic font sizing to fit width
+            def fit_text_to_width(draw: ImageDraw.ImageDraw, text: str, max_width: int, max_size: int, min_size: int = 16):
+                size = max_size
+                font = load_font(size)
+                # Shrink font until it fits or reaches min_size
+                while size > min_size:
+                    bbox = draw.textbbox((0, 0), text, font=font)
+                    if (bbox[2] - bbox[0]) <= max_width:
+                        break
+                    size -= 2
+                    font = load_font(size)
+                return font
 
-            current_y = height // 8
+            def wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> List[str]:
+                # Simple greedy word wrap
+                words = str(text).split()
+                if not words:
+                    return []
+                lines: List[str] = []
+                current = words[0]
+                for word in words[1:]:
+                    candidate = current + ' ' + word
+                    bbox = draw.textbbox((0, 0), candidate, font=font)
+                    if (bbox[2] - bbox[0]) <= max_width:
+                        current = candidate
+                    else:
+                        lines.append(current)
+                        current = word
+                lines.append(current)
+                return lines
+
+            # Layer for drawing with alpha
+            overlay = Image.new('RGBA', base.size, (255, 255, 255, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            side_margin = int(width * 0.08)
+            max_text_width = width - side_margin * 2
+
+            # Title at upper third
+            y = int(height * 0.14)
             if title_text:
-                current_y = draw_text_centered(current_y, title_text, title_font, pad_y=height // 40)
-            if author_text:
-                # Place near lower portion if title exists; else keep upper third
-                if title_text:
-                    current_y = int(height * 0.78)
-                draw_text_centered(current_y, author_text, author_font, pad_y=0)
+                # Fit font and allow multi-line wrapping
+                title_font = fit_text_to_width(draw, title_text, max_text_width, max(height // 10, 36))
+                title_lines = wrap_text(draw, title_text, title_font, max_text_width)
+                # Compute block dimensions
+                line_bboxes = [draw.textbbox((0, 0), ln, font=title_font) for ln in title_lines]
+                line_heights = [(b[3] - b[1]) for b in line_bboxes]
+                text_height = sum(line_heights) + max(8, height // 120) * (len(title_lines) - 1)
+                text_width = max((b[2] - b[0]) for b in line_bboxes) if line_bboxes else 0
+                x = (width - text_width) // 2
+                pad = 18
+                # Background plate
+                draw.rectangle([x - pad, y - pad, x + text_width + pad, y + text_height + pad], fill=(0, 0, 0, 168))
+                # Render lines centered
+                line_y = y
+                for ln, lh in zip(title_lines, line_heights):
+                    lb = draw.textbbox((0, 0), ln, font=title_font)
+                    lw = lb[2] - lb[0]
+                    lx = (width - lw) // 2
+                    draw.text((lx, line_y), ln, font=title_font, fill=(255, 255, 255, 255))
+                    line_y += lh + max(8, height // 120)
+                y = y + text_height + max(12, height // 60)
 
-            output = io.BytesIO()
-            image.save(output, format='JPEG', quality=95, optimize=True)
-            return output.getvalue()
+            # Author near lower portion
+            if author_text:
+                y_author = int(height * 0.80)
+                author_font = fit_text_to_width(draw, author_text, max_text_width, max(height // 16, 24))
+                author_lines = wrap_text(draw, author_text, author_font, max_text_width)
+                abbs = [draw.textbbox((0, 0), ln, font=author_font) for ln in author_lines]
+                a_heights = [(b[3] - b[1]) for b in abbs]
+                block_h = sum(a_heights) + max(6, height // 160) * (len(author_lines) - 1)
+                block_w = max((b[2] - b[0]) for b in abbs) if abbs else 0
+                ax = (width - block_w) // 2
+                apad = 14
+                draw.rectangle([ax - apad, y_author - apad, ax + block_w + apad, y_author + block_h + apad], fill=(0, 0, 0, 148))
+                line_y = y_author
+                for ln, lh in zip(author_lines, a_heights):
+                    lb = draw.textbbox((0, 0), ln, font=author_font)
+                    lw = lb[2] - lb[0]
+                    lx = (width - lw) // 2
+                    draw.text((lx, line_y), ln, font=author_font, fill=(255, 255, 255, 255))
+                    line_y += lh + max(6, height // 160)
+
+            composed = Image.alpha_composite(base, overlay).convert('RGB')
+            out = io.BytesIO()
+            composed.save(out, format='JPEG', quality=95, dpi=(300, 300), optimize=True)
+            return out.getvalue()
         except Exception as e:
             logger.error(f"Failed to overlay text: {e}")
             return image_bytes
@@ -1117,7 +1185,17 @@ class CoverArtService:
         except Exception as e:
             logger.error(f"Failed to render programmatic cover: {e}")
             # Fallback to a plain background
-            return Image.new('RGB', (KDP_COVER_SPECS["ideal_width"], KDP_COVER_SPECS["ideal_height"]), (30, 30, 30)).tobytes()
+            try:
+                fallback = Image.new(
+                    'RGB',
+                    (KDP_COVER_SPECS["ideal_width"], KDP_COVER_SPECS["ideal_height"]),
+                    (30, 30, 30)
+                )
+                out = io.BytesIO()
+                fallback.save(out, format='JPEG', quality=90, dpi=(300, 300), optimize=True)
+                return out.getvalue()
+            except Exception:
+                return b""
     
     async def upload_to_firebase(self, image_bytes: bytes, project_id: str, job_id: str) -> str:
         """
@@ -1165,12 +1243,18 @@ class CoverArtService:
             logger.error(f"Failed to upload to Firebase Storage: {e}")
             raise
     
-    async def generate_cover_art(self, project_id: str, user_id: str, 
-                                book_bible_content: str, reference_files: Dict[str, str],
-                                user_feedback: Optional[str] = None,
-                                options: Optional[Dict[str, Any]] = None,
-                                job_id: Optional[str] = None,
-                                requirements: Optional[str] = None) -> CoverArtJob:
+    async def generate_cover_art(
+        self,
+        project_id: str,
+        user_id: str,
+        book_bible_content: str,
+        reference_files: Dict[str, str],
+        user_feedback: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+        requirements: Optional[str] = None,
+        vector_context: Optional[str] = None
+    ) -> CoverArtJob:
         """
         Complete cover art generation workflow.
         
@@ -1212,7 +1296,12 @@ class CoverArtService:
             logger.info(f"Extracting book details for project {project_id}")
             book_details = self.extract_book_details(book_bible_content, reference_files, ui_options=options or {})
             # Step 1b: Generate explicit visual spec and merge conservatively
-            spec = await self._generate_visual_spec(book_bible_content, reference_files, options or {})
+            spec = await self._generate_visual_spec(
+                book_bible_content,
+                reference_files,
+                options or {},
+                vector_context=vector_context
+            )
             if spec:
                 try:
                     ve = spec.get('visual_elements') or []
@@ -1247,16 +1336,34 @@ class CoverArtService:
             prompt = self.generate_cover_prompt(
                 book_details,
                 user_feedback,
-                options,
+                # Resolve typography options to avoid placeholders
+                (lambda opts, details: (
+                    (lambda include_title, include_author, title_text, author_text: {
+                        'include_title': include_title and bool(title_text),
+                        'include_author': include_author and bool(author_text),
+                        'title_text': title_text if (include_title and bool(title_text)) else '',
+                        'author_text': author_text if (include_author and bool(author_text)) else ''
+                    })(
+                        bool((opts or {}).get('include_title')),
+                        bool((opts or {}).get('include_author')),
+                        ((opts or {}).get('title_text') or details.get('title') or '').strip(),
+                        ((opts or {}).get('author_text') or '').strip()
+                    )
+                ))(options, book_details),
                 requirements,
                 raw_bible_excerpt=bible_excerpt,
-                references_digest=references_digest
+                references_digest=references_digest,
+                vector_context=vector_context
             )
             job.prompt = prompt
             
             # Step 3: Generate image (GPT-image-1 only; no fallback)
             logger.info(f"Generating cover image for project {project_id}")
             original_url, image_bytes = await self.generate_cover_image(prompt)
+
+            # NOTE: We intentionally do NOT overlay text programmatically anymore. The GPT-image-1 model now renders
+            # the exact title and author typography directly on the cover. This preserves artistic integrity and avoids
+            # double-rendering issues that were causing random title/author substitutions.
             
             # Step 4: Upload to Firebase
             logger.info(f"Uploading cover art for project {project_id}")

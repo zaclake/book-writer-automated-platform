@@ -7,6 +7,7 @@ Provides validation and serialization for the commercial architecture.
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field, validator
+from pydantic.config import ConfigDict
 from enum import Enum
 
 # =====================================================================
@@ -65,6 +66,7 @@ class UserProfile(BaseModel):
     name: str
     subscription_tier: SubscriptionTier = SubscriptionTier.FREE
     avatar_url: Optional[str] = None
+    vector_store_id: Optional[str] = None
     created_at: Optional[datetime] = None
     last_active: Optional[datetime] = None
     timezone: str = "UTC"
@@ -84,7 +86,7 @@ class UserPreferences(BaseModel):
     auto_backup_enabled: bool = True
     collaboration_notifications: bool = True
     email_notifications: bool = True
-    preferred_llm_model: str = "gpt-4o"
+    preferred_llm_model: str = "gpt-4.1"
 
 class UserLimits(BaseModel):
     monthly_cost_limit: float = 50.0
@@ -254,6 +256,13 @@ class StoryContinuity(BaseModel):
     story_arc_progress: float = 0.0
     tone_consistency: Dict[str, Any] = {}
 
+class ProjectMemory(BaseModel):
+    project_vector_store_id: Optional[str] = None
+    series_vector_store_id: Optional[str] = None
+    user_vector_store_id: Optional[str] = None
+    last_indexed_at: Optional[datetime] = None
+    document_count: int = 0
+
 class Project(BaseModel):
     id: str  # Document ID from Firestore
     metadata: ProjectMetadata
@@ -262,6 +271,7 @@ class Project(BaseModel):
     settings: ProjectSettings = ProjectSettings()
     progress: ProjectProgress = ProjectProgress()
     story_continuity: StoryContinuity = StoryContinuity()
+    memory: ProjectMemory = ProjectMemory()
 
 # =====================================================================
 # CHAPTER MODELS
@@ -278,6 +288,7 @@ class CostBreakdown(BaseModel):
     total_cost: float = 0.0
 
 class ChapterMetadata(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     word_count: int
     target_word_count: int = 2000
     created_by: str
@@ -291,8 +302,11 @@ class ChapterMetadata(BaseModel):
     updated_at: Optional[datetime] = None
 
 class BrutalAssessment(BaseModel):
-    score: float
-    feedback: str
+    # Stored chapter docs may contain older/alternate brutal assessment shapes.
+    # Keep this schema permissive so reads don't 500 due to missing fields.
+    model_config = ConfigDict(extra="allow")
+    score: float = 0.0
+    feedback: str = ""
     assessed_at: Optional[datetime] = None
 
 class CraftScores(BaseModel):
@@ -428,6 +442,24 @@ class PublishConfig(BaseModel):
     formats: List[PublishFormat] = Field(default=[PublishFormat.EPUB, PublishFormat.PDF], description="Output formats")
     use_existing_cover: bool = Field(True, description="Use existing cover art if available")
     include_toc: bool = Field(True, description="Include table of contents")
+    include_kdp_kit: bool = Field(False, description="Generate KDP publishing kit PDF")
+
+    # KDP publishing kit details (only used when include_kdp_kit is true)
+    kdp_description: Optional[str] = Field(None, description="KDP product description")
+    kdp_keywords: List[str] = Field(default_factory=list, description="KDP keywords (up to 7)")
+    kdp_categories: List[str] = Field(default_factory=list, description="KDP categories (BISAC)")
+    kdp_subtitle: Optional[str] = Field(None, description="KDP subtitle")
+    kdp_series_name: Optional[str] = Field(None, description="KDP series name")
+    kdp_series_number: Optional[str] = Field(None, description="KDP series number")
+    kdp_language: Optional[str] = Field(None, description="KDP language")
+    kdp_primary_marketplace: Optional[str] = Field(None, description="KDP primary marketplace")
+    kdp_author_bio: Optional[str] = Field(None, description="KDP author bio")
+    kdp_contributors: Optional[str] = Field(None, description="KDP contributors")
+    kdp_edition: Optional[str] = Field(None, description="KDP edition number")
+    kdp_age_range: Optional[str] = Field(None, description="KDP age range")
+    kdp_grade_range: Optional[str] = Field(None, description="KDP grade range")
+    kdp_imprint: Optional[str] = Field(None, description="KDP imprint")
+    kdp_pricing: Optional[str] = Field(None, description="KDP pricing notes")
 
 class PublishRequest(BaseModel):
     """Request to publish a book."""
@@ -456,6 +488,7 @@ class PublishResult(BaseModel):
     epub_url: Optional[str] = Field(None, description="EPUB download URL")
     pdf_url: Optional[str] = Field(None, description="PDF download URL")
     html_url: Optional[str] = Field(None, description="HTML download URL")
+    kdp_kit_url: Optional[str] = Field(None, description="KDP publishing kit PDF URL")
     
     # Metadata
     created_at: datetime = Field(..., description="Job creation time")

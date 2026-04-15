@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -14,15 +13,13 @@ export async function GET(
     return new Response('Backend URL not configured', { status: 500 })
   }
 
-  const { getToken } = await auth()
-  const token = await getToken()
-  if (!token) return new Response('Authentication required', { status: 401 })
-
-  const targetUrl = `${backendBaseUrl}/auto-complete/${encodeURIComponent(params.jobId)}/progress?token=${encodeURIComponent(token)}`
+  const targetUrl = `${backendBaseUrl}/auto-complete/${encodeURIComponent(params.jobId)}/progress`
+  const sessionToken = request.cookies.get('user_session')?.value
 
   const backendResponse = await fetch(targetUrl, {
     headers: {
-      Accept: 'text/event-stream'
+      Accept: 'text/event-stream',
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {})
     }
   })
 
@@ -30,11 +27,11 @@ export async function GET(
   const headers = new Headers(backendResponse.headers)
   // Ensure CORS is not required since this is same-origin to client
   headers.set('Access-Control-Allow-Origin', '*')
+  headers.set('Cache-Control', 'no-cache')
+  headers.set('Connection', 'keep-alive')
 
   return new Response(backendResponse.body, {
     status: backendResponse.status,
     headers
   })
 }
-
-

@@ -8,7 +8,12 @@ import yaml
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    _OPENAI_AVAILABLE = True
+except Exception:
+    OpenAI = None
+    _OPENAI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +87,16 @@ class ReferenceContentGenerator:
         
         # Initialize OpenAI client if API key is available
         api_key = os.getenv('OPENAI_API_KEY')
-        if api_key:
+        if not _OPENAI_AVAILABLE:
+            logger.warning("OpenAI library not installed. Reference generation disabled.")
+        elif api_key:
             self.client = OpenAI(api_key=api_key)
         else:
             logger.warning("OPENAI_API_KEY not found. Content generation will be disabled.")
     
     def is_available(self) -> bool:
         """Check if content generation is available (API key configured)."""
-        return self.client is not None
+        return self.client is not None and _OPENAI_AVAILABLE
     
     def load_prompt(self, reference_type: str) -> Dict[str, Any]:
         """

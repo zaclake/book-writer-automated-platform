@@ -159,9 +159,9 @@ Model pricing is stored in Firestore at `system/model_pricing` and can be update
   "schema_version": "1.0",
   "models": {
     "openai": {
-      "gpt-4o": {
-        "input_usd_per_1k": 0.005,
-        "output_usd_per_1k": 0.015
+      "gpt-5.2-pro": {
+        "input_usd_per_1k": 0.021,
+        "output_usd_per_1k": 0.168
       }
     }
   }
@@ -237,7 +237,7 @@ Estimate credits for an operation.
 ```json
 {
   "operation_type": "chat",
-  "model": "gpt-4o",
+  "model": "gpt-5.2-pro",
   "prompt_text": "Write a chapter...",
   "max_tokens": 4000
 }
@@ -427,7 +427,7 @@ All credit operations emit structured logs for BigQuery analysis:
   "user_id": "user123",
   "amount": 150,
   "operation": "chapter_generation",
-  "model": "gpt-4o",
+  "model": "gpt-5.2-pro",
   "raw_cost_usd": 0.0312,
   "markup_applied": 5.0,
   "timestamp": "2025-01-15T10:30:00Z"

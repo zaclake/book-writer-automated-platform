@@ -10,7 +10,12 @@ import asyncio
 from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    _OPENAI_AVAILABLE = True
+except Exception:
+    OpenAI = None
+    _OPENAI_AVAILABLE = False
 # Concurrency controls with robust import fallbacks
 try:
     from backend.system.concurrency import (
@@ -95,6 +100,7 @@ class ReferenceContentGenerator:
             user_id: User ID for billing (if None, billing is disabled)
         """
         self.client = None
+        self.sync_client = None
         self.user_id = user_id
         self.billable_client = False
         
@@ -106,7 +112,10 @@ class ReferenceContentGenerator:
         
         # Initialize OpenAI client if API key is available
         api_key = os.getenv('OPENAI_API_KEY')
-        if api_key:
+        if not _OPENAI_AVAILABLE:
+            logger.warning("OpenAI library not installed. Reference generation disabled.")
+        elif api_key:
+            self.sync_client = OpenAI(api_key=api_key)
             if self.user_id and os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true':
                 # Try to use billable client
                 try:
@@ -116,18 +125,115 @@ class ReferenceContentGenerator:
                     logger.info(f"Reference content generator initialized with billable client for user {user_id}")
                 except Exception as e:
                     # Fallback to regular client
-                    self.client = OpenAI(api_key=api_key)
+                    self.client = self.sync_client
                     self.billable_client = False
                     logger.warning(f"Failed to initialize billable client for reference generation: {e}")
             else:
-                self.client = OpenAI(api_key=api_key)
+                self.client = self.sync_client
                 self.billable_client = False
         else:
             logger.warning("OPENAI_API_KEY not found. Content generation will be disabled.")
     
     def is_available(self) -> bool:
         """Check if content generation is available (API key configured)."""
-        return self.client is not None
+        return self.client is not None and _OPENAI_AVAILABLE
+
+    def _call_chat_completion(self, **kwargs):
+        """Invoke chat completions with billing-aware fallback."""
+        if self.billable_client:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                billable_response = asyncio.run(self.client.chat_completions_create(**kwargs))
+                return billable_response.response
+            # Avoid deadlocking inside a running loop; fall back to sync client
+            if self.sync_client:
+                logger.warning("Billable client called from running loop; falling back to sync OpenAI client.")
+                return self.sync_client.chat.completions.create(**kwargs)
+        if self.sync_client:
+            return self.sync_client.chat.completions.create(**kwargs)
+        return self.client.chat.completions.create(**kwargs)
+
+    def _call_responses_completion(self, **kwargs):
+        """Invoke Responses API with billing-aware fallback."""
+        input_messages = kwargs.pop("messages", None)
+        if input_messages is None:
+            input_messages = kwargs.pop("input", None)
+        if input_messages is None:
+            raise ValueError("Responses API requires input or messages")
+        max_tokens = kwargs.pop("max_tokens", None)
+        if max_tokens is not None:
+            kwargs["max_output_tokens"] = max_tokens
+        for key in ("frequency_penalty", "presence_penalty", "temperature", "top_p"):
+            kwargs.pop(key, None)
+
+        if self.billable_client:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                billable_response = asyncio.run(self.client.responses_create(input=input_messages, **kwargs))
+                return billable_response.response
+            if self.sync_client and hasattr(self.sync_client, "responses"):
+                logger.warning("Billable responses called from running loop; falling back to sync OpenAI client.")
+                return self.sync_client.responses.create(input=input_messages, **kwargs)
+
+        client = self.sync_client or self.client
+        if not hasattr(client, "responses"):
+            raise RuntimeError("OpenAI Responses API not available in client runtime.")
+        return client.responses.create(input=input_messages, **kwargs)
+
+    def _extract_response_text(self, response) -> str:
+        """Normalize output text from chat or responses APIs."""
+        if hasattr(response, "output_text"):
+            return response.output_text or ""
+        if hasattr(response, "choices"):
+            try:
+                return response.choices[0].message.content or ""
+            except Exception:
+                return ""
+        return ""
+
+    async def apply_reference_edit(
+        self,
+        reference_type: str,
+        current_content: str,
+        instructions: str,
+        scope: str = "document",
+        section_title: Optional[str] = None
+    ) -> str:
+        """Apply user instructions to update an existing reference document or section."""
+        if not self.is_available():
+            raise Exception("OpenAI API not available. Check OPENAI_API_KEY configuration.")
+
+        cleaned_type = reference_type.replace('-', ' ').strip()
+        if scope == "section":
+            system_prompt = (
+                "You are a senior story editor. Update the provided reference section using the user's instructions. "
+                "Preserve all relevant facts unless explicitly asked to change them. "
+                "Return only the updated section text without any title, headings, or markdown symbols. "
+                "Use short paragraphs or labeled lines (e.g., 'Goal: ...') where helpful."
+            )
+        else:
+            system_prompt = (
+                "You are a senior story editor. Update the existing reference document using the user's instructions. "
+                "Preserve all relevant facts unless explicitly asked to change them. "
+                "Return a clean, human-readable document with clear section titles on their own lines. "
+                "Avoid markdown symbols like #, *, -, backticks, or numbered list prefixes. "
+                "Use short paragraphs or labeled lines (e.g., 'Goal: ...') where helpful. "
+                "Return only the updated document text."
+            )
+
+        user_prompt = (
+            f"REFERENCE TYPE: {cleaned_type}\n\n"
+            f"SECTION TITLE: {section_title or 'N/A'}\n\n"
+            "CURRENT DOCUMENT:\n"
+            f"{current_content}\n\n"
+            "USER INSTRUCTIONS:\n"
+            f"{instructions}\n"
+        )
+
+        request_label = "section" if scope == "section" else "document"
+        return await self._make_openai_request(system_prompt, user_prompt, f"reference_edit_{reference_type}_{request_label}")
     
     async def expand_book_bible(self, source_data: dict, creation_mode: str, book_specs: dict) -> str:
         """
@@ -309,7 +415,7 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                     # Exponential back-off with jitter for rate limits
                     delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
                     logger.info(f"Retrying OpenAI request for {request_type} (attempt {attempt + 1}/{max_retries + 1}) after {delay:.1f}s delay")
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
                 
                 logger.info(f"Starting OpenAI API request for {request_type} (attempt {attempt + 1})")
                 
@@ -321,7 +427,8 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                             messages=messages,
                             temperature=0.7,
                             max_tokens=1800,  # keep well under 10k TPM across multiple calls
-                            top_p=0.9
+                            top_p=0.9,
+                            timeout=120
                         )
                         response = billable_response.response
                         credits_charged = billable_response.credits_charged
@@ -392,7 +499,7 @@ Ensure all elements work together cohesively and provide specific, actionable gu
             'name': f'{reference_type.title()} Reference Generator',
             'system_prompt': f'You are an expert {reference_type} specialist. Create comprehensive {reference_type} documentation based on the book bible.',
             'user_prompt_template': f'Based on this book bible content:\n\n{{book_bible_content}}\n\nCreate detailed {reference_type} documentation. Format as markdown.',
-            'model_config': {'model': 'gpt-4', 'temperature': 0.7, 'max_tokens': 3000}
+            'model_config': {'model': 'gpt-4o', 'temperature': 0.7, 'max_tokens': 3000}
         }
         
         prompt_file = self.prompts_dir / f"{reference_type}-prompt.yaml"
@@ -419,11 +526,107 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         logger.info(f"Prompt file not found: {prompt_file}, using fallback")
         return fallback_prompt
     
+    CHAINING_DEPENDENCIES: Dict[str, List[str]] = {
+        "characters": [],
+        "world-building": ["characters"],
+        "outline": ["characters", "world-building"],
+        "plot-timeline": ["characters", "outline"],
+        "entity-registry": ["characters", "world-building"],
+        "style-guide": ["characters"],
+        "themes-and-motifs": ["outline"],
+        "director-guide": ["outline", "characters", "style-guide"],
+        "relationship-map": ["characters", "outline", "plot-timeline"],
+        "research-notes": [],
+        "target-audience-profile": [],
+        "series-bible": [],
+    }
+
+    CHAINING_TRIM_LIMITS: Dict[str, int] = {
+        "characters": 4000,
+        "world-building": 3000,
+        "outline": 4000,
+        "plot-timeline": 3000,
+        "style-guide": 2000,
+        "themes-and-motifs": 2000,
+        "entity-registry": 3000,
+        "relationship-map": 3000,
+    }
+
+    @staticmethod
+    def _build_book_length_context(
+        book_length_tier: Optional[str] = None,
+        estimated_chapters: Optional[int] = None,
+        target_word_count: Optional[int] = None,
+        bible_word_count: Optional[int] = None,
+    ) -> str:
+        parts: List[str] = []
+
+        if any([book_length_tier, estimated_chapters, target_word_count]):
+            parts.append("BOOK LENGTH CONTEXT:")
+            if book_length_tier:
+                tier_label = book_length_tier.replace("_", " ").title()
+                parts.append(f"- Length Tier: {tier_label}")
+                if "short" in book_length_tier.lower() or "novella" in book_length_tier.lower():
+                    parts.append("- Guidance: This is a SHORT book. Prioritize depth over breadth. Fewer characters with richer profiles. Scene-level detail per chapter.")
+                elif "long" in book_length_tier.lower() or "epic" in book_length_tier.lower():
+                    parts.append("- Guidance: This is a LONG book. Include a larger supporting cast. Group chapters into sequences. Plan for multiple subplots and parallel arcs.")
+                else:
+                    parts.append("- Guidance: Standard-length novel. Balance breadth and depth appropriately.")
+            if estimated_chapters:
+                parts.append(f"- Estimated Chapters: {estimated_chapters}")
+            if target_word_count:
+                parts.append(f"- Target Word Count: {target_word_count:,} words")
+
+        if bible_word_count is not None:
+            if not parts:
+                parts.append("INPUT DENSITY CONTEXT:")
+            else:
+                parts.append("")
+                parts.append("INPUT DENSITY:")
+            if bible_word_count < 100:
+                parts.append(f"- The user's book bible is very brief ({bible_word_count} words). You MUST be highly creative: invent detailed characters, locations, plot structure, and world details that fit the genre and any hints provided. Build a fully realized story foundation from minimal input.")
+            elif bible_word_count < 500:
+                parts.append(f"- The user's book bible is brief ({bible_word_count} words). Fill in significant detail: create full character profiles, develop the setting, and build out the plot structure. Use genre conventions and any thematic hints to guide your extrapolation.")
+            elif bible_word_count <= 2000:
+                parts.append(f"- The user's book bible is moderate ({bible_word_count} words). Build on the details provided, filling gaps where the user left room. Balance extraction with intelligent extrapolation.")
+            elif bible_word_count <= 5000:
+                parts.append(f"- The user's book bible is moderately detailed ({bible_word_count} words). Use the provided details as the foundation and fill gaps where needed, but prioritize what the user has written.")
+            else:
+                parts.append(f"- The user's book bible is very detailed ({bible_word_count} words). Honor every specific detail the user has provided. Do not override, simplify, or contradict their vision. Extract and organize their content rather than inventing over it.")
+
+        if not parts:
+            return ""
+        return "\n".join(parts)
+
+    @staticmethod
+    def _build_prior_references_context(
+        prior_references: Optional[Dict[str, str]] = None,
+        reference_type: str = "",
+    ) -> str:
+        if not prior_references:
+            return ""
+        deps = ReferenceContentGenerator.CHAINING_DEPENDENCIES.get(reference_type, [])
+        if not deps:
+            return ""
+        sections = ["PREVIOUSLY GENERATED REFERENCES (use these for consistency — do not contradict):"]
+        for dep in deps:
+            content = prior_references.get(dep, "")
+            if not content:
+                continue
+            limit = ReferenceContentGenerator.CHAINING_TRIM_LIMITS.get(dep, 3000)
+            trimmed = content[:limit] + ("..." if len(content) > limit else "")
+            label = dep.replace("-", " ").title()
+            sections.append(f"\n--- {label} Reference ---\n{trimmed}")
+        if len(sections) == 1:
+            return ""
+        return "\n".join(sections)
+
     def generate_content(self, reference_type: str, book_bible_content: str, 
                         additional_context: Optional[Dict[str, Any]] = None,
                         book_length_tier: Optional[str] = None,
                         estimated_chapters: Optional[int] = None,
-                        target_word_count: Optional[int] = None) -> str:
+                        target_word_count: Optional[int] = None,
+                        prior_references: Optional[Dict[str, str]] = None) -> str:
         """
         Generate content for a specific reference file type.
         
@@ -431,6 +634,10 @@ Ensure all elements work together cohesively and provide specific, actionable gu
             reference_type: Type of reference to generate (characters, outline, etc.)
             book_bible_content: The complete book bible markdown content
             additional_context: Optional additional context to include in prompt
+            book_length_tier: Optional book length tier (short_story, novella, standard, long, epic)
+            estimated_chapters: Optional estimated chapter count
+            target_word_count: Optional target word count
+            prior_references: Optional dict of already-generated reference content keyed by type
             
         Returns:
             Generated markdown content for the reference file
@@ -454,13 +661,27 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         system_prompt = prompt_config['system_prompt']
         user_prompt_template = prompt_config['user_prompt_template']
         
-        # Prepare user prompt with book bible content and book specifications
+        # Build structured context for template rendering
+        bible_word_count = len(book_bible_content.split()) if book_bible_content else 0
+        book_length_context = self._build_book_length_context(
+            book_length_tier=book_length_tier,
+            estimated_chapters=estimated_chapters,
+            target_word_count=target_word_count,
+            bible_word_count=bible_word_count,
+        )
+        prior_refs_context = self._build_prior_references_context(
+            prior_references=prior_references,
+            reference_type=reference_type,
+        )
+
         context = {
             'book_bible_content': book_bible_content,
+            'book_length_context': book_length_context,
+            'prior_references': prior_refs_context,
             **(additional_context or {})
         }
         
-        # Add book length context if provided
+        # Legacy: also append book specs to bible content for backward compat
         if book_length_tier or estimated_chapters or target_word_count:
             book_specs = []
             if book_length_tier:
@@ -469,17 +690,55 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 book_specs.append(f"Estimated Chapters: {estimated_chapters}")
             if target_word_count:
                 book_specs.append(f"Target Word Count: {target_word_count:,} words")
-            
             context['book_specifications'] = "\n".join(book_specs)
-            
-            # Update book bible content to include specifications
             if book_specs:
                 context['book_bible_content'] = f"{book_bible_content}\n\n## Book Specifications\n{context['book_specifications']}"
         
+        # Provide safe defaults for all known optional template vars so missing
+        # keys don't blow up formatting while preserving required vars like
+        # {book_bible_content}.
+        _optional_defaults = {
+            'book_length_context': '',
+            'prior_references': '',
+            'book_specifications': '',
+        }
+        for key, default in _optional_defaults.items():
+            context.setdefault(key, default)
+
         try:
             user_prompt = user_prompt_template.format(**context)
         except KeyError as e:
-            raise Exception(f"Template formatting failed - missing context key: {e}")
+            # A template references a var we didn't anticipate.  Add an empty
+            # default for that specific key and retry instead of stripping ALL
+            # template vars (which would also remove {book_bible_content}).
+            missing_key = str(e).strip("'\"")
+            context[missing_key] = ''
+            logger.warning(f"Template key {missing_key!r} missing for {reference_type}; defaulting to empty")
+            try:
+                user_prompt = user_prompt_template.format(**context)
+            except KeyError as e2:
+                context[str(e2).strip("'\"")]  = ''
+                try:
+                    user_prompt = user_prompt_template.format(**context)
+                except Exception:
+                    import re
+                    user_prompt = re.sub(r'\{[a-zA-Z_]+\}', '', user_prompt_template)
+                    logger.error(f"Multiple missing template keys for {reference_type}; stripped remaining vars")
+
+        if reference_type != 'plot-timeline':
+            user_prompt += (
+                "\n\nOUTPUT REQUIREMENTS:\n"
+                "- Replace all bracketed placeholders with concrete, story-specific details; do not include bracketed guidance.\n"
+                "- Do not leave headings empty; every heading/subheading must include at least one sentence or bullet.\n"
+                "- Avoid placeholder text like 'TBD', 'To be determined', or 'Not specified'.\n"
+                "- When details are missing, infer plausible specifics consistent with the book bible and genre.\n"
+            )
+        else:
+            user_prompt += (
+                "\n\nOUTPUT NOTES:\n"
+                "- Provide as many concrete must-include items as possible.\n"
+                "- If a field is genuinely unknowable, omit it rather than leaving a placeholder.\n"
+            )
         
         # Prepare messages for OpenAI API
         messages = [
@@ -492,25 +751,50 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         import random
         max_attempts = 4
         base_delay = 2.0
-        last_error: Optional[Exception] = None
         for attempt in range(1, max_attempts + 1):
             try:
                 start_time = time.time()
                 logger.info(f"Starting OpenAI API request for {reference_type} using {model_config.get('model', 'gpt-4o')} (attempt {attempt}/{max_attempts})")
 
-                response = self.client.chat.completions.create(
-                    model=model_config.get('model', 'gpt-4o'),
-                    messages=messages,
-                    temperature=model_config.get('temperature', 0.7),
-                    max_tokens=model_config.get('max_tokens', 4000),
-                    top_p=model_config.get('top_p', 0.9),
-                    timeout=90  # 90s per attempt
-                )
+                model_name = model_config.get('model', 'gpt-4o')
+                use_responses = model_name.startswith("gpt-5")
+                try:
+                    if use_responses:
+                        response = self._call_responses_completion(
+                            model=model_name,
+                            input=messages,
+                            temperature=model_config.get('temperature', 0.7),
+                            max_tokens=model_config.get('max_tokens', 4000),
+                            top_p=model_config.get('top_p', 0.9),
+                            timeout=90  # 90s per attempt
+                        )
+                    else:
+                        response = self._call_chat_completion(
+                            model=model_name,
+                            messages=messages,
+                            temperature=model_config.get('temperature', 0.7),
+                            max_tokens=model_config.get('max_tokens', 4000),
+                            top_p=model_config.get('top_p', 0.9),
+                            timeout=90  # 90s per attempt
+                        )
+                except Exception as e:
+                    if not use_responses and "not a chat model" in str(e).lower():
+                        logger.warning("Chat completions rejected model; retrying with Responses API.")
+                        response = self._call_responses_completion(
+                            model=model_name,
+                            input=messages,
+                            temperature=model_config.get('temperature', 0.7),
+                            max_tokens=model_config.get('max_tokens', 4000),
+                            top_p=model_config.get('top_p', 0.9),
+                            timeout=90  # 90s per attempt
+                        )
+                    else:
+                        raise
 
                 duration = time.time() - start_time
                 logger.info(f"OpenAI API request completed for {reference_type} in {duration:.2f} seconds")
 
-                generated_content = response.choices[0].message.content
+                generated_content = self._extract_response_text(response)
 
                 if not generated_content or len(generated_content.strip()) < 100:
                     raise Exception("Generated content is too short or empty")
@@ -527,7 +811,6 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 return generated_content
 
             except Exception as e:
-                last_error = e
                 error_str = str(e).lower()
                 is_transient = any(tok in error_str for tok in ["502", "bad gateway", "5xx", "service unavailable"]) \
                     or "httpstatuserror" in error_str or "gateway" in error_str
@@ -578,6 +861,20 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         
         return missing_sections
     
+    CHAINED_GENERATION_ORDER: List[str] = [
+        'characters',
+        'world-building',
+        'outline',
+        'plot-timeline',
+        'entity-registry',
+        'style-guide',
+        'themes-and-motifs',
+        'director-guide',
+        'relationship-map',
+        'research-notes',
+        'target-audience-profile',
+    ]
+
     def generate_all_references(self, book_bible_content: str, 
                                references_dir: Path,
                                reference_types: Optional[List[str]] = None,
@@ -586,12 +883,19 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                                target_word_count: Optional[int] = None,
                                include_series_bible: bool = False) -> Dict[str, Any]:
         """
-        Generate content for all reference file types.
+        Generate content for all reference file types with chained context.
+        
+        Each reference is generated with access to previously-generated references
+        as defined by CHAINING_DEPENDENCIES, ensuring consistency across documents.
         
         Args:
             book_bible_content: The complete book bible markdown content
             references_dir: Directory to write generated reference files
-            reference_types: List of reference types to generate (defaults to all)
+            reference_types: List of reference types to generate (defaults to chained order)
+            book_length_tier: Optional book length tier
+            estimated_chapters: Optional estimated chapter count
+            target_word_count: Optional target word count
+            include_series_bible: Whether to include series bible generation
             
         Returns:
             Dictionary with generation results for each reference type
@@ -599,42 +903,36 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         if not self.is_available():
             return {"error": "OpenAI API key not configured"}
         
-        # Default reference types
         if reference_types is None:
-            reference_types = [
-                'characters', 'outline', 'world-building', 'style-guide', 'plot-timeline',
-                'themes-and-motifs', 'research-notes', 'target-audience-profile'
-            ]
+            reference_types = list(self.CHAINED_GENERATION_ORDER)
         
-        # Add series bible if requested
         if include_series_bible and 'series-bible' not in reference_types:
             reference_types.append('series-bible')
         
         results = {}
+        generated_content: Dict[str, str] = {}
         references_dir.mkdir(parents=True, exist_ok=True)
         
         import time
         
         for i, ref_type in enumerate(reference_types):
             try:
-                # Add delay between requests to stay under GPT-4o rate limits (10 RPM)
                 if i > 0:
-                    delay = 12.0  # 12s delay keeps us at max 5 requests per minute
+                    delay = 12.0
                     logger.info(f"Waiting {delay}s before generating {ref_type} to respect rate limits")
                     time.sleep(delay)
                 
-                logger.info(f"Generating content for {ref_type}")
+                logger.info(f"Generating content for {ref_type} (chained with {len(generated_content)} prior references)")
                 
-                # Generate content with book specifications
                 content = self.generate_content(
                     ref_type, 
                     book_bible_content,
                     book_length_tier=book_length_tier,
                     estimated_chapters=estimated_chapters,
-                    target_word_count=target_word_count
+                    target_word_count=target_word_count,
+                    prior_references=generated_content if generated_content else None,
                 )
                 
-                # Determine filename
                 filename_map = {
                     'characters': 'characters.md',
                     'outline': 'outline.md',
@@ -644,14 +942,18 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                     'themes-and-motifs': 'themes-and-motifs.md',
                     'research-notes': 'research-notes.md',
                     'target-audience-profile': 'target-audience-profile.md',
-                    'series-bible': 'series-bible.md'
+                    'series-bible': 'series-bible.md',
+                    'director-guide': 'director-guide.md',
+                    'entity-registry': 'entity-registry.md',
+                    'relationship-map': 'relationship-map.md',
                 }
                 
                 filename = filename_map.get(ref_type, f"{ref_type}.md")
                 file_path = references_dir / filename
                 
-                # Write content to file
                 file_path.write_text(content, encoding='utf-8')
+                
+                generated_content[ref_type] = content
                 
                 results[ref_type] = {
                     "success": True,
@@ -700,7 +1002,10 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 'themes-and-motifs': 'themes-and-motifs.md',
                 'research-notes': 'research-notes.md',
                 'target-audience-profile': 'target-audience-profile.md',
-                'series-bible': 'series-bible.md'
+                'series-bible': 'series-bible.md',
+                'director-guide': 'director-guide.md',
+                'entity-registry': 'entity-registry.md',
+                'relationship-map': 'relationship-map.md',
             }
             
             filename = filename_map.get(reference_type, f"{reference_type}.md")

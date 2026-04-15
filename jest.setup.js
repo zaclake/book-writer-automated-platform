@@ -25,24 +25,20 @@ jest.mock('next/router', () => ({
 }))
 
 // Mock next/navigation
-jest.mock('next/navigation', () => ({
-  useRouter() {
-    return {
-      push: jest.fn(),
-      replace: jest.fn(),
-      prefetch: jest.fn(),
-      back: jest.fn(),
-      forward: jest.fn(),
-      refresh: jest.fn(),
-    }
-  },
-  useSearchParams() {
-    return new URLSearchParams()
-  },
-  usePathname() {
-    return '/'
-  },
-}))
+jest.mock('next/navigation', () => {
+  const useRouter = jest.fn(() => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
+  }))
+  const useParams = jest.fn(() => ({ projectId: 'test-project' }))
+  const useSearchParams = jest.fn(() => new URLSearchParams())
+  const usePathname = jest.fn(() => '/')
+  return { useRouter, useParams, useSearchParams, usePathname }
+})
 
 // Mock environment variables
 process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_test_mock'

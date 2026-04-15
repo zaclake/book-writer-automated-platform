@@ -3,7 +3,7 @@ description: "Creates detailed chronological timeline and thematic development t
 version: "2.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.63
   max_tokens: 6500
   top_p: 0.9
@@ -35,6 +35,10 @@ system_prompt: |
 
 user_prompt_template: |
   Analyze this book bible comprehensively and create detailed timeline and thematic development documentation. Focus on extracting the emotional journey, character development needs, and thematic concerns to build a chronological framework that serves all story elements.
+
+  {book_length_context}
+
+  {prior_references}
 
   ---
   BOOK BIBLE:

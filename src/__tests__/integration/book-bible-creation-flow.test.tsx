@@ -33,7 +33,7 @@ jest.mock('@clerk/nextjs', () => ({
 }))
 
 // Mock the toast hook
-jest.mock('@/hooks/use-toast', () => ({
+jest.mock('@/hooks/useAppToast', () => ({
   toast: jest.fn(),
 }))
 
@@ -140,7 +140,7 @@ describe('Book Bible Creation Flow - Integration Tests', () => {
     })
 
     test('should handle validation errors in QuickStart mode', async () => {
-      const { toast } = require('@/hooks/use-toast')
+      const { toast } = require('@/hooks/useAppToast')
 
       render(<BookBibleCreator onBookBibleGenerated={jest.fn()} />)
 
@@ -271,7 +271,7 @@ Act III: Confrontation in quantum space
 
   describe('API Error Handling', () => {
     test('should handle backend API errors gracefully', async () => {
-      const { toast } = require('@/hooks/use-toast')
+      const { toast } = require('@/hooks/useAppToast')
 
       // Mock API error
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -305,7 +305,7 @@ Act III: Confrontation in quantum space
     })
 
     test('should handle network errors', async () => {
-      const { toast } = require('@/hooks/use-toast')
+      const { toast } = require('@/hooks/useAppToast')
 
       // Mock network error
       ;(global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'))

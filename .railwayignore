@@ -20,7 +20,7 @@ docs/
 tools/
 frameworks/
 analysis/
-system/
+/system/
 templates/
 chapters/
 references/

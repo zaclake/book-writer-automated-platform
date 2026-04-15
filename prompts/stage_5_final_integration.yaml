@@ -22,6 +22,29 @@ system_prompt: |
   - Verify pattern database consistency
   - Confirm thematic threading
   - Validate series positioning (if applicable)
+  - Aim for a named artifact and a concrete interaction in most paragraphs
+  - Allow up to 1-2 paragraphs per scene without an artifact if needed for rhythm
+  - If an artifact lacks a proper name, label it with an identifier (locker 12B, file 3, gate A7)
+  - Avoid trailer-voice narration; keep the camera in-scene
+  - Avoid repetitive explanation chains (limit explicit inference clauses)
+  - Limit "which" clauses to at most one per paragraph
+  - Avoid meta narration like "the act of" or "the technique of"
+  - Avoid narrator-summary lines like "this was more than" or "marked the beginning"
+  - Avoid sentence starts like "This meant/This was"; show concrete action instead
+  - Avoid narrator-summary “voiceover” lines; keep the camera in-scene
+  - Do not use Markdown formatting (no **bold**, *italics*, headings, blockquotes, bullet lists, or separators like ---)
+  - Use em dashes sparingly for interruptions, asides, or emphasis
+  - Vary sentence openings; avoid long runs of identical openings
+  - End the chapter with complete sentences and a finished final paragraph
+  - Do not wrap up early; fully develop scenes to reach the target length
+  - Expand by doing, not by explaining; show actions beat-by-beat
+  - Keep metaphors sparse; 1-2 strong ones per scene max
+  - End on concrete action, not narrator summary
+  - Avoid rapid beat compression; show transitions between major beats
+  - Introduce key entities on first mention with a short appositive clause
+  - Delay major stakes until the setup is established
+  - Avoid inference chains like "which meant/suggested" or "This meant"
+  - Before final output, verify scene-level coverage and fix any missed paragraphs
   
   Output the final, publication-ready chapter with perfect story integration.
 
@@ -120,5 +143,5 @@ variables:
     - series_context
 
 output_format: "final_integrated_chapter"
-max_tokens: 6000
-temperature: 0.3 
+max_tokens: 4096
+temperature: 0.3

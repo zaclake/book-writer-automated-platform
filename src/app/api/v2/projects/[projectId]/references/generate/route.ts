@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
- * Proxy reference generation requests to the FastAPI backend with authentication.
+ * Proxy reference generation requests to the FastAPI backend.
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: { projectId: string } }
 ) {
   console.log('[v2/projects/references/generate] POST request started for project:', params.projectId)
-  
+
   try {
     const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim()
     if (!backendBaseUrl) {
@@ -23,37 +22,26 @@ export async function POST(
       )
     }
 
-    // Get Clerk auth and JWT token
-    const { getToken } = await auth()
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-    
-    try {
-      const token = await getToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-        console.log('[v2/projects/references/generate] Auth token added to request')
-      } else {
-        console.warn('[v2/projects/references/generate] No auth token available')
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        )
-      }
-    } catch (error) {
-      console.error('[v2/projects/references/generate] Failed to get Clerk token:', error)
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 }
-      )
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     }
 
-    // Get request body
-    const body = await request.json()
+    // Get request body (may be empty for regeneration)
+    let body = {}
+    try {
+      body = await request.json()
+    } catch {
+      // Empty body is valid for regeneration requests
+    }
 
     const targetUrl = `${backendBaseUrl}/v2/projects/${params.projectId}/references/generate`
-    
+
     console.log('[v2/projects/references/generate] Forwarding to:', targetUrl)
 
     const backendResponse = await fetch(targetUrl, {
@@ -64,7 +52,7 @@ export async function POST(
     })
 
     const data = await backendResponse.json()
-    
+
     if (!backendResponse.ok) {
       console.error('[v2/projects/references/generate] Backend error:', backendResponse.status, data)
       return NextResponse.json(data, { status: backendResponse.status })

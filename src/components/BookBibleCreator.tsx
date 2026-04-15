@@ -2,13 +2,13 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useUser } from '@clerk/nextjs'
+import { useAuthToken, ANONYMOUS_USER } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { toast } from '@/components/ui/use-toast'
+import { toast } from '@/hooks/useAppToast'
 import { useAutoSave, useSessionRecovery, SessionRecoveryPrompt } from '@/hooks/useAutoSave'
 import { CreativeLoader } from '@/components/ui/CreativeLoader'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
@@ -76,9 +76,10 @@ const getBookLengthSpecs = (tier: BookLengthTier): BookLengthSpecs => {
   return specs[tier]
 }
 
-const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<{ success: boolean; projectId?: string; referencesGenerated?: boolean }> }> = ({ onComplete }) => {
-  const { user, isLoaded } = useUser()
-  const [mode, setMode] = useState<CreationMode>('select')
+const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<{ success: boolean; projectId?: string; referencesGenerated?: boolean }>; enablePasteMode?: boolean }> = ({ onComplete, enablePasteMode = true }) => {
+  const { user: authUser, isLoaded } = useAuthToken()
+  const user = authUser || ANONYMOUS_USER
+  const [mode, setMode] = useState<CreationMode>('paste')
   const [isLoading, setIsLoading] = useState(false)
   
   // Track project creation progress
@@ -128,8 +129,32 @@ const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<
 
   // Loader progress/stage helpers reusable across render paths
   const loaderProgressValue = isLoading ? (jobProgress?.progress ?? 20) : 0
-  const loaderStage = isLoading ? (jobProgress?.stage || (isPolling ? 'Generating References' : 'Creating Book Bible')) : undefined
-  
+  const loaderStage = isLoading ? (jobProgress?.stage || (isPolling ? 'Generating references...' : 'Creating project...')) : undefined
+
+  // Sync GlobalLoader with loading state (replaces side-effect-in-render IIFE)
+  React.useEffect(() => {
+    if (isLoading) {
+      GlobalLoader.show({
+        title: isPolling ? 'Generating References' : 'Creating Project',
+        stage: loaderStage,
+        progress: loaderProgressValue,
+        showProgress: true,
+        safeToLeave: isPolling,
+        canMinimize: isPolling,
+        customMessages: [
+          'Building story foundation...',
+          'Analyzing narrative elements...',
+          'Developing character framework...',
+          'Mapping plot structure...',
+          'Compiling style guide...',
+        ],
+        timeoutMs: 600000,
+      })
+    } else {
+      GlobalLoader.hide()
+    }
+  }, [isLoading, isPolling, loaderStage, loaderProgressValue])
+
   // Book configuration state
   const [bookLengthTier, setBookLengthTier] = useState<BookLengthTier>(BookLengthTier.STANDARD_NOVEL)
   const [customChapters, setCustomChapters] = useState<number | null>(null)
@@ -222,7 +247,8 @@ const BookBibleCreator: React.FC<{ onComplete: (data: BookBibleData) => Promise<
     `book_bible_creator`,
     bookBibleFormData,
     (recoveredData) => {
-      setMode(recoveredData.mode)
+      // Always restore into the open dialogue path for creation flow
+      setMode('paste')
       setBookLengthTier(recoveredData.bookLengthTier)
       setCustomChapters(recoveredData.customChapters)
       setIncludeSeriesBible(recoveredData.includeSeriesBible)
@@ -567,76 +593,35 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
     }
   }
 
-  if (!isLoaded) {
-    return <div className="animate-pulse">Loading...</div>
-  }
-
-  // Mode Selection
+  // Mode Selection (only open dialogue is exposed)
   if (mode === 'select') {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
         <div className="text-center mb-6 sm:mb-8">
           <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">Create Your Book Bible</h2>
-          <p className="text-sm sm:text-base text-gray-600">Choose how you&apos;d like to get started</p>
+          <p className="text-sm sm:text-base text-gray-600">Tell us what you want in any format</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* QuickStart Mode */}
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => handleModeSelect('quickstart')}>
-            <CardHeader>
-              <CardTitle className="text-xl text-blue-600">⚡ QuickStart</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-gray-600">Perfect for getting started quickly with basic story elements.</p>
-                <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Basic premise and characters</li>
-                  <li>• AI expands your ideas</li>
-                  <li>• 5-10 minutes to complete</li>
-                  <li>• Great for new writers</li>
-                </ul>
-                <Button className="w-full">Start QuickStart</Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Guided Wizard Mode */}
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow border-blue-200" onClick={() => handleModeSelect('guided')}>
-            <CardHeader>
-              <CardTitle className="text-xl text-purple-600">🧙‍♂️ Guided Wizard</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-gray-600">Comprehensive step-by-step guidance for detailed planning.</p>
-                <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Detailed character development</li>
-                  <li>• World-building assistance</li>
-                  <li>• 15-20 minutes to complete</li>
-                  <li>• Best for detailed planners</li>
-                </ul>
-                <Button className="w-full bg-purple-600 hover:bg-purple-700">Start Guided Wizard</Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Paste-In Mode */}
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => handleModeSelect('paste')}>
-            <CardHeader>
-              <CardTitle className="text-xl text-green-600">📋 Paste-In</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-gray-600">Already have content? Paste it in and we'll format it properly.</p>
-                <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Import existing outlines</li>
-                  <li>• Preserve your work</li>
-                  <li>• 2-5 minutes to complete</li>
-                  <li>• For experienced writers</li>
-                </ul>
-                <Button className="w-full bg-green-600 hover:bg-green-700">Start Paste-In</Button>
-              </div>
-            </CardContent>
-          </Card>
+          {enablePasteMode && (
+            <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => handleModeSelect('paste')}>
+              <CardHeader>
+                <CardTitle className="text-xl text-green-600">📝 Open Dialogue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-gray-600">Type or paste anything—outlines, notes, or raw ideas.</p>
+                  <ul className="text-sm text-gray-500 space-y-1">
+                    <li>• Any format is welcome</li>
+                    <li>• Keep your voice and details</li>
+                    <li>• 2-5 minutes to complete</li>
+                    <li>• Great for freeform input</li>
+                  </ul>
+                  <Button className="w-full bg-green-600 hover:bg-green-700">Start Open Dialogue</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     )
@@ -833,37 +818,6 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
           </CardContent>
         </Card>
 
-        {(() => {
-          // Side-effectful: wrap in setTimeout to avoid render strict-mode double-call
-          if (isLoading) {
-            setTimeout(() => {
-              GlobalLoader.show({
-                title: 'Creating Book Bible',
-                stage: loaderStage,
-                progress: loaderProgressValue,
-                showProgress: true,
-                size: 'md',
-                fullScreen: true,
-                customMessages: [
-                  '🖋️ Crafting your story foundation...',
-                  '📚 Organizing narrative elements...',
-                  '🎭 Developing character frameworks...',
-                  '🗺️ Mapping plot structures...',
-                  '✨ Weaving creative magic...',
-                  '🔮 Consulting the storytelling muses...',
-                  "📖 Building your writer's bible...",
-                  '🎨 Painting your story landscape...',
-                  '🌟 Aligning creative constellations...',
-                  '🎪 Teaching your story to dance...'
-                ],
-                timeoutMs: 600000,
-              })
-            }, 0)
-          } else {
-            setTimeout(() => GlobalLoader.hide(), 0)
-          }
-          return null
-        })()}
       </div>
     )
   }
@@ -1166,19 +1120,15 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
             </div>
           </CardContent>
         </Card>
-        {/* Creative Loader for Guided Mode */}
         <CreativeLoader
           isVisible={isLoading}
           progress={loaderProgressValue}
           stage={loaderStage}
           customMessages={[
-            "🧙‍♂️ Summoning story wizards...",
-            "📚 Gathering arcane plot scrolls...",
-            "🎭 Sculpting intricate characters...",
-            "🌌 Expanding narrative cosmos...",
-            "✨ Infusing pages with magic...",
-            "🔮 Probing story possibilities...",
-            "🗺️ Charting epic journeys..."
+            'Building story foundation...',
+            'Developing character profiles...',
+            'Mapping plot structure...',
+            'Creating reference materials...',
           ]}
           showProgress={true}
           size="md"
@@ -1189,16 +1139,23 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
     )
   }
 
-  // Paste-In Mode
+  // Open Dialogue Mode (Paste-In)
   if (mode === 'paste') {
     return (
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
         <div className="mb-4 sm:mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3 sm:gap-0">
-            <h2 className="text-xl sm:text-2xl font-bold">📋 Paste-In Mode</h2>
-            <Button variant="outline" onClick={() => setMode('select')} className="self-start sm:self-auto">← Back</Button>
+            <h2 className="text-xl sm:text-2xl font-bold">📝 Open Dialogue</h2>
           </div>
-          <p className="text-gray-600">Already have content? Paste it here and we'll format it as a book bible.</p>
+          <p className="text-gray-600">Tell us what you want in any format. Type or paste your ideas, and we'll format them into a book bible.</p>
+          <div className="mt-3 rounded-lg bg-brand-off-white/70 border border-brand-lavender/30 px-4 py-3 text-sm text-gray-700">
+            <div className="font-semibold text-gray-800 mb-1">Ways to use it</div>
+            <div className="space-y-1">
+              <div>• Paste notes, bullets, or messy brain dumps</div>
+              <div>• Drop in a full outline or chapter beats</div>
+              <div>• Write a few paragraphs like you&apos;re texting a friend</div>
+            </div>
+          </div>
         </div>
 
         <Card>
@@ -1297,7 +1254,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <Label htmlFor="paste-content">Book Bible Content *</Label>
+                  <Label htmlFor="paste-content">Your Ideas *</Label>
                   <div className={`text-sm ${getCharCountColor()}`}>
                     {currentCharCount.toLocaleString()} / {MAX_CHARACTERS.toLocaleString()} characters
                     {isNearLimit && !isOverLimit && (
@@ -1310,7 +1267,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
                 </div>
                 <Textarea
                   id="paste-content"
-                  placeholder="Paste your existing outline, character descriptions, plot summary, or any other book-related content here..."
+                  placeholder="Tell us what you want in any format—outline, notes, plot summary, or raw ideas..."
                   value={pasteData.content}
                   onChange={(e) => setPasteData(prev => ({ ...prev, content: e.target.value }))}
                   rows={15}
@@ -1330,7 +1287,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
                   </div>
                 )}
                 <p className="text-sm text-gray-500">
-                  You can paste outlines, character descriptions, plot summaries, or any markdown/text content
+                  Any format works: notes, bullets, prose, or full outlines
                 </p>
               </div>
 
@@ -1347,7 +1304,7 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
             </div>
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 sm:gap-2">
-              <Button variant="outline" onClick={() => setMode('select')} className="min-h-[44px] w-full sm:w-auto">
+              <Button variant="outline" onClick={() => router.back()} className="min-h-[44px] w-full sm:w-auto">
                 Cancel
               </Button>
               <Button 
@@ -1360,18 +1317,15 @@ ${mustInclude.split('\n').filter(line => line.trim()).map(item => `- ${item.trim
             </div>
           </CardContent>
         </Card>
-        {/* Creative Loader for Paste-In Mode */}
         <CreativeLoader
           isVisible={isLoading}
           progress={loaderProgressValue}
           stage={loaderStage}
           customMessages={[
-            "📋 Integrating your content...",
-            "🖋️ Formatting book bible sections...",
-            "🔍 Parsing narrative elements...",
-            "✨ Enhancing storytelling magic...",
-            "🎨 Harmonizing style and tone...",
-            "📚 Building reference library..."
+            'Processing your content...',
+            'Building book foundation...',
+            'Creating reference files...',
+            'Compiling style guide...',
           ]}
           showProgress={true}
           size="md"

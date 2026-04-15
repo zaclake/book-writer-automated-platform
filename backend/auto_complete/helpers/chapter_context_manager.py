@@ -70,6 +70,8 @@ class ChapterContext:
     cliffhangers: List[str]
     questions_raised: List[str]
     questions_answered: List[str]
+    time_markers: List[str]
+    timeline_position: str
     timestamp: str
 
 
@@ -95,6 +97,7 @@ class ChapterContextManager:
         self.characters_file = self.state_dir / "character-states.json"
         self.plot_threads_file = self.state_dir / "plot-threads.json"
         self.world_state_file = self.state_dir / "world-state.json"
+        self.timeline_state_file = self.state_dir / "timeline-state.json"
         
         # Ensure directories exist
         self.state_dir.mkdir(exist_ok=True)
@@ -104,6 +107,7 @@ class ChapterContextManager:
         self.character_states: Dict[str, CharacterState] = self._load_character_states()
         self.plot_threads: Dict[str, PlotThread] = self._load_plot_threads()
         self.world_state: WorldState = self._load_world_state()
+        self.timeline_state: Dict[str, Any] = self._load_timeline_state()
     
     def _load_chapter_contexts(self) -> Dict[int, ChapterContext]:
         """Load chapter contexts from file."""
@@ -117,7 +121,23 @@ class ChapterContextManager:
             contexts = {}
             for chapter_num_str, context_data in data.items():
                 chapter_num = int(chapter_num_str)
-                contexts[chapter_num] = ChapterContext(**context_data)
+                contexts[chapter_num] = ChapterContext(
+                    chapter_number=chapter_num,
+                    summary=context_data.get("summary", ""),
+                    word_count=context_data.get("word_count", 0),
+                    key_events=context_data.get("key_events", []),
+                    characters_present=context_data.get("characters_present", []),
+                    new_information=context_data.get("new_information", []),
+                    plot_advancement=context_data.get("plot_advancement", {}),
+                    emotional_tone=context_data.get("emotional_tone", "neutral"),
+                    themes_explored=context_data.get("themes_explored", []),
+                    cliffhangers=context_data.get("cliffhangers", []),
+                    questions_raised=context_data.get("questions_raised", []),
+                    questions_answered=context_data.get("questions_answered", []),
+                    time_markers=context_data.get("time_markers", []),
+                    timeline_position=context_data.get("timeline_position", "unknown"),
+                    timestamp=context_data.get("timestamp", "")
+                )
             
             return contexts
         except (json.JSONDecodeError, KeyError, ValueError):
@@ -213,6 +233,27 @@ class ChapterContextManager:
         # Save world state
         with open(self.world_state_file, 'w', encoding='utf-8') as f:
             json.dump(asdict(self.world_state), f, indent=2, ensure_ascii=False)
+
+        # Save timeline state
+        with open(self.timeline_state_file, 'w', encoding='utf-8') as f:
+            json.dump(self.timeline_state, f, indent=2, ensure_ascii=False)
+
+    def _load_timeline_state(self) -> Dict[str, Any]:
+        """Load timeline state from file."""
+        if not self.timeline_state_file.exists():
+            return {
+                "current_day_index": 0,
+                "last_position": "unknown",
+                "events": []
+            }
+        try:
+            return json.loads(self.timeline_state_file.read_text(encoding="utf-8"))
+        except Exception:
+            return {
+                "current_day_index": 0,
+                "last_position": "unknown",
+                "events": []
+            }
     
     def analyze_chapter_content(self, chapter_number: int, chapter_content: str) -> ChapterContext:
         """Analyze chapter content and extract context information."""
@@ -243,6 +284,10 @@ class ChapterContextManager:
         
         # Analyze plot advancement
         plot_advancement = self._analyze_plot_advancement(chapter_content, chapter_number)
+
+        # Timeline markers and position
+        time_markers = self._extract_time_markers(chapter_content)
+        timeline_position = self._determine_timeline_position(time_markers)
         
         # Create chapter context
         context = ChapterContext(
@@ -258,6 +303,8 @@ class ChapterContextManager:
             cliffhangers=cliffhangers,
             questions_raised=questions_raised,
             questions_answered=questions_answered,
+            time_markers=time_markers,
+            timeline_position=timeline_position,
             timestamp=datetime.now().isoformat()
         )
         
@@ -272,6 +319,9 @@ class ChapterContextManager:
         
         # Update world state
         self._update_world_state(chapter_number, chapter_content)
+
+        # Update timeline state
+        self._update_timeline_state(chapter_number, time_markers, timeline_position)
         
         # Save all state
         self._save_all_state()
@@ -302,10 +352,56 @@ class ChapterContextManager:
             "character_development_needs": self._determine_character_development_needs(),
             "pacing_guidance": self._generate_pacing_guidance(next_chapter_number),
             "continuity_requirements": self._generate_continuity_requirements(),
-            "context_quality_score": self._calculate_context_quality_score()
+            "context_quality_score": self._calculate_context_quality_score(),
+            "memory_ledger": self.build_memory_ledger_summary(),
+            "timeline_state": self._build_timeline_state(),
+            "timeline_constraints": self._build_timeline_constraints(),
+            "arc_diagnostics": self._build_arc_diagnostics(next_chapter_number)
         }
         
         return context
+
+    def build_memory_ledger_summary(self) -> str:
+        """Build a concise memory ledger for prompt injection."""
+        lines: list[str] = []
+
+        # Characters and goals
+        if self.character_states:
+            lines.append("CHARACTERS:")
+            for name, character in list(self.character_states.items())[:12]:
+                goals = ", ".join(character.current_goals[:3]) if character.current_goals else "no stated goals"
+                emotion = character.emotional_state or "neutral"
+                lines.append(f"- {name}: emotion={emotion}; goals={goals}")
+
+        # Plot threads
+        active_threads = [t for t in self.plot_threads.values() if t.current_status == "active"]
+        if active_threads:
+            lines.append("PLOT THREADS:")
+            for thread in active_threads[:8]:
+                lines.append(f"- {thread.title}: urgency={thread.urgency_level}; completion={thread.completion_percentage:.0f}%")
+
+        # World rules and established facts
+        if self.world_state.world_rules:
+            lines.append("WORLD RULES:")
+            for key, value in list(self.world_state.world_rules.items())[:8]:
+                lines.append(f"- {key}: {str(value)[:120]}")
+
+        if self.world_state.established_facts:
+            lines.append("ESTABLISHED FACTS:")
+            for fact in self.world_state.established_facts[:8]:
+                if isinstance(fact, dict):
+                    lines.append(f"- {fact.get('fact', str(fact))}")
+                else:
+                    lines.append(f"- {str(fact)[:160]}")
+
+        # Unresolved questions
+        unresolved = self._get_unresolved_questions()
+        if unresolved:
+            lines.append("UNRESOLVED QUESTIONS:")
+            for question in unresolved[:6]:
+                lines.append(f"- {str(question)[:160]}")
+
+        return "\n".join(lines).strip()
     
     def _extract_chapter_summary(self, chapter_content: str) -> str:
         """Extract a brief summary of the chapter."""
@@ -596,13 +692,90 @@ class ChapterContextManager:
                         "importance": "minor"
                     }
         
-        # Add time progression entry
-        self.world_state.time_progression.append({
+        # Timeline progression is handled separately in _update_timeline_state
+
+    def _extract_time_markers(self, chapter_content: str) -> List[str]:
+        """Extract time markers for timeline management."""
+        markers = []
+        patterns = [
+            r'\b(morning|afternoon|evening|night|dawn|dusk)\b',
+            r'\b(next day|the next day|later that day|hours later|days later)\b',
+            r'\b(yesterday|earlier|previous day|last night)\b',
+            r'\b(flashback|memory|remembered|years ago)\b'
+        ]
+        content_lower = chapter_content.lower()
+        for pattern in patterns:
+            matches = re.findall(pattern, content_lower)
+            for match in matches:
+                markers.append(match)
+        return list(dict.fromkeys(markers))
+
+    def _extract_scene_markers(self, chapter_content: str) -> List[Dict[str, Any]]:
+        """Extract time markers per scene for scene-level timeline checks."""
+        scenes = [s.strip() for s in chapter_content.split("\n\n") if s.strip()]
+        scene_markers = []
+        for idx, scene in enumerate(scenes, 1):
+            markers = self._extract_time_markers(scene)
+            position = self._determine_timeline_position(markers)
+            scene_markers.append({
+                "scene_number": idx,
+                "markers": markers,
+                "timeline_position": position
+            })
+        return scene_markers
+
+    def _determine_timeline_position(self, time_markers: List[str]) -> str:
+        """Determine whether the chapter moves forward, backward, or stays in time."""
+        lower = " ".join(time_markers).lower()
+        if any(word in lower for word in ["flashback", "yesterday", "earlier", "previous day", "years ago", "memory"]):
+            return "backward"
+        if any(word in lower for word in ["next day", "later that day", "hours later", "days later"]):
+            return "forward"
+        if any(word in lower for word in ["morning", "afternoon", "evening", "night", "dawn", "dusk"]):
+            return "same_day"
+        return "unknown"
+
+    def _update_timeline_state(self, chapter_number: int, time_markers: List[str], timeline_position: str) -> None:
+        """Update world state's time progression with detected markers."""
+        # Update day index based on markers
+        marker_text = " ".join(time_markers).lower()
+        day_delta = 0
+        if "next day" in marker_text or "days later" in marker_text:
+            day_delta = 1
+        if "hours later" in marker_text:
+            day_delta = 0
+
+        if timeline_position == "forward":
+            self.timeline_state["current_day_index"] = self.timeline_state.get("current_day_index", 0) + day_delta
+        self.timeline_state["last_position"] = timeline_position
+        self.timeline_state.setdefault("events", []).append({
             "chapter": chapter_number,
-            "relative_time": "continues",
-            "duration": "unknown",
+            "relative_time": timeline_position,
+            "markers": time_markers,
+            "day_index": self.timeline_state.get("current_day_index", 0),
             "timestamp": datetime.now().isoformat()
         })
+
+    def _build_timeline_state(self) -> Dict[str, Any]:
+        """Build a snapshot of timeline state."""
+        recent = self.timeline_state.get("events", [])[-5:]
+        return {
+            "recent_time_progression": recent,
+            "current_day_index": self.timeline_state.get("current_day_index", 0),
+            "last_position": self.timeline_state.get("last_position", "unknown")
+        }
+
+    def _build_timeline_constraints(self) -> List[str]:
+        """Generate timeline constraints for the next chapter."""
+        constraints = ["Avoid timeline regressions unless explicitly marked as flashback."]
+        recent = self.timeline_state.get("events", [])[-3:]
+        if recent:
+            last = recent[-1]
+            if last.get("relative_time") == "forward":
+                constraints.append("Continue forward progression unless a clear flashback is indicated.")
+            if last.get("day_index", 0) > 0:
+                constraints.append("Keep day index consistent; do not reset without explicit flashback.")
+        return constraints
     
     def _build_story_summary(self, previous_contexts: List[ChapterContext]) -> str:
         """Build a comprehensive story summary from previous chapters."""
@@ -655,6 +828,101 @@ class ChapterContextManager:
             "ongoing_situations": self.world_state.ongoing_situations,
             "recent_time_progression": self.world_state.time_progression[-3:],
             "world_rules": self.world_state.world_rules
+        }
+
+    def _load_book_plan(self) -> Dict[str, Any]:
+        """Load book plan from project state if available."""
+        plan_path = self.state_dir / "book-plan.json"
+        if not plan_path.exists():
+            return {}
+        try:
+            return json.loads(plan_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _build_theme_balance(self, recent_contexts: List[ChapterContext]) -> Dict[str, int]:
+        """Summarize theme frequency across recent chapters."""
+        counts: Dict[str, int] = {}
+        for context in recent_contexts:
+            for theme in context.themes_explored:
+                if not theme:
+                    continue
+                counts[theme] = counts.get(theme, 0) + 1
+        return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+
+    def _build_pacing_trend(self, recent_contexts: List[ChapterContext]) -> Dict[str, Any]:
+        """Compute recent pacing trend from word counts."""
+        if not recent_contexts:
+            return {"trend": "unknown", "recent_avg_words": 0}
+        recent_avg = sum(c.word_count for c in recent_contexts) / max(1, len(recent_contexts))
+        prior_contexts = [
+            c for c in self.chapter_contexts.values()
+            if c.chapter_number < recent_contexts[0].chapter_number
+        ]
+        prior_contexts = sorted(prior_contexts, key=lambda c: c.chapter_number)[-3:]
+        if prior_contexts:
+            prior_avg = sum(c.word_count for c in prior_contexts) / max(1, len(prior_contexts))
+        else:
+            prior_avg = 0
+        trend = "stable"
+        if prior_avg:
+            if recent_avg > prior_avg * 1.1:
+                trend = "rising"
+            elif recent_avg < prior_avg * 0.9:
+                trend = "falling"
+        return {
+            "trend": trend,
+            "recent_avg_words": int(recent_avg),
+            "prior_avg_words": int(prior_avg) if prior_avg else 0
+        }
+
+    def _build_arc_diagnostics(self, next_chapter_number: int) -> Dict[str, Any]:
+        """Build novel-level diagnostics to guide chapter direction."""
+        plan = self._load_book_plan()
+        target_chapters = 0
+        if plan.get("metadata", {}).get("target_chapters"):
+            target_chapters = int(plan["metadata"]["target_chapters"])
+        elif isinstance(plan.get("chapters"), list):
+            target_chapters = len(plan["chapters"])
+
+        chapters_written = len(self.chapter_contexts)
+        last_chapter = max(self.chapter_contexts.keys()) if self.chapter_contexts else 0
+        progress_percent = 0.0
+        if target_chapters:
+            progress_percent = round((last_chapter / max(1, target_chapters)) * 100, 1)
+
+        recent_contexts = sorted(self.chapter_contexts.values(), key=lambda c: c.chapter_number)[-5:]
+        theme_balance = self._build_theme_balance(recent_contexts)
+        pacing_trend = self._build_pacing_trend(recent_contexts[-3:])
+
+        plot_threads = []
+        for thread in self.plot_threads.values():
+            if thread.current_status == "active":
+                last_event = thread.key_events[-1].get("chapter") if thread.key_events else None
+                plot_threads.append({
+                    "title": thread.title,
+                    "urgency": thread.urgency_level,
+                    "completion": round(thread.completion_percentage, 1),
+                    "last_event_chapter": last_event
+                })
+
+        character_gaps = []
+        for name, character in self.character_states.items():
+            if last_chapter and (last_chapter - character.last_appearance) >= 3:
+                character_gaps.append(name)
+
+        return {
+            "chapters_written": chapters_written,
+            "last_chapter_number": last_chapter,
+            "next_chapter_number": next_chapter_number,
+            "target_chapters": target_chapters,
+            "arc_progress_percent": progress_percent,
+            "plot_threads_active": plot_threads[:8],
+            "character_coverage_gaps": character_gaps[:8],
+            "theme_balance_recent": theme_balance,
+            "pacing_trend": pacing_trend,
+            "unresolved_question_count": len(self._get_unresolved_questions()),
+            "context_quality_score": round(self._calculate_context_quality_score(), 2)
         }
     
     def _get_ongoing_themes(self) -> List[str]:

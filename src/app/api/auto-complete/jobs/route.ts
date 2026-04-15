@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/server-auth'
 
 /**
  * Proxy auto-complete jobs requests to the FastAPI backend.
@@ -29,11 +29,18 @@ export async function GET(request: NextRequest) {
         headers['authorization'] = `Bearer ${token}`
       }
     } catch (error) {
-      console.error('Failed to get Clerk token:', error)
-      return NextResponse.json(
-        { error: 'Authentication failed' },
-        { status: 401 }
-      )
+      console.error('Failed to get session token:', error)
+    }
+    if (!headers['authorization']) {
+      const authHeader = request.headers.get('authorization')
+      if (authHeader) {
+        headers['authorization'] = authHeader
+      } else {
+        const sessionToken = request.cookies.get('user_session')?.value
+        if (sessionToken) {
+          headers['authorization'] = `Bearer ${sessionToken}`
+        }
+      }
     }
 
     // Forward query parameters

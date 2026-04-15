@@ -17,27 +17,22 @@ export async function POST(
     const { projectId } = params
     const body = await request.json()
     
-    // Get auth token
     const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization header required' },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.substring(7)
     
     console.log('Cover art generation request:', { projectId, body })
     
     // Forward to backend
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (authHeader?.startsWith('Bearer ')) {
+      headers.Authorization = authHeader
+    }
+
     const response = await fetch(`${backendUrl}/v2/projects/${projectId}/cover-art`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify(body)
     })
 
@@ -70,24 +65,19 @@ export async function GET(
   try {
     const { projectId } = params
     
-    // Get auth token
     const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization header required' },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.substring(7)
     
     // Forward to backend
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (authHeader?.startsWith('Bearer ')) {
+      headers.Authorization = authHeader
+    }
+
     const response = await fetch(`${backendUrl}/v2/projects/${projectId}/cover-art`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+      headers
     })
 
     if (!response.ok) {
@@ -128,27 +118,22 @@ export async function DELETE(
       )
     }
     
-    // Get auth token
     const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Authorization header required' },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.substring(7)
     
     console.log('Cover art deletion request:', { projectId, jobId })
     
     // Forward to backend
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (authHeader?.startsWith('Bearer ')) {
+      headers.Authorization = authHeader
+    }
+
     const response = await fetch(`${backendUrl}/v2/projects/${projectId}/cover-art/${jobId}`, {
       method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+      headers
     })
 
     if (!response.ok) {

@@ -79,7 +79,7 @@ GOOGLE_CLOUD_PROJECT=your-project-id
 SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 
 # AI Content Generation
-DEFAULT_AI_MODEL=gpt-4o
+DEFAULT_AI_MODEL=gpt-5.2-pro
 DEFAULT_AI_TEMPERATURE=0.7
 DEFAULT_AI_MAX_TOKENS=4000
 ```

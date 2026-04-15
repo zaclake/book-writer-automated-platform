@@ -16,20 +16,20 @@ try:
         User, UserProfile, UserPreferences, UserUsage, UserLimits
     )
     from backend.services.firestore_service import FirestoreService
-    from backend.auth_middleware import ClerkAuthMiddleware
+    from backend.auth_middleware import SimpleAuthMiddleware
 except ImportError:
     # Fallback when running from backend directory
     from models.firestore_models import (
         User, UserProfile, UserPreferences, UserUsage, UserLimits
     )
     from services.firestore_service import FirestoreService
-    from auth_middleware import ClerkAuthMiddleware
+    from auth_middleware import SimpleAuthMiddleware
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/users", tags=["users-v2"])
 
 # Initialize services
-auth_middleware = ClerkAuthMiddleware()
+auth_middleware = SimpleAuthMiddleware()
 firestore_service = FirestoreService()
 security = HTTPBearer()
 

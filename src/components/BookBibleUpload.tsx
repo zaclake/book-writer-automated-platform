@@ -402,25 +402,20 @@ export function BookBibleUpload({ onProjectInitialized }: BookBibleUploadProps) 
         if (visible) {
           GlobalLoader.show({
             title: 'Generating References',
-            stage: progress?.stage,
+            stage: progress?.stage || 'Starting generation...',
             progress: progress?.progress,
             showProgress: true,
-            size: 'md',
-            fullScreen: true,
+            safeToLeave: true,
+            canMinimize: true,
             customMessages: [
-              '🖋️ Sharpening pencils for epic writing...',
-              '📚 Consulting the storytelling gods...',
-              "🎭 Giving your characters personality...",
-              "🗺️ Drawing your story's treasure map...",
-              '🔮 Gazing into plot crystal balls...',
-              '📖 Whispering secrets to the muses...',
-              '✨ Sprinkling AI magic on your ideas...',
-              '🎪 Teaching your words to dance...',
-              '🌟 Aligning story constellations...',
-              '🎨 Mixing the perfect emotional palette...'
+              'Building character profiles...',
+              'Analyzing story structure...',
+              'Creating world details...',
+              'Developing themes...',
+              'Compiling style guide...',
             ],
-            timeoutMs: 180000,
-            onTimeout: () => setStatus('⏰ Taking longer than expected. Your references will be ready soon!'),
+            timeoutMs: 1800000,
+            onTimeout: () => setStatus('Taking longer than expected. Your references will be ready soon.'),
           })
         } else {
           GlobalLoader.hide()

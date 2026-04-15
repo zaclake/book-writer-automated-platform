@@ -64,8 +64,33 @@ const DialogContent = React.forwardRef<
 
   if (!open) return null
 
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onOpenChange(false)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onOpenChange])
+
+  React.useEffect(() => {
+    // Prevent background scroll on mobile while modal is open.
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6"
+      style={{
+        paddingTop: 'calc(env(safe-area-inset-top) + 1rem)',
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)',
+      }}
+    >
       {/* Overlay */}
       <div 
         className="fixed inset-0 bg-black/50" 
@@ -76,9 +101,12 @@ const DialogContent = React.forwardRef<
       <div
         ref={ref}
         className={cn(
-          "relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto",
+          "relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md max-h-[85vh] sm:max-h-[90vh] overflow-y-auto",
           className
         )}
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
         {...props}
       >
         {children}

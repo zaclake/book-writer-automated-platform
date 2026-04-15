@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+
+function resolveAuth(request: NextRequest): string | null {
+  const authHeader = request.headers.get('Authorization')
+  if (authHeader) return authHeader
+  const session = request.cookies.get('user_session')?.value
+  return session ? `Bearer ${session}` : null
+}
 
 export async function GET(request: NextRequest, { params }: { params: { projectId: string } }) {
   try {
@@ -14,17 +20,13 @@ export async function GET(request: NextRequest, { params }: { params: { projectI
     const targetUrl = `${backendBaseUrl}/v2/library/book/${encodeURIComponent(params.projectId)}/reader`
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const { getToken } = await auth()
-    const token = await getToken()
-    if (!token) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
-    headers['Authorization'] = `Bearer ${token}`
+    const auth = resolveAuth(request)
+    if (auth) headers['Authorization'] = auth
 
-    const res = await fetch(targetUrl, { headers })
+    const res = await fetch(targetUrl, { headers, cache: 'no-store' })
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
     return NextResponse.json({ error: 'Reader payload request failed', details: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
 }
-
-

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/server-auth'
 
 interface UserPreferences {
   writing_style: string

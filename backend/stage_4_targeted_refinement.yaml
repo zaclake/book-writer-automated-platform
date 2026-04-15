@@ -15,6 +15,7 @@ system_prompt: |
   - Maintain character voice and story consistency
   - Preserve successful scenes and dialogue
   - Enhance weak areas to meet professional standards
+  - If file_search is available, retrieve missing facts before revising
   
   REFINEMENT CATEGORIES:
   {refinement_categories}
@@ -35,6 +36,12 @@ user_prompt: |
   
   ASSESSMENT RESULTS:
   {assessment_results}
+
+  VECTOR MEMORY CONTEXT:
+  {vector_memory_context}
+
+  VECTOR MEMORY GUIDELINES:
+  {vector_memory_guidelines}
   
   AREAS REQUIRING IMPROVEMENT:
   {improvement_areas}
@@ -123,6 +130,8 @@ variables:
     - refinement_categories
     - category_specific_instructions
     - preserve_elements
+    - vector_memory_context
+    - vector_memory_guidelines
 
 output_format: "complete_refined_chapter"
 max_tokens: 6000

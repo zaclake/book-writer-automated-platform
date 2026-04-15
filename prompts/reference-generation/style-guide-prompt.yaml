@@ -3,7 +3,7 @@ description: "Creates comprehensive writing style and voice guidelines from book
 version: "2.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.68
   max_tokens: 6500
   top_p: 0.9
@@ -35,6 +35,10 @@ system_prompt: |
 
 user_prompt_template: |
   Analyze this book bible comprehensively and create detailed style and voice guidelines. Pay special attention to the reference works, genre requirements, emotional journey, and target audience to develop a prose approach that enhances every aspect of the storytelling.
+
+  {book_length_context}
+
+  {prior_references}
 
   ---
   BOOK BIBLE:

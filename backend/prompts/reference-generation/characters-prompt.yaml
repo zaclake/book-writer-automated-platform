@@ -1,15 +1,16 @@
 name: "Character Reference Generator"
-description: "Generates comprehensive character profiles and development notes from book bible content"
-version: "2.0"
+description: "Generates comprehensive character profiles, entity registry, relationship matrix, and development notes from book bible content"
+version: "3.0"
 
 model_config:
   model: "gpt-4o"
   temperature: 0.75
-  max_tokens: 6000
+  max_tokens: 9000
   top_p: 0.9
 
 system_prompt: |
   You are a master character development consultant specializing in literary fiction and genre storytelling. Your expertise spans psychological depth, authentic dialogue creation, and character arc construction for published authors.
+  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   CRITICAL REQUIREMENTS:
   1. **Extract Maximum Context**: Analyze every detail in the book bible—genre, tone, themes, setting, plot elements, reference works—to inform character creation
@@ -17,6 +18,7 @@ system_prompt: |
   3. **Psychological Authenticity**: Ground every character in believable psychology, realistic motivations, and human complexity
   4. **Voice Distinction**: Create unique speech patterns, vocabulary choices, and dialogue rhythms for each character
   5. **Story Integration**: Ensure every character serves the story's themes and emotional journey
+  6. **Machine-Readable Structure**: Include structured tables and registries that downstream systems can parse reliably
 
   APPROACH FOR INCOMPLETE INFORMATION:
   - If protagonists are barely described, infer their nature from the plot, themes, and genre
@@ -29,9 +31,12 @@ system_prompt: |
   - Every detail should serve characterization or plot function
   - Dialogue samples should immediately distinguish speakers
   - Psychological profiles should reveal internal contradictions and depth
+  - Supporting cast should be sized to the story's scope — at least 3-5 named supporting characters for a standard novel
 
 user_prompt_template: |
   Analyze this book bible and create a comprehensive character reference document. Pay special attention to the genre, themes, reference works, and emotional journey described—use these to guide character creation even where explicit character details are sparse.
+
+  {book_length_context}
 
   ---
   BOOK BIBLE:
@@ -42,14 +47,31 @@ user_prompt_template: |
 
   # Character Reference Guide
 
+  ## Character Entity Registry
+
+  Provide a structured table for EVERY named character. This is the authoritative source for names, identifiers, and roles.
+
+  | Canonical Name | Aliases/Nicknames | Pronouns | Age | Role | Importance | First Appears |
+  |---|---|---|---|---|---|---|
+  | [Full name as used in narration] | [All alternate names, shortened names, titles] | [he/him, she/her, they/them, etc.] | [Specific age or range] | [protagonist/antagonist/supporting/minor] | [primary/secondary/tertiary] | [Chapter or story section] |
+
+  (Include ALL characters: protagonists, antagonists, supporting cast, and significant minor characters. Primary = appears in most chapters. Secondary = appears in multiple chapters. Tertiary = appears in 1-2 chapters but has a named role.)
+
   ## Core Character Profiles
 
   ### [Primary Protagonist Name]
   **Character Foundation:**
+  - **Canonical Name:** [Exact name as it appears in narration — must match Entity Registry]
   - **Age & Demographics:** [Specific age, background, socioeconomic status]
   - **Physical Presence:** [How they occupy space, distinctive features, body language]
   - **Occupation & Skills:** [Job, expertise, what they're capable of]
   - **Living Situation:** [Where/how they live, what this reveals about them]
+
+  **Sensory & Physical Signatures:**
+  - **Visual Markers:** [2-3 recurring physical details a reader would remember — a scar, the way they hold their shoulders, a piece of clothing]
+  - **Habitual Gestures:** [Specific tics, fidgets, or unconscious movements that surface under stress, boredom, or thought]
+  - **Sensory Associations:** [A scent, sound, or texture tied to this character — e.g., always smells of motor oil, voice like gravel]
+  - **Movement Style:** [How they walk, sit, enter a room — confident stride, careful steps, slouch]
 
   **Psychology & Motivation:**
   - **Core Desire:** [What drives them at the deepest level]
@@ -58,53 +80,106 @@ user_prompt_template: |
   - **Fatal Flaw:** [The trait that creates their greatest obstacles]
   - **Hidden Strength:** [The quality that will ultimately save them]
   - **Internal Contradictions:** [The tensions that make them human]
+  - **Moral Boundaries:** [What they will and will not do, even under pressure — and what might push them past those lines]
 
   **Voice & Communication:**
-  - **Speech Patterns:** [Rhythm, sentence length, formality level]
-  - **Vocabulary Choices:** [Technical terms, cultural references, emotional range]
-  - **Dialogue Sample:** [2-3 example lines that immediately identify this character]
-  - **Internal Monologue Style:** [How their thoughts sound different from their speech]
+  - **Speech Patterns:** [Rhythm, sentence length, formality level, regional/cultural markers]
+  - **Vocabulary Signature:** [Technical terms, slang, pet phrases, cultural references, emotional range]
+  - **Dialogue Samples:** [3-4 example lines that immediately identify this character, showing different emotional states]
+    - Calm: "[example]"
+    - Under stress: "[example]"
+    - With someone they trust: "[example]"
+    - Lying or deflecting: "[example]"
+  - **Internal Monologue Style:** [How their thoughts sound different from their speech — fragmented? analytical? spiraling?]
   - **Communication Barriers:** [What they struggle to express or understand]
 
+  **POV Suitability:**
+  - **Can Carry POV:** [Yes/No/Limited]
+  - **POV Voice Signature:** [How narration sounds through their eyes — what they notice first, what they ignore, their processing style]
+  - **POV Restrictions:** [Topics, information, or perspectives this character cannot access while in their POV]
+  - **Internal vs. External Focus:** [Does this character's POV lean toward introspection or outward observation?]
+
   **Character Arc Journey:**
-  - **Starting Point:** [Who they are at story's beginning, emotionally and psychologically]
+  - **Starting State:** [Who they are at story's beginning — beliefs, emotional posture, worldview]
   - **Catalyst Moment:** [What forces them to change]
-  - **Midpoint Transformation:** [How they've evolved by story's center]
+  - **Midpoint Shift:** [How they've evolved by story's center — what they now believe or do differently]
   - **Crisis Point:** [Their lowest moment and the choice it forces]
   - **Resolution State:** [Who they become by story's end]
+  - **Arc Sentence:** [One sentence capturing the full transformation: "From [X] to [Y] through [Z]"]
 
   **Relationships & Dynamics:**
-  - **Core Relationships:** [Key connections and what each relationship reveals]
+  - **Core Relationships:** [Key connections and what each relationship reveals about this character]
   - **Relationship Patterns:** [How they typically connect or distance themselves]
   - **Trust & Vulnerability:** [What opens them up or shuts them down]
 
   ### [Primary Antagonist/Opposition Name]
-  [Same detailed structure as protagonist]
+  [Same detailed structure as protagonist, including all sections above]
 
   ### [Key Supporting Character Name]
-  [Abbreviated version focusing on role, distinctive traits, and story function]
+  [Full structure for secondary-importance characters. For tertiary characters, provide at minimum: Canonical Name, Physical Presence, Voice signature with 2 dialogue samples, Story Function, and Key Relationship to protagonist]
+
+  ## Character Relationship Matrix
+
+  For every significant character pair, define the relationship dynamics:
+
+  | Character A | Character B | Relationship Type | Current State | Tension Source | Evolution Arc | Key Shift Point |
+  |---|---|---|---|---|---|---|
+  | [Name] | [Name] | [mentor/rival/romantic/familial/professional/adversarial] | [Opening state: trust level, emotional distance, power dynamic] | [What creates friction or pull between them] | [How this relationship changes across the story] | [The chapter/event where the relationship fundamentally shifts] |
+
+  ## Character Contrast Pairs
+
+  For voice distinctiveness, explicitly define how characters differ when placed in the same scene:
+
+  **[Character A] vs. [Character B]:**
+  - **Speech:** [A uses short declarative sentences / B asks questions and deflects]
+  - **Worldview:** [A believes people earn trust / B trusts by default]
+  - **Under Pressure:** [A goes quiet and acts / B talks more and freezes]
+  - **Physical:** [A is still and contained / B paces and gestures]
+  - **Emotional Range:** [A shows anger easily but hides grief / B is openly sad but masks fury]
+
+  (Provide contrast pairs for every combination of primary and secondary characters who share scenes.)
+
+  ## Information State Ledger
+
+  Track what each major character knows and doesn't know at story opening, and when key revelations occur:
+
+  ### [Character Name]
+  **Knows at Start:**
+  - [Fact or belief they hold when the story begins]
+  - [Another established piece of knowledge]
+
+  **Does Not Know:**
+  - [Secret or truth hidden from them] → Learns in: [chapter range or story event]
+  - [Another hidden fact] → Learns in: [chapter range or story event]
+
+  **Secrets They Keep:**
+  - [What they hide from others] → Revealed to [character/reader] in: [chapter range or story event]
+
+  (Provide for every primary and secondary character.)
 
   ## Character Development Guidelines
 
   **Voice Distinction Matrix:**
-  - **[Character A]:** [Unique speech markers, emotional range, communication style]
+  - **[Character A]:** [Unique speech markers, emotional range, communication style — sentence length average, favorite constructions, words they overuse]
   - **[Character B]:** [How they sound completely different from Character A]
   - **[Character C]:** [Distinct verbal and emotional signature]
 
   **Psychological Consistency Rules:**
-  - **[Character Name]:** Would never [specific action] because [psychological reason]
-  - **[Character Name]:** Always [behavioral pattern] when [specific trigger]
+  - **[Character Name]:** Would NEVER [specific action] because [psychological reason]
+  - **[Character Name]:** ALWAYS [behavioral pattern] when [specific trigger]
   - **[Character Name]:** Makes decisions based on [core value system]
+  - **[Character Name]:** When [situation], defaults to [coping mechanism] unless [specific condition overrides it]
 
   **Character Interaction Dynamics:**
-  - **Conflict Generators:** [Which character combinations create natural tension]
+  - **Conflict Generators:** [Which character combinations create natural tension and why]
   - **Support Systems:** [Who provides what kind of emotional/practical support]
+  - **Power Dynamics:** [Who defers to whom in different contexts — professional, emotional, physical]
   - **Hidden Connections:** [Unexpressed relationships that create subtext]
 
   **Growth Trajectories:**
-  - **Micro-Changes:** [Small shifts that happen chapter by chapter]
+  - **Micro-Changes:** [Small shifts that happen chapter by chapter — list specific behavioral markers to show growth]
   - **Revelation Points:** [Moments when characters discover something about themselves]
-  - **Regression Risks:** [Where characters might slide backward]
+  - **Regression Risks:** [Where characters might slide backward and what triggers it]
 
   ## Writer's Character Toolkit
 
@@ -113,29 +188,30 @@ user_prompt_template: |
   - **[Character]:** When facing moral dilemmas, prioritizes [value] over [competing value]
 
   **Stress Responses & Emotional Range:**
-  - **[Character]:** Stress manifests as [physical/behavioral symptoms]
+  - **[Character]:** Stress manifests as [specific physical/behavioral symptoms — e.g., jaw clenching, pacing, sudden stillness]
   - **[Character]:** Joy expresses as [specific behaviors/speech changes]
-  - **[Character]:** Anger appears as [particular patterns, may be unexpected]
+  - **[Character]:** Anger appears as [particular patterns — may be unexpected or inverted]
+  - **[Character]:** Grief/loss manifests as [specific behavioral shift]
 
-  **Physical & Behavioral Signatures:**
-  - **[Character]:** [Specific gestures, posture, movement patterns]
-  - **[Character]:** [Habits, tics, unconscious behaviors]
-  - **[Character]:** [How they interact with physical space/objects]
+  **Physical & Behavioral Signatures (Quick Reference):**
+  - **[Character]:** [Gesture they repeat], [posture habit], [movement pattern]
+  - **[Character]:** [Nervous tic], [comfort behavior], [how they hold objects]
+  - **[Character]:** [How they enter a room], [eye contact patterns], [personal space preferences]
 
   **Backstory Integration Points:**
-  - **[Character]:** [Key past events that surface in present story]
-  - **[Character]:** [Hidden histories that create current behavior]
-  - **[Character]:** [Secrets that drive current actions]
+  - **[Character]:** [Key past events that surface in present story — with triggers that bring them up]
+  - **[Character]:** [Hidden histories that create current behavior — what moments in the present echo the past]
+  - **[Character]:** [Secrets that drive current actions — and the cost of keeping them]
 
   ## Character Arc Milestones
 
-  **Opening Establishment:** [How each character should be introduced to immediately establish their essence]
+  **Opening Establishment:** [How each character should be introduced to immediately establish their essence — the first impression that defines them for the reader]
 
-  **Progressive Revelations:** [What should be revealed about each character and when]
+  **Progressive Revelations:** [What should be revealed about each character and approximately when — early chapters, midpoint, late chapters]
 
-  **Relationship Evolution:** [How key relationships should change throughout the story]
+  **Relationship Evolution:** [How key relationships should change throughout the story — with specific behavioral markers that show the shift]
 
-  **Thematic Embodiment:** [How each character represents or challenges the story's themes]
+  **Thematic Embodiment:** [How each character represents or challenges the story's themes — which character embodies the counter-argument]
 
   INSTRUCTIONS FOR GAPS:
   If the book bible lacks specific character details, create characters that:
@@ -144,6 +220,7 @@ user_prompt_template: |
   3. Reflect the psychological complexity suggested by the reference works
   4. Create compelling conflict and contrast with each other
   5. Feel like they belong in the specific world described
+  6. Have enough supporting cast to populate scenes realistically (a workplace needs coworkers, a school needs classmates, a quest needs companions)
 
   Make every character detail meaningful and story-relevant. Avoid generic descriptions—ground everything in the specific story's DNA.
 
@@ -154,10 +231,18 @@ validation_rules:
   - "Must provide specific, actionable guidance for writing consistent characters"
   - "Should extrapolate intelligently from book bible context when explicit details are sparse"
   - "Characters must feel authentic to the established genre, tone, and reference works"
+  - "Must include a complete Character Entity Registry table"
+  - "Must include Character Relationship Matrix with evolution arcs"
+  - "Must include Information State Ledger for major characters"
+  - "Must include Character Contrast Pairs for voice distinctiveness"
 
 output_format: "markdown"
 expected_sections:
+  - "Character Entity Registry"
   - "Core Character Profiles"
+  - "Character Relationship Matrix"
+  - "Character Contrast Pairs"
+  - "Information State Ledger"
   - "Character Development Guidelines"
   - "Writer's Character Toolkit"
-  - "Character Arc Milestones" 
+  - "Character Arc Milestones"

@@ -33,12 +33,14 @@ export async function GET(
     // Prepare headers for the backend request
     const headers: Record<string, string> = {}
 
-    // Forward the Authorization header if present
+    // Forward the Authorization header if present (fallback to session cookie)
     const authHeader = request.headers.get('Authorization')
-    console.log('[v2/publish/status] Authorization header:', authHeader ? 'present' : 'missing')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
+    console.log('[v2/publish/status] Authorization header:', resolvedAuthHeader ? 'present' : 'missing')
     
-    if (authHeader) {
-      headers['Authorization'] = authHeader
+    if (resolvedAuthHeader) {
+      headers['Authorization'] = resolvedAuthHeader
     } else {
       console.log('[v2/publish/status] No Authorization header found')
       return NextResponse.json(
@@ -51,7 +53,8 @@ export async function GET(
     console.log('[v2/publish/status] Making request to backend...')
     const response = await fetch(targetUrl, {
       method: 'GET',
-      headers
+      headers,
+      cache: 'no-store'
     })
 
     console.log('[v2/publish/status] Backend response status:', response.status)

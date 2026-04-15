@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -15,27 +14,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { getToken } = await auth()
-    let token: string | null = null
-    try {
-      token = await getToken()
-    } catch (err) {
-      console.error('[v2/credits/initialize-beta] Failed to get Clerk token:', err)
-    }
-
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
-
     const targetUrl = `${backendBaseUrl}/v2/credits/admin/beta-credits/initialize`
+    const authHeader = request.headers.get('Authorization')
+    const sessionToken = request.cookies.get('user_session')?.value
+    const resolvedAuthHeader = authHeader || (sessionToken ? `Bearer ${sessionToken}` : null)
     const backendResponse = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        ...(resolvedAuthHeader ? { Authorization: resolvedAuthHeader } : {}),
       },
       cache: 'no-store',
     })
@@ -60,5 +47,3 @@ export async function POST(request: NextRequest) {
     )
   }
 }
-
-
