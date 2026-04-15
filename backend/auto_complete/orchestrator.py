@@ -4961,7 +4961,13 @@ class AutoCompleteBookOrchestrator:
         return sorted({p for p in allowlist if p})
 
     def _build_overused_words(self, chapter_number: int, allowlist: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Extract the most overused single words across ALL completed chapters."""
+        """Extract the most overused single words across ALL completed chapters.
+
+        Two detection modes (both purely frequency-based, no hardcoded words):
+        1. Raw frequency: words appearing far more than average
+        2. Chapter spread: words appearing in 60%+ of chapters (crutch words
+           that show up 2-3x per chapter but accumulate across the novel)
+        """
         stopwords = {
             "the", "and", "but", "or", "a", "an", "to", "of", "in", "on", "at", "for",
             "with", "as", "by", "from", "that", "this", "these", "those", "it", "its",
@@ -4981,7 +4987,9 @@ class AutoCompleteBookOrchestrator:
         }
         allowlist_lower = {w.lower() for w in (allowlist or [])}
         word_counts: Dict[str, int] = {}
+        word_chapter_sets: Dict[str, set] = {}
         total_words = 0
+        chapters_read = 0
         for i in range(1, chapter_number):
             chapter_file = self.chapters_dir / f"chapter-{i:02d}.md"
             if not chapter_file.exists():
@@ -4990,9 +4998,16 @@ class AutoCompleteBookOrchestrator:
                 text = chapter_file.read_text(encoding="utf-8").lower()
                 words = re.findall(r'\b[a-z]{4,}\b', text)
                 total_words += len(words)
+                chapters_read += 1
+                chapter_words = set()
                 for w in words:
                     if w not in stopwords and w not in allowlist_lower:
                         word_counts[w] = word_counts.get(w, 0) + 1
+                        chapter_words.add(w)
+                for w in chapter_words:
+                    if w not in word_chapter_sets:
+                        word_chapter_sets[w] = set()
+                    word_chapter_sets[w].add(i)
             except Exception:
                 continue
 
@@ -5000,15 +5015,20 @@ class AutoCompleteBookOrchestrator:
             return []
 
         avg_per_word = total_words / max(len(word_counts), 1)
-        threshold = max(15, int(avg_per_word * 3))
+        freq_threshold = max(10, int(avg_per_word * 2.5))
+        spread_threshold = max(3, int(chapters_read * 0.6))
 
-        overused = [
-            {"word": w, "count": c}
-            for w, c in word_counts.items()
-            if c >= threshold
-        ]
-        overused.sort(key=lambda x: -x["count"])
-        return overused[:15]
+        overused = []
+        seen = set()
+        for w, c in word_counts.items():
+            ch_spread = len(word_chapter_sets.get(w, set()))
+            is_frequent = c >= freq_threshold
+            is_widespread = ch_spread >= spread_threshold
+            if (is_frequent or is_widespread) and w not in seen:
+                overused.append({"word": w, "count": c, "chapters": ch_spread})
+                seen.add(w)
+        overused.sort(key=lambda x: (-x["chapters"], -x["count"]))
+        return overused[:20]
 
     def _build_overused_phrases(self, chapter_number: int, allowlist: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Extract ANY repeated multi-word phrase across ALL completed chapters.

@@ -224,15 +224,16 @@ def fix_generic_ending(text: str) -> str:
     last_lower = last_sentence.lower()
 
     generic_patterns = [
-        r'^the (?:day|night|morning|evening|dawn|darkness|silence|quiet|world|work|shift) '
+        r'^the (?:day|night|morning|evening|dawn|darkness|silence|quiet|world|work|shift|journey|road|battle|fight|war|storm) '
         r'(?:would|could|did|was|stretched|waited|pressed|called|lay|loomed|settled)',
         r'^(?:tomorrow|tonight|the hours? ahead|what came next|whatever came)',
         r'^(?:everything|nothing|something|the rest) (?:would|could|was|had)',
-        r'^he (?:would|could) (?:not|deal with|face|handle|sort|figure)',
+        r'^(?:he|she|they|i) (?:would|could) (?:not|deal with|face|handle|sort|figure)',
         r'^(?:it was|this was) (?:only|just) the (?:beginning|start)',
         r'^the (?:answer|truth|real work|hard part|rest) (?:would|could|lay|waited)',
         r'^(?:but |and )?(?:that|it|this) (?:was|would be) (?:for|a) (?:another|later|tomorrow)',
         r'^there (?:was|would be) (?:time|work|more|plenty)',
+        r'^(?:he|she|they|i) (?:knew|understood|realized) (?:then |now )?(?:that |what )',
     ]
 
     for pattern in generic_patterns:
@@ -268,15 +269,15 @@ SKELETON_SYSTEM = (
     "- OPENING BEAT: Start mid-action or mid-interaction, NOT mid-atmosphere.\n"
     "  The first beat must have a character DOING something or TALKING to someone.\n"
     "  Setting details should be woven INTO the action, not placed before it.\n"
-    "  BAD: 'Describe the plant at night.' GOOD: 'Nero checks the valve and finds tool marks.'\n"
-    "  BAD: 'Maya arrives and sees Europa.' GOOD: 'Maya docks and SAM greets her with odd instructions.'\n"
+    "  BAD: 'Describe the location at night.' GOOD: 'Character checks equipment and finds something wrong.'\n"
+    "  BAD: 'Character arrives and looks around.' GOOD: 'Character arrives and someone greets them with odd instructions.'\n"
     "- SURPRISE BEAT: At least one beat must SUBVERT the reader's expectation.\n"
     "  A character says something unexpected. A discovery reframes what came before.\n"
     "  A routine action reveals something wrong. Someone shows up who shouldn't be there.\n"
     "  Mark this beat with info_type 'new_development' and note what the surprise IS.\n"
     "- DECISION BEAT: At least one beat must show the protagonist CHOOSING — not just\n"
-    "  thinking, but committing to an action with consequences. 'He decided to call Postman'\n"
-    "  is a decision. 'He wondered what to do' is NOT.\n"
+    "  thinking, but committing to an action with consequences. 'She decided to confront him'\n"
+    "  is a decision. 'She wondered what to do' is NOT.\n"
     "- NOT every chapter needs a 'routine inspection' beat. Skip it unless the routine\n"
     "  reveals something unexpected.\n"
     "- If evidence or findings have been established in prior chapters, do NOT plan beats that\n"
@@ -285,6 +286,14 @@ SKELETON_SYSTEM = (
     "  NOT a character alone reflecting. NOT ambiance.\n"
     "- Do NOT plan beats where the only action is 'character walks to X and looks around.'\n"
     "  Every beat must advance CHARACTER or PLOT. Atmosphere is seasoning, not the meal.\n"
+    "- ON-PAGE PAYOFF: If the chapter plan indicates a climax, revelation, confrontation,\n"
+    "  arrest, or resolution, that event MUST happen ON PAGE in this chapter's beats.\n"
+    "  Do NOT defer it to a phone call, a later meeting, or an off-screen authority.\n"
+    "  The reader has been waiting — they must SEE the moment, not hear about it afterward.\n"
+    "- VULNERABILITY: Every 3-4 chapters, include one beat where the POV character shows\n"
+    "  genuine doubt, fear, exhaustion, or personal cost — not just competence. Characters\n"
+    "  who never crack under pressure feel robotic. One moment of vulnerability per arc\n"
+    "  section makes the strength believable.\n"
 )
 
 
@@ -330,9 +339,9 @@ async def generate_skeleton(
     plan_transition = chapter_plan.get("transition_note", "")
 
     weight_guidance = {
-        "light": "This is a quieter chapter — 6-7 beats. Focus on character interaction and one key shift.",
-        "standard": "Standard chapter — 7-9 beats. Mix of action, dialogue, and one surprise.",
-        "heavy": "This is a major chapter (climax, revelation, confrontation) — 8-10 beats. Full scenes with buildup and consequence.",
+        "light": "This is a quieter chapter — 4-6 beats. Focus on character interaction and one key shift. Shorter is better — not every chapter needs to be the same length.",
+        "standard": "Standard chapter — 6-9 beats. Mix of action, dialogue, and one surprise.",
+        "heavy": "This is a major chapter (climax, revelation, confrontation) — 9-12 beats. Full scenes with buildup, escalation, and consequence. This chapter should be LONGER than average.",
     }
 
     # Ensure we have characters — extract from bible if plan doesn't provide them
@@ -447,7 +456,8 @@ async def generate_skeleton(
         "  }\n"
         "]}\n\n"
         "Rules:\n"
-        "- 6-10 beats total. NOT 12-16. Fewer beats = deeper scenes.\n"
+        "- Follow the beat count from the NARRATIVE WEIGHT guidance above. "
+        "Light chapters can be as few as 4 beats. Heavy chapters can be up to 12.\n"
         "- At least 70% of beats should be 'plain' register. At most 1 'vivid'.\n"
         "- At least 2 beats must be 'dialogue_scene' or 'confrontation'.\n"
         "- At least 1 beat must be 'decision' (protagonist commits to an action).\n"
@@ -496,7 +506,7 @@ def _default_skeleton(
 ) -> List[Dict[str, Any]]:
     """Fallback skeleton when LLM fails. Uses plan data when available."""
     plan = chapter_plan or {}
-    count = {"light": 6, "standard": 8, "heavy": 10}.get(narrative_weight, 8)
+    count = {"light": 5, "standard": 7, "heavy": 11}.get(narrative_weight, 7)
 
     characters = plan.get("focal_characters", []) or []
     pov = characters[0] if characters else "Protagonist"
@@ -763,8 +773,9 @@ def _validate_and_fix_skeleton(
                 fixes_applied.append(f"beat {i}: broke 3-way same-type run")
 
     # ── Check 5b: Cap consecutive solo beats ──
-    # If 3+ consecutive beats have only the POV character, inject a second
-    # character into the middle one to break the solo streak.
+    # 3 consecutive solo beats get a soft warning.
+    # 4+ consecutive solo beats get a character injected (unless the chapter
+    # plan or style guide indicates isolation is intentional — e.g. horror, survival).
     solo_run_start = None
     for i, beat in enumerate(beats):
         chars = beat.get("characters_present", [])
@@ -775,18 +786,27 @@ def _validate_and_fix_skeleton(
         else:
             solo_run_start = None
 
-        if solo_run_start is not None and (i - solo_run_start) >= 2:
-            mid = solo_run_start + 1
-            beats[mid]["characters_present"] = [pov] + others[:1]
-            if beats[mid].get("info_type") not in ("dialogue_scene", "confrontation"):
-                beats[mid]["info_type"] = "dialogue_scene"
-                beats[mid]["action"] = (
-                    f"{others[0] if others else 'Companion'} interrupts or arrives — "
-                    f"brief exchange that breaks the solo stretch. "
-                    f"Original: {beats[mid].get('action', '')}"
-                )
-            fixes_applied.append(f"beat {mid+1}: broke 3+ consecutive solo beats")
-            solo_run_start = None
+        if solo_run_start is not None:
+            run_length = i - solo_run_start + 1
+            if run_length == 3:
+                mid = solo_run_start + 1
+                beats[mid]["notes"] = (
+                    f"{beats[mid].get('notes', '')} "
+                    f"CAUTION: 3 consecutive solo beats. Consider adding another "
+                    f"character for interaction unless isolation is intentional."
+                ).strip()
+                fixes_applied.append(f"beat {mid+1}: soft warning for 3 consecutive solo beats")
+            elif run_length >= 4:
+                mid = solo_run_start + 1
+                beats[mid]["characters_present"] = [pov] + others[:1]
+                if beats[mid].get("info_type") not in ("dialogue_scene", "confrontation"):
+                    beats[mid]["info_type"] = "dialogue_scene"
+                    beats[mid]["action"] = (
+                        f"Another character arrives or interrupts — "
+                        f"brief exchange. Original: {beats[mid].get('action', '')}"
+                    )
+                fixes_applied.append(f"beat {mid+1}: broke 4+ consecutive solo beats")
+                solo_run_start = None
 
     # ── Check 6: Final beat should not be pure reflection/observation ──
     final = beats[-1] if beats else None
@@ -987,8 +1007,8 @@ REGISTER_INSTRUCTIONS = {
         "medium (8-19 words) and at least ONE long sentence (20+ words) per beat. "
         "Target: 25-40% short, 50-65% medium, 10-15% long.\n"
         "EXAMPLES OF PLAIN PROSE:\n"
-        "  'He checked the valve. The handle was cold, slick with condensation that came "
-        "off on his palm. He turned it a quarter and listened. No hiss. He moved on.'\n"
+        "  'She checked the lock. The handle was cold, slick with rain that came "
+        "off on her palm. She turned it once and listened. Nothing. She moved on.'\n"
         "TARGET: 100-180 words for this beat."
     ),
     "moderate": (
@@ -1013,8 +1033,8 @@ REGISTER_INSTRUCTIONS = {
         "SENTENCE LENGTH VARIETY: Even vivid beats need short sentences for contrast. "
         "Target: 20-30% short, 45-55% medium, 20-30% long.\n"
         "EXAMPLES OF VIVID PROSE:\n"
-        "  'Lightning cracked overhead, so bright it turned the yard to bone. For a heartbeat, "
-        "everything sharpened — the chain-link fence, the slick black puddles, the hunched bulk of the clarifier.'\n"
+        "  'Lightning cracked overhead, so bright it turned the world to bone. For a heartbeat, "
+        "everything sharpened — the fence, the slick black puddles, the dark shape beyond.'\n"
         "TARGET: 200-300 words for this beat."
     ),
 }
@@ -1102,7 +1122,7 @@ async def expand_beat(
         "- CHARACTER INTERIORITY: The POV character is a thinking, feeling person — not a "
         "camera. In at least one paragraph per beat, show what they THINK, REMEMBER, WANT, "
         "FEAR, or DECIDE — not just what they see and hear. Weave thought naturally into "
-        "action: 'He tightened the bolt, thinking of the last time the valve had failed.' "
+        "action: 'He tightened the grip, thinking of the last time things had gone wrong.' "
         "Not every paragraph needs interiority, but every beat needs SOME.\n"
         "- ENVIRONMENTAL DISCIPLINE: Do NOT describe the setting in every paragraph. "
         "After the opening beat establishes the scene, subsequent beats should focus on "
@@ -1110,14 +1130,16 @@ async def expand_beat(
         "woven into action, not standalone paragraphs of observation.\n"
         "- Use proper nouns exactly as they appear in the entity registry.\n"
         "- Ground each scene in at least one sensory detail from the world reference.\n"
-        "- GESTURE BUDGET: TOTAL of 3 physical gestures for the ENTIRE chapter (nod, sigh, "
-        "jaw clench, shoulder shift, leaning, exhaling, etc.). That means MOST beats have "
-        "ZERO gestures. Each gesture may appear ONCE only — never repeat the same gesture. "
-        "If a character already nodded, they cannot nod again. Prefer dialogue, action, or "
-        "sensory detail over body language. The default is NO gesture.\n"
-        "- PROP BUDGET: Do not mention the same physical object (pen, clipboard, notepad, mug, "
-        "cup, phone, weapon, tool, helmet, thermos, etc.) more than 2 times per chapter. "
-        "After 2 mentions, refer to it indirectly ('he wrote it down') or skip entirely.\n"
+        "- GESTURE BUDGET: Default is 3 physical gestures for the ENTIRE chapter (nod, sigh, "
+        "jaw clench, shoulder shift, leaning, exhaling, etc.). MOST beats have ZERO gestures. "
+        "Each gesture may appear ONCE only — never repeat the same gesture. "
+        "Prefer dialogue, action, or sensory detail over body language. "
+        "Exception: if the STYLE GUIDE indicates physical interaction is central to the genre "
+        "(romance, action, dance, sports), increase the budget to match the style guide.\n"
+        "- PROP BUDGET: Do not mention the same physical object more than 2 times per chapter. "
+        "After 2 mentions, refer to it indirectly or skip entirely. "
+        "Exception: if a prop is CENTRAL to the plot of this beat (a weapon in a fight, "
+        "a letter being read), it may appear more, but vary the phrasing each time.\n"
         "- NO REPEATED VERBAL TICS: Each character's verbal tic or catchphrase may appear "
         "MAXIMUM 2 times in a chapter. After that, express the same intent through action, "
         "silence, or different phrasing.\n"
@@ -1125,10 +1147,11 @@ async def expand_beat(
         "temperature, light quality) that appeared in earlier beats. Each beat needs a NEW "
         "sensory detail from a DIFFERENT sense. If earlier beats used sound, use smell or "
         "touch. Never write 'the air felt' or 'the hum of' if those phrases appeared before.\n"
-        "- SMELL CAP: Maximum 2 smell/odor/scent/tang references per chapter. Smell is the "
-        "most overused sense in fiction. After 2 smell mentions, switch to touch, taste, "
-        "or visual texture. Do NOT mention chlorine, bleach, or chemical smells more than "
-        "once per chapter total.\n"
+        "- SENSORY BALANCE: Default maximum of 2 references to any SINGLE sense per chapter "
+        "(e.g. max 2 smell references, max 2 sound references). Rotate across all five "
+        "senses. No specific sensory detail (a particular smell, a particular sound) should "
+        "appear more than once per chapter. Exception: if the style guide emphasizes a "
+        "particular sense for this genre, follow the style guide.\n"
         "- EVIDENCE RULE: Each piece of evidence or prior finding may be mentioned AT MOST "
         "ONCE in this beat, and AT MOST ONCE in the entire chapter. If an earlier beat already "
         "referenced it, do NOT mention it again — the reader remembers. When you do reference "
@@ -1160,12 +1183,12 @@ async def expand_beat(
             "- The first WORD must NOT be a character's name or pronoun.\n"
             "- Do NOT open with atmospheric description. Setting details must be woven into "
             "the character's action. Maximum 1 sentence of pure setting before the first action.\n"
-            "- BAD: 3 paragraphs describing the plant at night, THEN Nero does something.\n"
-            "- GOOD: Nero crouching at the valve, discovering tool marks — the setting is "
-            "conveyed through what he touches, smells, hears while acting.\n"
-            "- BAD: Maya floating in the airlock, looking at Europa for 2 paragraphs.\n"
-            "- GOOD: The docking clamps firing, SAM's voice giving instructions, Maya "
-            "responding — Europa visible THROUGH the action.\n"
+            "- BAD: 3 paragraphs describing the setting, THEN the character does something.\n"
+            "- GOOD: Character doing something specific — the setting is conveyed through "
+            "what they touch, smell, hear while acting.\n"
+            "- BAD: Character standing in a doorway, looking at a room for 2 paragraphs.\n"
+            "- GOOD: Character entering and immediately interacting — the room visible "
+            "THROUGH the action.\n"
         )
 
     if not is_final_beat:
@@ -1311,11 +1334,11 @@ async def stitch_beats(
         "If a character claims they did something that the narration showed someone else doing, "
         "fix the dialogue to match the narration. The narrated version is always canonical.\n\n"
         "7. TAIL DRAG: After the LAST dialogue or character interaction in the chapter, there "
-        "should be at most 1-2 short paragraphs before the chapter ends. If the chapter has "
-        "3+ paragraphs of the POV character alone (logging, walking, drinking coffee, watching "
-        "sunrise, reflecting) AFTER the last conversation, cut or heavily condense them to 1 "
-        "paragraph. The chapter should end close to its last moment of human tension, not drift "
-        "into solo procedure.\n\n"
+        "should generally be at most 2 short paragraphs before the chapter ends. If the chapter "
+        "has 3+ paragraphs of solo activity after the last conversation, condense them unless "
+        "the solo ending serves a clear narrative purpose (building dread, showing isolation, "
+        "processing a major revelation). The chapter should usually end close to its last "
+        "moment of tension.\n\n"
         "Do NOT:\n"
         "- Add new metaphors, imagery, or sensory details\n"
         "- Expand or pad the text — the goal is TIGHTER, not longer\n"
@@ -1494,9 +1517,8 @@ def _scan_within_chapter_repetition(accumulated_text: str) -> str:
     _HIGH_FREQ_PROSE = frozenset({
         "said", "looked", "turned", "came", "went", "made", "like",
         "took", "got", "left", "put", "told", "asked", "let",
-        "know", "still", "even", "before", "after", "door", "room",
-        "wall", "floor", "voice", "head", "face", "time", "way",
-        "hand", "hands", "eyes", "long", "away", "side", "seen",
+        "know", "still", "even", "before", "after", "time", "way",
+        "long", "away", "side", "seen",
         "words", "word", "right", "thing", "things", "thought",
         "half", "felt", "keep", "kept", "last", "next", "same",
     })
@@ -1621,18 +1643,15 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
             continue
         if count >= max(3, total_words // 500):
             overused_words.append(f'  "{word}" ({count}x)')
-    # Specific prop/body-part words that should be caught at 4+ even if
-    # they didn't make the top-N cut above
-    _PROP_WORDS = frozenset({
-        "boots", "clipboard", "radio", "phone", "logbook", "notebook",
-        "mug", "coffee", "thermos", "flashlight", "helmet", "gloves",
-        "concrete", "gravel", "grating", "walkway", "railing",
-    })
-    for word in _PROP_WORDS:
-        count = word_counts.get(word, 0)
-        entry = f'  "{word}" ({count}x)'
-        if count >= 4 and entry not in overused_words:
-            overused_words.append(entry)
+    # Catch ANY content word at 5+ occurrences — no hardcoded lists.
+    # This universally catches genre-specific crutch words (boots in a
+    # thriller, blade in fantasy, stars in sci-fi) without needing to
+    # anticipate them.
+    for word, count in word_counts.items():
+        if count >= 5 and word not in _STOPWORDS and word not in capitalized:
+            entry = f'  "{word}" ({count}x)'
+            if entry not in overused_words:
+                overused_words.append(entry)
     if overused_words:
         issues.append("Overused words:")
         issues.extend(overused_words)
@@ -1761,23 +1780,23 @@ class EstablishedFactsLedger:
             "You are a continuity tracker. Extract SIX types of information:\n\n"
             "1. ESTABLISHED FACTS: Key facts the READER now knows (character descriptions, "
             "setting details, relationship dynamics, discoveries, objects introduced).\n\n"
-            "2. SCENE EVENTS: Specific scenes that played out (e.g., 'Postman reported Fuzzy Filter "
-            "vibration -> Nero checked -> minor issue, no action taken'). These prevent future "
+            "2. SCENE EVENTS: Specific scenes that played out (e.g., 'Character A reported a "
+            "problem -> Character B checked -> minor issue, no action taken'). These prevent future "
             "chapters from replaying the same scene.\n\n"
             "3. UNRESOLVED THREADS: Plot elements introduced but NOT yet resolved "
             "(e.g., 'threatening note found - not yet shown to anyone', 'glove found - "
             "not yet analyzed'). Mark each with status: OPEN.\n\n"
             "4. CHARACTER STATES: Each named character's emotional register at chapter end "
-            "(e.g., 'Tony: vulnerable, scared, confided in Nero'). These prevent characters "
+            "(e.g., 'Character X: vulnerable, scared, confided in Character Y'). These prevent characters "
             "from shifting personality without narrative motivation.\n\n"
             "5. EVIDENCE PRESENTATIONS: Any scene where evidence, findings, or investigation "
-            "results are presented to other characters (e.g., 'Nero showed the residue report "
-            "to the group in the breakroom — all evidence was discussed in full'). These prevent "
+            "results are presented to other characters (e.g., 'Character A showed the report "
+            "to the group — all evidence was discussed in full'). These prevent "
             "future chapters from re-presenting the SAME evidence.\n\n"
             "6. REVELATIONS & CONFESSIONS: Any scene where a character reveals a secret, "
             "confesses knowledge, admits something, or discloses information they had been "
-            "withholding (e.g., 'Postman told Nero he saw a blue-shirted figure by the fence', "
-            "'Tony admitted he knew about the leak'). Include WHO told WHOM and WHAT was revealed. "
+            "withholding (e.g., 'Character A told Character B they saw someone suspicious', "
+            "'Character C admitted they knew about the problem'). Include WHO told WHOM and WHAT was revealed. "
             "These are CRITICAL — future chapters must NEVER replay the same revelation.\n\n"
             "Output STRICT JSON with six arrays.\n"
         )
