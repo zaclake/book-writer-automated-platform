@@ -2055,6 +2055,22 @@ async def control_job(
         if hasattr(app.state, 'job_processor'):
             # cancel_job is async
             await app.state.job_processor.cancel_job(job_id)
+
+        # Always release the generation lock directly from Firestore,
+        # even if the in-memory processor doesn't know about this job
+        # (e.g. after a server restart wiped in-memory state).
+        try:
+            project_id = job_data.get("project_id")
+            if project_id:
+                from backend.database_integration import get_database_adapter
+                db = get_database_adapter()
+                if getattr(db, "use_firestore", False) and getattr(db, "firestore", None):
+                    release = getattr(db.firestore, "release_generation_lock", None)
+                    if callable(release):
+                        await release(project_id, job_id=job_id)
+                        logger.info(f"Released generation lock for project {project_id} (cancel)")
+        except Exception as lock_err:
+            logger.warning(f"Failed to release generation lock on cancel: {lock_err}")
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     
