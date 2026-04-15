@@ -838,6 +838,35 @@ export default function ReferenceReviewPage() {
 
   const [isGeneratingRefs, setIsGeneratingRefs] = useState(false)
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false)
+  const [isRegeneratingPlan, setIsRegeneratingPlan] = useState(false)
+  const [showPlanConfirm, setShowPlanConfirm] = useState(false)
+
+  const regenerateBookPlan = async () => {
+    if (isRegeneratingPlan) return
+    setIsRegeneratingPlan(true)
+    setStatus('')
+
+    try {
+      const authHeaders = await getAuthHeaders()
+      const response = await fetchApi(`/api/v2/projects/${projectId}/book-plan/regenerate`, {
+        method: 'POST',
+        headers: authHeaders
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setStatus(`✅ ${result.message || 'Book plan regenerated successfully'}`)
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        setStatus(`Book plan regeneration failed: ${errorData.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error regenerating book plan:', error)
+      setStatus('Error regenerating book plan. Please try again.')
+    } finally {
+      setIsRegeneratingPlan(false)
+    }
+  }
 
   const generateAllReferences = async () => {
     if (isGeneratingRefs) return
@@ -1167,24 +1196,69 @@ export default function ReferenceReviewPage() {
               Your story&apos;s foundation — characters, world-building, and plot elements
             </p>
           </div>
-          <button
-            onClick={() => setShowRegenerateConfirm(true)}
-            disabled={isGeneratingRefs}
-            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-          >
-            {isGeneratingRefs ? (
-              <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            ) : (
-              <SparklesIcon className="h-4 w-4" />
-            )}
-            {isGeneratingRefs ? 'Regenerating...' : 'Regenerate All References'}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setShowPlanConfirm(true)}
+              disabled={isRegeneratingPlan || isGeneratingRefs}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isRegeneratingPlan ? (
+                <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <SparklesIcon className="h-4 w-4" />
+              )}
+              {isRegeneratingPlan ? 'Regenerating Plan...' : 'Regenerate Book Plan'}
+            </button>
+            <button
+              onClick={() => setShowRegenerateConfirm(true)}
+              disabled={isGeneratingRefs || isRegeneratingPlan}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isGeneratingRefs ? (
+                <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <SparklesIcon className="h-4 w-4" />
+              )}
+              {isGeneratingRefs ? 'Regenerating...' : 'Regenerate All References'}
+            </button>
+          </div>
         </div>
 
-        {/* Regenerate confirmation dialog */}
+        {/* Book plan regeneration confirmation dialog */}
+        <Dialog open={showPlanConfirm} onOpenChange={setShowPlanConfirm}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Regenerate Book Plan?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600 py-2">
+              This will create a fresh chapter-by-chapter plan using your current book bible and reference files. The plan controls chapter structure, pacing, and plot progression for auto-complete and chapter generation.
+            </p>
+            <p className="text-sm text-gray-500">
+              Your existing chapters will not be affected, but new chapters will follow the updated plan. This takes about 15-30 seconds.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPlanConfirm(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowPlanConfirm(false)
+                  regenerateBookPlan()
+                }}
+              >
+                Regenerate Plan
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Reference regeneration confirmation dialog */}
         <Dialog open={showRegenerateConfirm} onOpenChange={setShowRegenerateConfirm}>
           <DialogContent>
             <DialogHeader>

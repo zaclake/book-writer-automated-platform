@@ -1187,6 +1187,103 @@ async def generate_project_references(
             detail="Failed to generate reference files"
         )
 
+@router.post("/{project_id}/book-plan/regenerate")
+async def regenerate_book_plan(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Regenerate the master book plan from the current book bible and reference files."""
+    try:
+        user_id = current_user.get('user_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user authentication"
+            )
+
+        project = await get_project(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+
+        if project.get('metadata', {}).get('owner_id') != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+
+        book_bible = project.get('book_bible', {})
+        book_bible_content = book_bible.get('content')
+        if not book_bible_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No book bible content found for this project"
+            )
+
+        settings = project.get('settings', {}) or {}
+        target_chapters = int(settings.get('target_chapters', 25))
+
+        # Load reference files for plan generation
+        references = {}
+        try:
+            ref_files = await get_project_reference_files(project_id)
+            for ref in (ref_files or []):
+                filename = ref.get('filename') or ref.get('name') or ''
+                content = ref.get('content', '')
+                if filename and content:
+                    key = filename.replace('.md', '').replace('-', '_')
+                    references[key] = content
+        except Exception as e:
+            logger.warning(f"Could not load reference files for plan regeneration: {e}")
+
+        try:
+            from backend.auto_complete.helpers.book_plan_generator import BookPlanGenerator
+        except Exception:
+            from auto_complete.helpers.book_plan_generator import BookPlanGenerator
+
+        plan_generator = BookPlanGenerator()
+        result = await plan_generator.generate_plan(
+            book_bible=book_bible_content,
+            references=references,
+            target_chapters=target_chapters,
+        )
+
+        if not result.success or not result.plan:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.error or "Failed to generate book plan"
+            )
+
+        # Persist to Firestore as a reference file so chapters_v2 can find it
+        import json as _json
+        plan_json = _json.dumps(result.plan, indent=2, ensure_ascii=False)
+        plan_filename = "book-plan.json"
+        try:
+            updated = await update_reference_file(project_id, plan_filename, plan_json, user_id)
+            if not updated:
+                await create_reference_file(project_id, plan_filename, plan_json, user_id)
+        except Exception as e:
+            logger.warning(f"Failed to persist book plan to references: {e}")
+
+        chapter_count = len(result.plan.get('chapters', []))
+        return {
+            'success': True,
+            'message': f'Book plan regenerated with {chapter_count} chapters',
+            'chapters': chapter_count,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate book plan for project {project_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate book plan"
+        )
+
+
 @router.get("/{project_id}", response_model=Project)
 async def get_project_details(
     project_id: str,
