@@ -67,7 +67,7 @@ export default function SelectionToolsPopover({
   editorContainerRef,
 }: SelectionToolsPopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const [layout, setLayout] = useState<'side' | 'bottom'>('side')
+  const [layout, setLayout] = useState<'side' | 'bottom'>('bottom')
   const [position, setPosition] = useState<React.CSSProperties>({ position: 'fixed', opacity: 0 })
 
   const computePosition = useCallback(() => {
@@ -115,6 +115,10 @@ export default function SelectionToolsPopover({
   }, [computePosition])
 
   useEffect(() => {
+    computePosition()
+  }, [selectionMode, previewOpen])
+
+  useEffect(() => {
     const handleScrollResize = () => computePosition()
     window.addEventListener('scroll', handleScrollResize, true)
     window.addEventListener('resize', handleScrollResize)
@@ -126,6 +130,7 @@ export default function SelectionToolsPopover({
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if (selectionBusy) return
       if (!panelRef.current) return
       if (panelRef.current.contains(e.target as Node)) return
       if (editorContainerRef.current?.contains(e.target as Node)) return
@@ -138,7 +143,7 @@ export default function SelectionToolsPopover({
       clearTimeout(timer)
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [resetSelection, editorContainerRef])
+  }, [resetSelection, editorContainerRef, selectionBusy])
 
   const animationClass = layout === 'side'
     ? 'animate-in fade-in slide-in-from-right-4 duration-200'
@@ -202,7 +207,6 @@ export default function SelectionToolsPopover({
             onChange={(e) => setSelectionNote(e.target.value)}
             className="w-full min-h-[80px] rounded-lg border border-brand-lavender/20 p-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-lavender/40 resize-none"
             placeholder="Add a note about this highlight (tone, continuity, change request)."
-            autoFocus
           />
           <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-500">
             <label className="flex items-center gap-1.5">
@@ -263,7 +267,6 @@ export default function SelectionToolsPopover({
             onChange={(e) => setSelectionInstruction(e.target.value)}
             className="w-full min-h-[80px] rounded-lg border border-brand-lavender/20 p-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-lavender/40 resize-none"
             placeholder="Tell AI how to rewrite this selection (shorter, punchier, clarify voice, fix continuity)."
-            autoFocus
           />
           <div className="flex gap-2">
             <button

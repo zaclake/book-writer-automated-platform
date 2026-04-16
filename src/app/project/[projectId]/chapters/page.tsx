@@ -209,6 +209,10 @@ export default function ChapterWritingPage() {
         clearTimeout(statusTimerRef.current)
         statusTimerRef.current = null
       }
+      if (selectionTimerRef.current) {
+        clearTimeout(selectionTimerRef.current)
+        selectionTimerRef.current = null
+      }
     }
   }, [])
 
@@ -221,13 +225,13 @@ export default function ChapterWritingPage() {
       }
       if (e.key === 'Escape') {
         if (previewOpen) setPreviewOpen(false)
-        else if (selectionInfo) resetSelection()
+        else if (selectionInfo && !selectionBusy) resetSelection()
         else if (showRippleNotification) setShowRippleNotification(false)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [hasUnsavedChanges, isSaving, previewOpen, selectionInfo, showRippleNotification])
+  }, [hasUnsavedChanges, isSaving, previewOpen, selectionInfo, selectionBusy, showRippleNotification])
 
   // Warn before leaving with unsaved changes
   useEffect(() => {
@@ -390,17 +394,38 @@ export default function ChapterWritingPage() {
     setIsEditing(true)
   }, [chapters, currentChapter, isSignedIn, projectId, isChapterLoading, isGenerating, isPollingChapter, chapterContent, isEditing])
 
-  // Selection handlers for TipTap
+  // Selection handlers for TipTap — debounce so the popover doesn't mount mid-drag.
+  // Coords are buffered in a ref during the debounce window and committed alongside
+  // selectionInfo so they're never out of sync.
+  const selectionTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const pendingSelectionRef = useRef<{ info: SelectionInfo; coords: SelectionCoords | null } | null>(null)
+
   const handleSelectionChange = useCallback((selection: SelectionInfo | null) => {
-    setSelectionInfo(selection)
+    if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current)
     if (!selection) {
+      pendingSelectionRef.current = null
+      setSelectionInfo(null)
+      setSelectionCoords(null)
       setPreviewOpen(false)
+      return
     }
+    pendingSelectionRef.current = { info: selection, coords: pendingSelectionRef.current?.coords ?? null }
+    selectionTimerRef.current = setTimeout(() => {
+      const pending = pendingSelectionRef.current
+      if (pending) {
+        setSelectionInfo(pending.info)
+        setSelectionCoords(pending.coords)
+      }
+    }, 200)
   }, [])
 
   const handleSelectionCoords = useCallback((coords: SelectionCoords | null) => {
-    setSelectionCoords(coords)
-  }, [])
+    if (pendingSelectionRef.current) {
+      pendingSelectionRef.current.coords = coords
+    } else if (selectionInfo) {
+      setSelectionCoords(coords)
+    }
+  }, [selectionInfo])
 
   const ensureChapterId = () => {
     if (!currentChapterId) {
