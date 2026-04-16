@@ -56,6 +56,16 @@ def _verify_project_access(project_data: dict, user_id: str):
         )
 
 
+def _verify_user_owns_project(user_id: str, project_id: str) -> bool:
+    """Check if a project exists in the user's own subcollection (fast, no index needed)."""
+    try:
+        client = get_firestore_client()
+        doc = client.collection('users').document(user_id).collection('projects').document(project_id).get()
+        return doc.exists
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -342,9 +352,11 @@ async def get_mobile_chapters(
     user_id = _require_authenticated_user(current_user.get('user_id'))
 
     project = await get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    _verify_project_access(project, user_id)
+    if project:
+        _verify_project_access(project, user_id)
+    else:
+        if not _verify_user_owns_project(user_id, project_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     chapters_data = await get_project_chapters(project_id)
     chapters: List[ChapterContent] = []
@@ -390,9 +402,11 @@ async def get_mobile_audiobook_info(
     user_id = _require_authenticated_user(current_user.get('user_id'))
 
     project = await get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    _verify_project_access(project, user_id)
+    if project:
+        _verify_project_access(project, user_id)
+    else:
+        if not _verify_user_owns_project(user_id, project_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     audiobook = await _get_latest_audiobook(project_id)
     if not audiobook:
