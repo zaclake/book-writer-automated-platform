@@ -11,17 +11,21 @@ export interface SelectionInfo {
   to: number
 }
 
+export interface SelectionCoords {
+  top: number
+  left: number
+  bottom: number
+}
+
 interface ChapterTipTapEditorProps {
   content: string
   onChange: (text: string) => void
   onSelectionChange?: (selection: SelectionInfo | null) => void
+  onSelectionCoords?: (coords: SelectionCoords | null) => void
   placeholder?: string
   editable?: boolean
   className?: string
-  onNoteMode?: () => void
-  onRewriteMode?: () => void
-  onClearSelection?: () => void
-  selectionMode?: 'note' | 'rewrite'
+  containerRef?: React.RefObject<HTMLDivElement | null>
 }
 
 function textToHtml(text: string): string {
@@ -61,24 +65,18 @@ export default function ChapterTipTapEditor({
   content,
   onChange,
   onSelectionChange,
+  onSelectionCoords,
   placeholder = 'Start writing your chapter here... Let your creativity flow.',
   editable = true,
   className,
-  onNoteMode,
-  onRewriteMode,
-  onClearSelection,
-  selectionMode,
+  containerRef,
 }: ChapterTipTapEditorProps) {
   const lastSentRef = useRef(content)
   const suppressNextUpdate = useRef(false)
-  const editorContainerRef = useRef<HTMLDivElement>(null)
-  const bubbleRef = useRef<HTMLDivElement>(null)
+  const internalContainerRef = useRef<HTMLDivElement>(null)
+  const editorContainerRef = containerRef ?? internalContainerRef
 
-  const [bubbleStyle, setBubbleStyle] = useState<{
-    top: number
-    left: number
-    visible: boolean
-  }>({ top: 0, left: 0, visible: false })
+  const [hasSelection, setHasSelection] = useState(false)
 
   const editor = useEditor({
     extensions: [
@@ -124,7 +122,8 @@ export default function ChapterTipTapEditor({
       const { from, to, empty } = e.state.selection
       if (empty || !onSelectionChange) {
         onSelectionChange?.(null)
-        setBubbleStyle((prev) => ({ ...prev, visible: false }))
+        onSelectionCoords?.(null)
+        setHasSelection(false)
         return
       }
       const doc = e.state.doc
@@ -132,7 +131,8 @@ export default function ChapterTipTapEditor({
       const selectedText = doc.textBetween(from, to, '\n\n')
       if (!selectedText.trim()) {
         onSelectionChange(null)
-        setBubbleStyle((prev) => ({ ...prev, visible: false }))
+        onSelectionCoords?.(null)
+        setHasSelection(false)
         return
       }
       onSelectionChange({
@@ -144,15 +144,14 @@ export default function ChapterTipTapEditor({
       try {
         const coords = e.view.coordsAtPos(to)
         if (coords) {
-          const bubbleWidth = bubbleRef.current?.offsetWidth ?? 180
-          let left = coords.left - bubbleWidth / 2
-          left = Math.max(8, Math.min(left, window.innerWidth - bubbleWidth - 8))
-          let top = coords.top - 50
-          if (top < 8) top = coords.top + 24
-          setBubbleStyle({ top, left, visible: true })
+          onSelectionCoords?.({ top: coords.top, left: coords.left, bottom: coords.bottom })
+          setHasSelection(true)
+        } else {
+          onSelectionCoords?.(null)
         }
       } catch {
-        setBubbleStyle((prev) => ({ ...prev, visible: false }))
+        onSelectionCoords?.(null)
+        setHasSelection(false)
       }
     },
   })
@@ -179,93 +178,45 @@ export default function ChapterTipTapEditor({
     editor.setEditable(editable)
   }, [editable, editor])
 
-  // Reposition bubble on scroll so it stays anchored to the selected text
   useEffect(() => {
-    if (!bubbleStyle.visible || !editor || editor.isDestroyed) return
+    if (!hasSelection || !editor || editor.isDestroyed) return
     let rafId = 0
-    const repositionBubble = () => {
+    const repositionCoords = () => {
       cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(() => {
         if (editor.isDestroyed) return
         const { to, empty } = editor.state.selection
         if (empty) {
-          setBubbleStyle((prev) => ({ ...prev, visible: false }))
+          onSelectionCoords?.(null)
+          setHasSelection(false)
           return
         }
         try {
           const coords = editor.view.coordsAtPos(to)
           if (coords) {
-            const bw = bubbleRef.current?.offsetWidth ?? 180
-            let left = coords.left - bw / 2
-            left = Math.max(8, Math.min(left, window.innerWidth - bw - 8))
-            let top = coords.top - 50
-            if (top < 8) top = coords.top + 24
-            setBubbleStyle({ top, left, visible: true })
+            onSelectionCoords?.({ top: coords.top, left: coords.left, bottom: coords.bottom })
+          } else {
+            onSelectionCoords?.(null)
           }
         } catch {
-          setBubbleStyle((prev) => ({ ...prev, visible: false }))
+          onSelectionCoords?.(null)
+          setHasSelection(false)
         }
       })
     }
-    window.addEventListener('scroll', repositionBubble, true)
-    window.addEventListener('resize', repositionBubble)
+    window.addEventListener('scroll', repositionCoords, true)
+    window.addEventListener('resize', repositionCoords)
     return () => {
       cancelAnimationFrame(rafId)
-      window.removeEventListener('scroll', repositionBubble, true)
-      window.removeEventListener('resize', repositionBubble)
+      window.removeEventListener('scroll', repositionCoords, true)
+      window.removeEventListener('resize', repositionCoords)
     }
-  }, [bubbleStyle.visible, editor])
-
-  const handleClear = useCallback(() => {
-    if (editor && !editor.isDestroyed) {
-      editor.commands.setTextSelection(editor.state.selection.from)
-    }
-    onClearSelection?.()
-  }, [editor, onClearSelection])
+  }, [hasSelection, editor, onSelectionCoords])
 
   if (!editor) return null
 
   return (
     <div ref={editorContainerRef} className={`relative ${className ?? ''}`}>
-      {/* Floating Selection Toolbar */}
-      {bubbleStyle.visible && (
-        <div
-          ref={bubbleRef}
-          className="fixed z-50 flex items-center gap-1.5 rounded-full border border-brand-lavender/30 bg-white/95 px-3 py-2 text-xs font-semibold text-brand-forest shadow-lg backdrop-blur-sm animate-in fade-in duration-150"
-          style={{ top: bubbleStyle.top, left: bubbleStyle.left }}
-        >
-          <button
-            type="button"
-            onClick={onNoteMode}
-            className={`rounded-full px-3 py-1 border transition-colors ${
-              selectionMode === 'note'
-                ? 'bg-brand-soft-purple text-white border-brand-soft-purple'
-                : 'bg-white text-brand-forest border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            Note
-          </button>
-          <button
-            type="button"
-            onClick={onRewriteMode}
-            className={`rounded-full px-3 py-1 border transition-colors ${
-              selectionMode === 'rewrite'
-                ? 'bg-brand-forest text-white border-brand-forest'
-                : 'bg-white text-brand-forest border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            Rewrite
-          </button>
-          <button
-            type="button"
-            onClick={handleClear}
-            className="rounded-full px-3 py-1 border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
       <EditorContent editor={editor} />
     </div>
   )

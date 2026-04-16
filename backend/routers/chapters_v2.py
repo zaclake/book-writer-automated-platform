@@ -1477,7 +1477,18 @@ async def generate_chapter_simple(
                 prompts_dir=prompts_dir
             )
 
+            rewrite_mode = (request.rewrite_mode or "").strip().lower()
+            user_rewrite_instruction = (request.rewrite_instruction or "").strip()
+            if user_rewrite_instruction:
+                llm_context["rewrite_instruction"] = user_rewrite_instruction
+
             # Generate chapter blueprint for structural variety
+            blueprint_anti_pattern = anti_pattern_context
+            if user_rewrite_instruction:
+                blueprint_anti_pattern += (
+                    f"\nAUTHOR REWRITE DIRECTION (highest priority):\n"
+                    f"{user_rewrite_instruction}\n"
+                )
             try:
                 from backend.auto_complete.helpers.chapter_blueprint import (
                     generate_chapter_blueprint, format_blueprint_for_prompt
@@ -1494,7 +1505,7 @@ async def generate_chapter_simple(
                     total_chapters=int(target_chapters or 20),
                     chapter_plan=chapter_plan,
                     book_bible=book_bible_content,
-                    anti_pattern_context=anti_pattern_context,
+                    anti_pattern_context=blueprint_anti_pattern,
                     style_guide=style_guide_for_bp,
                 )
                 llm_context["chapter_blueprint"] = format_blueprint_for_prompt(blueprint)
@@ -1504,8 +1515,6 @@ async def generate_chapter_simple(
                 )
             except Exception as bp_err:
                 logger.warning(f"Blueprint generation skipped for Chapter {request.chapter_number}: {bp_err}")
-
-            rewrite_mode = (request.rewrite_mode or "").strip().lower()
             requested_stage_raw = request.stage
             if resolve_generation_stage is not None:
                 stage_res = resolve_generation_stage(requested_stage_raw)
@@ -1577,7 +1586,7 @@ async def generate_chapter_simple(
                 except Exception:
                     canon_log_content = references_content.get("canon-log.md") or references_content.get("canon_log") or ""
 
-                instruction = request.rewrite_instruction or (
+                instruction = user_rewrite_instruction or (
                     "Polish the chapter for clarity, specificity, and natural prose. "
                     "Preserve plot beats, continuity, POV, and character voice."
                 )
@@ -2377,6 +2386,47 @@ async def generate_chapter_simple(
                 )
             except Exception as canon_err:
                 logger.warning(f"Failed to queue canon log update: {canon_err}")
+
+            if user_rewrite_instruction:
+                async def _persist_rewrite_note(
+                    proj_id: str, uid: str, chapter_num: int,
+                    mode: str, instruction: str
+                ) -> None:
+                    try:
+                        from backend.database_integration import create_story_note, list_story_notes, update_story_note
+                        prefix = f"Rewrite direction applied to Chapter {chapter_num} "
+                        existing = await list_story_notes(proj_id, uid)
+                        for note in existing:
+                            if (
+                                not note.get("resolved")
+                                and note.get("scope") == "global"
+                                and note.get("intent") == "continuity"
+                                and (note.get("content") or "").startswith(prefix)
+                            ):
+                                nid = note.get("note_id") or note.get("id")
+                                if nid:
+                                    await update_story_note(proj_id, nid, {"resolved": True}, uid)
+                        await create_story_note(
+                            proj_id,
+                            {
+                                "chapter_id": "global",
+                                "content": f"{prefix}({mode or 'regenerate'}): {instruction}",
+                                "created_by": uid,
+                                "apply_to_future": True,
+                                "scope": "global",
+                                "intent": "continuity",
+                            },
+                            user_id=uid,
+                        )
+                        logger.info("Saved rewrite direction as global story note for future chapters")
+                    except Exception as note_err:
+                        logger.warning(f"Failed to persist rewrite instruction as story note: {note_err}")
+
+                background_tasks.add_task(
+                    _persist_rewrite_note,
+                    request.project_id, user_id, request.chapter_number,
+                    rewrite_mode, user_rewrite_instruction,
+                )
                 
         except Exception as e:
             logger.error(f"💥 Database error saving chapter: {e}")

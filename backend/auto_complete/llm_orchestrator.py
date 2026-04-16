@@ -848,6 +848,11 @@ class LLMOrchestrator:
         """
         Generate a chapter using the complete 5-stage process.
         Returns results from all stages.
+
+        NOTE: context["rewrite_instruction"] is NOT injected into the YAML stage
+        templates. The 5-stage path is a legacy/rare path behind ENABLE_5_STAGE_WRITING.
+        Skeleton-expand and single-pass (generate_chapter) are the primary paths and
+        fully support rewrite_instruction.
         """
         if not self.prompt_manager:
             raise ValueError("5-stage generation requires prompt templates. Prompt manager not initialized.")
@@ -2458,6 +2463,14 @@ class LLMOrchestrator:
             f"CONSEQUENCE: {scene_context.get('scene_consequence')}\n"
             f"UNIQUE WORLD MARKERS: {scene_context.get('scene_world_marker')}\n"
             f"DETAIL TARGETS: {scene_context.get('scene_detail_targets')}\n\n"
+        )
+        revise_rewrite = (scene_context.get("rewrite_instruction") or "").strip()
+        if revise_rewrite:
+            user_prompt += (
+                f"AUTHOR REWRITE DIRECTION (highest priority):\n"
+                f"{revise_rewrite}\n\n"
+            )
+        user_prompt += (
             "--- SCENE START ---\n"
             f"{scene_text}\n"
             "--- SCENE END ---\n\n"
@@ -4764,6 +4777,11 @@ class LLMOrchestrator:
 
         plan_feedback = context.get("scene_plan_feedback", "")
         feedback_block = f"\nSCENE PLAN FEEDBACK (must fix):\n{plan_feedback}\n" if plan_feedback else ""
+        scene_rewrite_instruction = context.get("rewrite_instruction", "")
+        rewrite_block = (
+            f"\nAUTHOR REWRITE DIRECTION (highest priority):\n{scene_rewrite_instruction}\n"
+            if scene_rewrite_instruction else ""
+        )
         user_prompt = (
             f"Build a scene plan for Chapter {chapter_number}.\n"
             f"Target length: {target_words} words.\n"
@@ -4778,6 +4796,7 @@ class LLMOrchestrator:
             f"FOCAL CHARACTERS: {focal_characters}\n\n"
             f"PACING TARGETS: {context.get('pacing_targets', {})}\n\n"
             f"{feedback_block}"
+            f"{rewrite_block}"
             "Rules:\n"
             "- Do not repeat setup/onboarding/announcement beats.\n"
             "- Only one inciting delivery per chapter.\n"
@@ -4908,7 +4927,12 @@ class LLMOrchestrator:
         target_words: int,
         context: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Generate a director brief to guide first-draft output."""
+        """Generate a director brief to guide first-draft output.
+
+        NOTE: context["rewrite_instruction"] is not injected here. The director
+        brief feeds into scene-by-scene generation where _build_scene_prompt and
+        _build_scene_plan both inject the rewrite instruction directly.
+        """
         context = context or {}
         template = self._load_prompt_config("director-brief.yaml")
         if not template:
@@ -5044,8 +5068,14 @@ class LLMOrchestrator:
             f"STORY CONTEXT:\n{scene_context.get('book_bible', '')[:1200]}\n\n"
             f"MEMORY LEDGER:\n{scene_context.get('memory_ledger', '')[:1200]}\n\n"
             f"BRIDGE REQUIREMENTS:\n{scene_context.get('bridge_requirements', [])}\n\n"
-            "Write the full scene now."
         )
+        scene_rewrite = (scene_context.get("rewrite_instruction") or "").strip()
+        if scene_rewrite:
+            user_prompt += (
+                f"AUTHOR REWRITE DIRECTION (highest priority — the author specifically requested this):\n"
+                f"{scene_rewrite}\n\n"
+            )
+        user_prompt += "Write the full scene now."
 
         return system_prompt, user_prompt
     
@@ -5589,6 +5619,13 @@ class LLMOrchestrator:
         anti_pattern = (context or {}).get("anti_pattern_context", "")
         if anti_pattern:
             user_prompt += f"{anti_pattern}\n\n"
+
+        rewrite_instruction = (context or {}).get("rewrite_instruction", "")
+        if rewrite_instruction:
+            user_prompt += (
+                f"AUTHOR REWRITE DIRECTION (the author explicitly asked for this rewrite — treat as highest priority):\n"
+                f"{rewrite_instruction}\n\n"
+            )
 
         # Cast consistency block — remind the model who exists
         cast_lines: list[str] = []

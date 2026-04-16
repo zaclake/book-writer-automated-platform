@@ -12,8 +12,8 @@ import { CollapsibleSidebar } from '@/components/layout/CollapsibleSidebar'
 import ProjectLayout from '@/components/layout/ProjectLayout'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
 import { ChapterVersionHistoryDialog } from '@/components/ChapterVersionHistory'
-import ChapterTipTapEditor, { type SelectionInfo } from '@/components/editor/ChapterTipTapEditor'
-import { InlineDiff, DiffStats } from '@/components/editor/InlineDiff'
+import ChapterTipTapEditor, { type SelectionInfo, type SelectionCoords } from '@/components/editor/ChapterTipTapEditor'
+import SelectionToolsPopover from '@/components/editor/SelectionToolsPopover'
 import { RippleReport } from '@/components/editor/RippleReport'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -73,6 +73,7 @@ export default function ChapterWritingPage() {
   const [originalContent, setOriginalContent] = useState('')
   const [rewriteDialogOpen, setRewriteDialogOpen] = useState(false)
   const [rewriteMode, setRewriteMode] = useState<'polish' | 'full'>('full')
+  const [rewriteFeedback, setRewriteFeedback] = useState('')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -86,12 +87,14 @@ export default function ChapterWritingPage() {
 
   // Selection state (driven by TipTap editor)
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null)
+  const [selectionCoords, setSelectionCoords] = useState<SelectionCoords | null>(null)
   const [selectionMode, setSelectionMode] = useState<'note' | 'rewrite'>('note')
   const [selectionNote, setSelectionNote] = useState('')
   const [selectionInstruction, setSelectionInstruction] = useState('')
   const [selectionBusy, setSelectionBusy] = useState(false)
   const [applyToFuture, setApplyToFuture] = useState(true)
   const [noteScope, setNoteScope] = useState<'chapter' | 'global'>('chapter')
+  const editorContainerRef = useRef<HTMLDivElement>(null)
 
   // Preview state
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -273,6 +276,7 @@ export default function ChapterWritingPage() {
 
   const resetSelection = useCallback(() => {
     setSelectionInfo(null)
+    setSelectionCoords(null)
     setSelectionNote('')
     setSelectionInstruction('')
     setSelectionMode('note')
@@ -394,12 +398,8 @@ export default function ChapterWritingPage() {
     }
   }, [])
 
-  const handleNoteMode = useCallback(() => {
-    setSelectionMode('note')
-  }, [])
-
-  const handleRewriteMode = useCallback(() => {
-    setSelectionMode('rewrite')
+  const handleSelectionCoords = useCallback((coords: SelectionCoords | null) => {
+    setSelectionCoords(coords)
   }, [])
 
   const ensureChapterId = () => {
@@ -863,7 +863,53 @@ export default function ChapterWritingPage() {
     }
   }
 
-  const rewriteChapter = async (mode: 'polish' | 'full') => {
+  const handleAcceptPreview = async () => {
+    if (!previewContent || !currentChapterId) {
+      if (previewContent) {
+        setChapterContent(previewContent)
+        setOriginalContent(previewContent)
+      }
+      setPreviewOpen(false)
+      resetSelection()
+      return
+    }
+    try {
+      setSelectionBusy(true)
+      const authHeaders = await getAuthHeaders()
+      const response = await fetchApi(`/api/v2/chapters/${currentChapterId}/confirm-rewrite`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposed_content: previewContent,
+          original_selection_start: selectionInfo?.from ?? 0,
+          original_selection_end: selectionInfo?.to ?? 0,
+          instruction: selectionInstruction,
+        }),
+      })
+      if (response.ok) {
+        setChapterContent(previewContent)
+        setOriginalContent(previewContent)
+        showStatus('Rewrite applied and saved')
+        runRippleAnalysis()
+      } else {
+        setChapterContent(previewContent)
+        showStatus('Rewrite applied but save failed. Please save manually.', 0)
+      }
+    } catch {
+      setChapterContent(previewContent)
+      showStatus('Rewrite applied but save failed. Please save manually.', 0)
+    } finally {
+      setSelectionBusy(false)
+      setPreviewOpen(false)
+      resetSelection()
+    }
+  }
+
+  const handleDiscardPreview = () => {
+    setPreviewOpen(false)
+  }
+
+  const rewriteChapter = async (mode: 'polish' | 'full', instruction?: string) => {
     if (!isSignedIn || !projectId) return
 
     setIsGenerating(true)
@@ -885,16 +931,20 @@ export default function ChapterWritingPage() {
 
     try {
       const authHeaders = await getAuthHeaders()
+      const body: Record<string, unknown> = {
+        project_id: projectId,
+        chapter_number: currentChapter,
+        target_word_count: 3800,
+        stage: mode === 'full' ? '5-stage' : 'complete',
+        rewrite_mode: mode,
+      }
+      if (instruction?.trim()) {
+        body.rewrite_instruction = instruction.trim()
+      }
       const response = await fetchApi('/api/v2/chapters/generate', {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: projectId,
-          chapter_number: currentChapter,
-          target_word_count: 3800,
-          stage: mode === 'full' ? '5-stage' : 'complete',
-          rewrite_mode: mode,
-        }),
+        body: JSON.stringify(body),
       })
 
       const data = await response.json().catch(() => ({}))
@@ -1251,223 +1301,44 @@ export default function ChapterWritingPage() {
                     content={chapterContent}
                     onChange={setChapterContent}
                     onSelectionChange={handleSelectionChange}
+                    onSelectionCoords={handleSelectionCoords}
                     editable={!isGenerating}
-                    selectionMode={selectionMode}
-                    onNoteMode={handleNoteMode}
-                    onRewriteMode={handleRewriteMode}
-                    onClearSelection={resetSelection}
+                    containerRef={editorContainerRef}
                   />
-
-                  {/* Selection Tools Panel */}
-                  {selectionInfo && (
-                    <div className="mt-6 rounded-2xl border border-brand-lavender/20 bg-white/90 p-4 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200">
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                        <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-900/60">Selected text</div>
-                          <div className="text-sm font-semibold text-gray-900 mt-1">
-                            {selectionInfo.text.trim().length > 160 ? `${selectionInfo.text.trim().slice(0, 160)}...` : selectionInfo.text.trim()}
-                          </div>
-                        </div>
-                        <button
-                          onClick={resetSelection}
-                          className="text-xs font-semibold text-indigo-500 hover:underline"
-                        >
-                          Clear selection
-                        </button>
-                      </div>
-
-                      <div className="flex gap-2 mb-4">
-                        <button
-                          onClick={() => setSelectionMode('note')}
-                          className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                            selectionMode === 'note'
-                              ? 'bg-brand-soft-purple text-white border-brand-soft-purple'
-                              : 'bg-white text-gray-900 border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >
-                          Add note
-                        </button>
-                        <button
-                          onClick={() => setSelectionMode('rewrite')}
-                          className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                            selectionMode === 'rewrite'
-                              ? 'bg-brand-forest text-white border-brand-forest'
-                              : 'bg-white text-gray-900 border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >
-                          AI rewrite
-                        </button>
-                      </div>
-
-                      {selectionMode === 'note' ? (
-                        <div className="space-y-3">
-                          <textarea
-                            id="selection-note"
-                            name="selectionNote"
-                            value={selectionNote}
-                            onChange={(e) => setSelectionNote(e.target.value)}
-                            className="w-full min-h-[90px] rounded-lg border border-brand-lavender/20 p-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-lavender/40"
-                            placeholder="Add a note about this highlight (tone, continuity, change request)."
-                          />
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                            <label className="flex items-center gap-2">
-                              <input
-                                id="selection-apply-to-future"
-                                name="applyToFuture"
-                                type="checkbox"
-                                checked={applyToFuture}
-                                onChange={(e) => setApplyToFuture(e.target.checked)}
-                                disabled={noteScope === 'global'}
-                              />
-                              Apply to future chapters
-                            </label>
-                            <label className="flex items-center gap-2">
-                              <span>Scope</span>
-                              <select
-                                id="selection-note-scope"
-                                name="noteScope"
-                                value={noteScope}
-                                onChange={(e) => setNoteScope(e.target.value as 'chapter' | 'global')}
-                                className="rounded-md border border-gray-200 px-2 py-1 text-xs"
-                              >
-                                <option value="chapter">Chapter only</option>
-                                <option value="global">Global guidance</option>
-                              </select>
-                            </label>
-                          </div>
-                          <button
-                            onClick={saveSelectionNote}
-                            disabled={selectionBusy || !selectionNote.trim()}
-                            className="w-full sm:w-auto bg-brand-soft-purple text-white px-4 py-2 rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
-                          >
-                            {selectionBusy ? 'Saving...' : 'Save Note'}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap gap-2">
-                            {selectionPresets.map((preset) => (
-                              <button
-                                key={preset.label}
-                                onClick={() => setSelectionInstruction(preset.value)}
-                                className={`px-3 py-1 rounded-full border text-xs font-semibold transition-colors ${
-                                  selectionInstruction === preset.value
-                                    ? 'bg-brand-forest text-white border-brand-forest'
-                                    : 'border-gray-200 text-gray-900 hover:bg-gray-50'
-                                }`}
-                              >
-                                {preset.label}
-                              </button>
-                            ))}
-                          </div>
-                          <textarea
-                            id="selection-instruction"
-                            name="selectionInstruction"
-                            value={selectionInstruction}
-                            onChange={(e) => setSelectionInstruction(e.target.value)}
-                            className="w-full min-h-[90px] rounded-lg border border-brand-lavender/20 p-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-lavender/40"
-                            placeholder="Tell AI how to rewrite this selection (shorter, punchier, clarify voice, fix continuity)."
-                          />
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <button
-                              onClick={previewRewriteSelection}
-                              disabled={previewLoading || !selectionInstruction.trim()}
-                              className="w-full sm:w-auto border border-brand-forest text-gray-900 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-brand-forest hover:text-white disabled:opacity-50 transition-colors"
-                            >
-                              {previewLoading ? (
-                                <>
-                                  <ArrowPathIcon className="w-4 h-4 mr-1 animate-spin inline" />
-                                  Generating preview...
-                                </>
-                              ) : (
-                                'Preview Rewrite'
-                              )}
-                            </button>
-                            <button
-                              onClick={rewriteSelection}
-                              disabled={selectionBusy || !selectionInstruction.trim()}
-                              className="w-full sm:w-auto bg-brand-forest text-white px-4 py-2 rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
-                            >
-                              {selectionBusy ? 'Rewriting...' : 'Apply AI Rewrite'}
-                            </button>
-                          </div>
-
-                          {/* Inline Diff Preview */}
-                          {previewOpen && (
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                              <div className="flex items-center justify-between">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                                  Inline Diff Preview
-                                </div>
-                                <DiffStats original={previewOriginal} proposed={previewProposed} />
-                              </div>
-                              <div className="rounded-lg border border-emerald-200 bg-white p-3">
-                                <InlineDiff original={previewOriginal} proposed={previewProposed} />
-                              </div>
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <button
-                                  onClick={() => setPreviewOpen(false)}
-                                  className="w-full sm:w-auto border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
-                                >
-                                  Discard
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    if (!previewContent || !currentChapterId) {
-                                      if (previewContent) {
-                                        setChapterContent(previewContent)
-                                        setOriginalContent(previewContent)
-                                      }
-                                      setPreviewOpen(false)
-                                      resetSelection()
-                                      return
-                                    }
-                                    try {
-                                      setSelectionBusy(true)
-                                      const authHeaders = await getAuthHeaders()
-                                      const response = await fetchApi(`/api/v2/chapters/${currentChapterId}/confirm-rewrite`, {
-                                        method: 'POST',
-                                        headers: { ...authHeaders, 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          proposed_content: previewContent,
-                                          original_selection_start: selectionInfo?.from ?? 0,
-                                          original_selection_end: selectionInfo?.to ?? 0,
-                                          instruction: selectionInstruction,
-                                        }),
-                                      })
-                                      if (response.ok) {
-                                        setChapterContent(previewContent)
-                                        setOriginalContent(previewContent)
-                                        showStatus('Rewrite applied and saved')
-                                        runRippleAnalysis()
-                                      } else {
-                                        setChapterContent(previewContent)
-                                        showStatus('Rewrite applied but save failed. Please save manually.', 0)
-                                      }
-                                    } catch {
-                                      setChapterContent(previewContent)
-                                      showStatus('Rewrite applied but save failed. Please save manually.', 0)
-                                    } finally {
-                                      setSelectionBusy(false)
-                                      setPreviewOpen(false)
-                                      resetSelection()
-                                    }
-                                  }}
-                                  disabled={selectionBusy}
-                                  className="w-full sm:w-auto bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                                >
-                                  {selectionBusy ? 'Saving...' : 'Accept Changes'}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Floating Selection Tools Popover */}
+          {selectionInfo && (
+            <SelectionToolsPopover
+              selectionInfo={selectionInfo}
+              selectionMode={selectionMode}
+              setSelectionMode={setSelectionMode}
+              selectionNote={selectionNote}
+              setSelectionNote={setSelectionNote}
+              selectionInstruction={selectionInstruction}
+              setSelectionInstruction={setSelectionInstruction}
+              applyToFuture={applyToFuture}
+              setApplyToFuture={setApplyToFuture}
+              noteScope={noteScope}
+              setNoteScope={setNoteScope}
+              selectionBusy={selectionBusy}
+              previewOpen={previewOpen}
+              previewOriginal={previewOriginal}
+              previewProposed={previewProposed}
+              previewLoading={previewLoading}
+              selectionPresets={selectionPresets}
+              saveSelectionNote={saveSelectionNote}
+              previewRewriteSelection={previewRewriteSelection}
+              rewriteSelection={rewriteSelection}
+              resetSelection={resetSelection}
+              onAcceptPreview={handleAcceptPreview}
+              onDiscardPreview={handleDiscardPreview}
+              anchorCoords={selectionCoords}
+              editorContainerRef={editorContainerRef}
+            />
           )}
 
           {/* Floating Bottom Action Bar */}
@@ -1651,28 +1522,48 @@ export default function ChapterWritingPage() {
       </Dialog>
 
       {/* Rewrite Dialog */}
-      <Dialog open={rewriteDialogOpen} onOpenChange={setRewriteDialogOpen}>
+      <Dialog open={rewriteDialogOpen} onOpenChange={(open) => {
+        setRewriteDialogOpen(open)
+        if (!open) setRewriteFeedback('')
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rewrite Chapter {currentChapter}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 text-sm text-gray-600">
-            <p>Select how you want to rewrite this chapter.</p>
+          <div className="space-y-4 text-sm text-gray-600">
             <div className="space-y-2">
               <label className="flex items-start gap-2">
-                <input type="radio" name="rewriteMode" value="polish" checked={rewriteMode === 'polish'} onChange={() => setRewriteMode('polish')} />
+                <input type="radio" name="rewriteMode" value="polish" checked={rewriteMode === 'polish'} onChange={() => setRewriteMode('polish')} className="mt-1" />
                 <span><strong>Polish / Canon Rewrite</strong> keeps structure and plot, improves clarity and specificity.</span>
               </label>
               <label className="flex items-start gap-2">
-                <input type="radio" name="rewriteMode" value="full" checked={rewriteMode === 'full'} onChange={() => setRewriteMode('full')} />
+                <input type="radio" name="rewriteMode" value="full" checked={rewriteMode === 'full'} onChange={() => setRewriteMode('full')} className="mt-1" />
                 <span><strong>Full Regenerate</strong> wipes and recreates the chapter using the latest system.</span>
               </label>
             </div>
+            <div>
+              <label htmlFor="rewrite-feedback" className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+                What should change? <span className="font-normal normal-case text-gray-400">(optional)</span>
+              </label>
+              <textarea
+                id="rewrite-feedback"
+                value={rewriteFeedback}
+                onChange={(e) => setRewriteFeedback(e.target.value)}
+                className="w-full min-h-[80px] rounded-lg border border-gray-200 p-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-lavender/40 resize-none"
+                placeholder="e.g. The pacing is too slow, the dialogue feels stiff, the ending doesn't match the tone of the rest..."
+                autoFocus
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRewriteDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setRewriteDialogOpen(false); setRewriteFeedback('') }}>Cancel</Button>
             <Button
-              onClick={() => { setRewriteDialogOpen(false); rewriteChapter(rewriteMode) }}
+              onClick={() => {
+                const feedback = rewriteFeedback.trim()
+                setRewriteDialogOpen(false)
+                rewriteChapter(rewriteMode, feedback || undefined)
+                setRewriteFeedback('')
+              }}
               disabled={isGenerating}
             >
               {rewriteMode === 'polish' ? 'Polish Chapter' : 'Regenerate Chapter'}

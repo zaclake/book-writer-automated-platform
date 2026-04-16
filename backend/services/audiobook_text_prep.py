@@ -96,8 +96,66 @@ def convert_scene_breaks(text: str) -> str:
     return result
 
 
+def _strip_redundant_chapter_heading(text: str, chapter_number: int) -> str:
+    """Remove the first line if it's a chapter heading that duplicates the announcement.
+
+    Matches patterns like:
+      "Chapter 1: Title", "Chapter 1 - Title", "Chapter 1. Title",
+      "Chapter One", "CHAPTER 1", "1. Title", "1 - Title", bare "Chapter 1"
+    """
+    lines = text.lstrip('\n').split('\n', 1)
+    if not lines:
+        return text
+
+    first_line = lines[0].strip()
+    if not first_line:
+        return text
+
+    first_lower = first_line.lower()
+
+    # "Chapter N" or "Chapter N: ...", "Chapter N - ...", "CHAPTER N"
+    ch_prefix = f"chapter {chapter_number}"
+    if first_lower.startswith(ch_prefix):
+        rest_of_first = first_lower[len(ch_prefix):].lstrip()
+        if not rest_of_first or rest_of_first[0] in (':', '-', '.', ',', '—'):
+            return lines[1].lstrip('\n') if len(lines) > 1 else ''
+
+    # Written-out numbers for chapters 1-20
+    number_words = {
+        1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five',
+        6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten',
+        11: 'eleven', 12: 'twelve', 13: 'thirteen', 14: 'fourteen',
+        15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen',
+        19: 'nineteen', 20: 'twenty',
+    }
+    word = number_words.get(chapter_number)
+    if word:
+        word_prefix = f"chapter {word}"
+        if first_lower.startswith(word_prefix):
+            rest = first_lower[len(word_prefix):].lstrip()
+            if not rest or rest[0] in (':', '-', '.', ',', '—'):
+                return lines[1].lstrip('\n') if len(lines) > 1 else ''
+
+    # "1. Title" or "1 - Title" (bare number at start)
+    num_pattern = re.match(r'^' + str(chapter_number) + r'\s*[.\-:—]\s*', first_line)
+    if num_pattern:
+        remainder = first_line[num_pattern.end():].strip()
+        body = lines[1].lstrip('\n') if len(lines) > 1 else ''
+        if not remainder:
+            return body
+        return body
+
+    return text
+
+
 def add_chapter_announcement(text: str, chapter_number: int, chapter_title: Optional[str] = None) -> str:
-    """Prepend a spoken chapter announcement with a pause."""
+    """Prepend a spoken chapter announcement with a pause.
+
+    Also strips any redundant chapter heading from the body to avoid
+    the TTS reading "Chapter 1" twice.
+    """
+    text = _strip_redundant_chapter_heading(text, chapter_number)
+
     if chapter_title and chapter_title.strip():
         announcement = f"Chapter {chapter_number}. {chapter_title.strip()}."
     else:

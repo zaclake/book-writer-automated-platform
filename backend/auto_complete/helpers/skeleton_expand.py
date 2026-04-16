@@ -1070,6 +1070,7 @@ async def expand_beat(
     previous_beat_emotional_point: str = "",
     within_chapter_repetition: str = "",
     chapter_events_summary: str = "",
+    rewrite_instruction: str = "",
 ) -> str:
     """Expand a single beat into prose. No word target — write until the beat is complete."""
 
@@ -1282,6 +1283,12 @@ async def expand_beat(
     if entity_registry:
         user_prompt += f"\nPROPER NOUNS (use exact spellings):\n{entity_registry[:800]}\n"
 
+    if rewrite_instruction:
+        user_prompt += (
+            f"\nAUTHOR REWRITE DIRECTION (highest priority — the author specifically requested this):\n"
+            f"{rewrite_instruction}\n"
+        )
+
     user_prompt += "\nWrite the passage now."
 
     try:
@@ -1315,6 +1322,7 @@ async def stitch_beats(
     repetition_report: str = "",
     cross_chapter_phrases: str = "",
     chapter_events_summary: str = "",
+    rewrite_instruction: str = "",
 ) -> str:
     """Light smoothing pass with data-driven repetition fixing.
 
@@ -1392,6 +1400,11 @@ async def stitch_beats(
             f"CANONICAL EVENT SEQUENCE (use this to verify consistency — "
             f"if any dialogue contradicts these events, fix the dialogue):\n"
             f"{chapter_events_summary}\n\n"
+        )
+    if rewrite_instruction:
+        user_prompt += (
+            f"AUTHOR REWRITE DIRECTION (highest priority — also apply during this polish pass):\n"
+            f"{rewrite_instruction}\n\n"
         )
 
     user_prompt += (
@@ -2099,6 +2112,13 @@ async def generate_chapter_skeleton_expand(
     anti_pattern = context.get("anti_pattern_context", "") or ""
     previous_ending = context.get("last_chapter_ending", "")
 
+    user_rewrite_instruction = (context.get("rewrite_instruction") or "").strip()
+    if user_rewrite_instruction:
+        anti_pattern += (
+            f"\nAUTHOR REWRITE DIRECTION (the author explicitly asked for this rewrite — treat as highest priority):\n"
+            f"{user_rewrite_instruction}\n"
+        )
+
     # Final chapter constraints
     is_final_chapter = (chapter_number == total_chapters)
     if is_final_chapter:
@@ -2284,6 +2304,7 @@ async def generate_chapter_skeleton_expand(
             previous_beat_emotional_point=emotional_summary,
             within_chapter_repetition=within_chapter_warnings,
             chapter_events_summary=events_summary,
+            rewrite_instruction=user_rewrite_instruction,
         )
 
         if beat_text:
@@ -2316,6 +2337,7 @@ async def generate_chapter_skeleton_expand(
         repetition_report=repetition_report,
         cross_chapter_phrases=overused_phrases_str,
         chapter_events_summary=final_events_summary,
+        rewrite_instruction=user_rewrite_instruction,
     )
 
     # Step 4: Deterministic cleanup

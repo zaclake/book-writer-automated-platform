@@ -814,6 +814,7 @@ try:
         logger.info("✅ audiobook_v2 router included")
 
     # Mobile reader/player API
+    mobile_v2 = None
     try:
         try:
             from backend.routers import mobile_v2
@@ -822,6 +823,7 @@ try:
         app.include_router(mobile_v2.router)
         logger.info("✅ mobile_v2 router included")
     except Exception as e_mobile:
+        mobile_v2 = None
         logger.warning(f"mobile_v2 router unavailable: {e_mobile}")
 
     # Log router status
@@ -834,7 +836,7 @@ try:
     if publish_v2: included_routers.append('publish_v2')
     if credits_v2: included_routers.append('credits_v2')
     if audiobook_v2: included_routers.append('audiobook_v2')
-    included_routers.append('mobile_v2')
+    if mobile_v2: included_routers.append('mobile_v2')
 
     logger.info(f"✅ Routers included successfully: {', '.join(included_routers)}")
 except Exception as e:

@@ -12,11 +12,11 @@ from pydantic import BaseModel, Field
 
 try:
     from backend.auth_middleware import get_current_user
-    from backend.database_integration import get_user_projects, get_project, get_project_chapters, get_database_adapter
+    from backend.database_integration import get_user_projects, get_project, get_project_chapters
     from backend.services.firestore_service import get_firestore_client
 except Exception:
     from auth_middleware import get_current_user
-    from database_integration import get_user_projects, get_project, get_project_chapters, get_database_adapter
+    from database_integration import get_user_projects, get_project, get_project_chapters
     from services.firestore_service import get_firestore_client
 
 try:
@@ -26,6 +26,35 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v2/mobile", tags=["mobile-v2"])
+
+
+ANONYMOUS_USER_ID = "anonymous-user"
+
+
+def _require_authenticated_user(user_id: Optional[str]) -> str:
+    """Return user_id or raise 401 if missing / anonymous."""
+    if not user_id or user_id == ANONYMOUS_USER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return user_id
+
+
+def _verify_project_access(project_data: dict, user_id: str):
+    """Raise 403 if user doesn't own, collaborate on, or have public access to the project."""
+    metadata = project_data.get("metadata") or {}
+    visibility = metadata.get("visibility", "private")
+    if visibility == "public":
+        return
+    owner_id = metadata.get("owner_id")
+    collaborators = metadata.get("collaborators", [])
+    if owner_id != user_id and user_id not in collaborators:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this project",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Response models
@@ -46,6 +75,8 @@ class BookSummary(BaseModel):
     title: str
     genre: str = "Fiction"
     status: str = "active"
+    visibility: str = "private"
+    author_name: Optional[str] = None
     chapter_count: int = 0
     word_count: int = 0
     cover_art_url: Optional[str] = None
@@ -57,6 +88,7 @@ class BookSummary(BaseModel):
 
 class LibraryResponse(BaseModel):
     books: List[BookSummary]
+    public_books: List[BookSummary] = []
     total: int
 
 class ChapterContent(BaseModel):
@@ -156,10 +188,14 @@ def _get_progress(client, user_id: str, project_id: str):
 
 @router.get("/library", response_model=LibraryResponse)
 async def get_mobile_library(current_user: dict = Depends(get_current_user)):
-    """Lightweight library listing optimized for mobile."""
-    user_id = current_user.get('user_id')
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user authentication")
+    """Lightweight library listing optimized for mobile.
+
+    Performance note: cover art, audiobook, and chapter-count lookups run
+    per-book (N+1).  Acceptable for small libraries (<50 books); for scale,
+    batch Firestore queries or add a denormalized mobile_library_cache
+    collection updated via Cloud Functions on project/audiobook changes.
+    """
+    user_id = _require_authenticated_user(current_user.get('user_id'))
 
     projects_data = await get_user_projects(user_id)
     client = get_firestore_client()
@@ -227,6 +263,7 @@ async def get_mobile_library(current_user: dict = Depends(get_current_user)):
             title=metadata.get('title', 'Untitled'),
             genre=settings.get('genre', 'Fiction'),
             status=metadata.get('status', 'active'),
+            visibility=metadata.get('visibility', 'private'),
             chapter_count=chapter_count,
             word_count=word_count,
             cover_art_url=cover_url,
@@ -237,7 +274,63 @@ async def get_mobile_library(current_user: dict = Depends(get_current_user)):
             listening_progress=listening,
         ))
 
-    return LibraryResponse(books=books, total=len(books))
+    # Public projects from other users
+    public_books: List[BookSummary] = []
+    try:
+        if FieldFilter:
+            query = client.collection("projects").where(
+                filter=FieldFilter("metadata.visibility", "==", "public")
+            )
+            pub_docs = list(query.limit(50).stream())
+            for doc in pub_docs:
+                data = doc.to_dict() or {}
+                pub_metadata = data.get("metadata", {})
+                pub_settings = data.get("settings", {})
+                pub_id = doc.id
+                pub_owner = pub_metadata.get("owner_id")
+                if pub_owner == user_id:
+                    continue
+
+                pub_cover = None
+                pub_ca = data.get("cover_art")
+                if isinstance(pub_ca, dict):
+                    pub_cover = pub_ca.get("image_url")
+                if not pub_cover:
+                    pub_cover = await _get_cover_art_url(pub_id)
+
+                pub_audiobook = await _get_latest_audiobook(pub_id)
+
+                pub_progress_r, pub_progress_l = _get_progress(client, user_id, pub_id)
+
+                pub_updated = pub_metadata.get("updated_at") or pub_metadata.get("created_at")
+                if pub_updated and isinstance(pub_updated, datetime):
+                    pub_updated = pub_updated.isoformat()
+                elif pub_updated:
+                    pub_updated = str(pub_updated)
+
+                pub_chapter_count = data.get("progress", {}).get("chapters_completed", 0)
+                pub_word_count = data.get("progress", {}).get("current_word_count", 0)
+
+                public_books.append(BookSummary(
+                    id=pub_id,
+                    title=pub_metadata.get("title", "Untitled"),
+                    genre=pub_settings.get("genre", "Fiction"),
+                    status=pub_metadata.get("status", "active"),
+                    visibility="public",
+                    author_name=pub_metadata.get("owner_display_name"),
+                    chapter_count=pub_chapter_count,
+                    word_count=pub_word_count,
+                    cover_art_url=pub_cover,
+                    has_audiobook=pub_audiobook is not None,
+                    audiobook_url=pub_audiobook.get("full_book_url") if pub_audiobook else None,
+                    updated_at=pub_updated,
+                    reading_progress=pub_progress_r,
+                    listening_progress=pub_progress_l,
+                ))
+    except Exception as e:
+        logger.debug(f"Public books query failed: {e}")
+
+    return LibraryResponse(books=books, public_books=public_books, total=len(books) + len(public_books))
 
 
 @router.get("/book/{project_id}/chapters", response_model=ChaptersResponse)
@@ -246,24 +339,22 @@ async def get_mobile_chapters(
     current_user: dict = Depends(get_current_user)
 ):
     """Get all chapters for a book, optimized for mobile reader."""
-    user_id = current_user.get('user_id')
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user authentication")
+    user_id = _require_authenticated_user(current_user.get('user_id'))
 
-    project = await get_project(user_id, project_id)
+    project = await get_project(project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    _verify_project_access(project, user_id)
 
-    chapters_data = await get_project_chapters(user_id, project_id)
+    chapters_data = await get_project_chapters(project_id)
     chapters: List[ChapterContent] = []
     for ch in chapters_data:
-        content = ch.get('content', '')
-        # Prefer latest version content
+        content = ch.get('content') or ''
         versions = ch.get('versions', [])
         if versions:
             latest = sorted(versions, key=lambda v: v.get('version_number', 0))
             if latest:
-                content = latest[-1].get('content', content)
+                content = latest[-1].get('content') or content
 
         chapter_number = ch.get('chapter_number', 0)
         if chapter_number <= 0:
@@ -273,7 +364,7 @@ async def get_mobile_chapters(
             chapter_number=chapter_number,
             chapter_id=ch.get('chapter_id') or ch.get('id') or f"ch_{chapter_number}",
             title=ch.get('title'),
-            word_count=ch.get('word_count') or (ch.get('metadata') or {}).get('word_count', 0),
+            word_count=ch.get('word_count') if ch.get('word_count') is not None else (ch.get('metadata') or {}).get('word_count', 0),
             content=content,
         ))
 
@@ -296,21 +387,25 @@ async def get_mobile_audiobook_info(
     current_user: dict = Depends(get_current_user)
 ):
     """Get audiobook info and download URLs for a project."""
-    user_id = current_user.get('user_id')
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user authentication")
+    user_id = _require_authenticated_user(current_user.get('user_id'))
+
+    project = await get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    _verify_project_access(project, user_id)
 
     audiobook = await _get_latest_audiobook(project_id)
     if not audiobook:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No audiobook found")
 
     chapter_urls_raw = audiobook.get('chapter_urls') or {}
-    chapter_urls = {}
+    chapter_urls: Dict[int, str] = {}
     for k, v in chapter_urls_raw.items():
         try:
             chapter_urls[int(k)] = v
         except (ValueError, TypeError):
-            chapter_urls[k] = v
+            logger.debug(f"Skipping non-numeric chapter_url key: {k}")
+            continue
 
     return AudiobookInfoResponse(
         job_id=audiobook.get('job_id', ''),
@@ -329,9 +424,7 @@ async def update_reading_progress(
     current_user: dict = Depends(get_current_user)
 ):
     """Update reading progress for a project."""
-    user_id = current_user.get('user_id')
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user authentication")
+    user_id = _require_authenticated_user(current_user.get('user_id'))
 
     try:
         client = get_firestore_client()
@@ -356,9 +449,7 @@ async def update_listening_progress(
     current_user: dict = Depends(get_current_user)
 ):
     """Update listening progress for a project."""
-    user_id = current_user.get('user_id')
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user authentication")
+    user_id = _require_authenticated_user(current_user.get('user_id'))
 
     try:
         client = get_firestore_client()
