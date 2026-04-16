@@ -83,6 +83,7 @@ class PublishingService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.firebase_bucket = None
+        self._kdp_description_html = ""
         if storage:
             try:
                 self.firebase_bucket = storage.bucket()
@@ -240,13 +241,26 @@ class PublishingService:
                     
                     update_progress(f"Completed {fmt.upper()}", end_progress)
                 
+                # Upload cover art as a standalone file for independent download.
+                # Reuse the cover file if already downloaded during EPUB/PDF generation.
+                cover_file_for_kdp = None
+                if cover_art_url:
+                    existing_cover = temp_path / "cover.jpg"
+                    if existing_cover.exists():
+                        cover_file_for_kdp = existing_cover
+                    else:
+                        update_progress("Processing cover art", 0.81)
+                        cover_file_for_kdp = await self._download_cover_art(cover_art_url, temp_path)
+                    if cover_file_for_kdp and cover_file_for_kdp.exists():
+                        output_files["cover_art"] = cover_file_for_kdp
+
                 if config.include_kdp_kit:
                     await self._auto_fill_kdp_fields(
                         project_data=project_data,
                         combined_md=combined_md,
                         config=config
                     )
-                    update_progress("Generating KDP publishing kit", 0.82)
+                    update_progress("Generating KDP publishing kit", 0.83)
                     kdp_kit_file = await self._generate_kdp_kit(
                         project_data=project_data,
                         combined_md=combined_md,
@@ -255,12 +269,23 @@ class PublishingService:
                     )
                     if kdp_kit_file:
                         output_files["kdp_kit"] = kdp_kit_file
-                    update_progress("Completed KDP publishing kit", 0.86)
+
+                    # Build KDP package ZIP bundle
+                    update_progress("Building KDP package", 0.86)
+                    kdp_package_file = self._build_kdp_package_zip(
+                        temp_path=temp_path,
+                        config=config,
+                        output_files=output_files,
+                        cover_file=cover_file_for_kdp,
+                        kdp_kit_file=kdp_kit_file,
+                    )
+                    if kdp_package_file:
+                        output_files["kdp_package"] = kdp_package_file
+                    update_progress("Completed KDP package", 0.88)
                 
                 # Step 4: Upload files to storage
-                update_progress("Uploading files", 0.88)
+                update_progress("Uploading files", 0.89)
                 download_urls = await self._upload_files(project_id, job_id, output_files)
-                # Ensure at least one output exists; otherwise, fail the job explicitly
                 if not any(download_urls.values()):
                     raise RuntimeError("No outputs were generated (EPUB/PDF/HTML missing). Ensure publishing dependencies are installed.")
                 
@@ -273,7 +298,6 @@ class PublishingService:
                     if file_path.exists():
                         file_sizes[fmt] = file_path.stat().st_size
                 
-                # Create result
                 result = PublishResult(
                     job_id=job_id,
                     project_id=project_id,
@@ -283,11 +307,13 @@ class PublishingService:
                     pdf_url=download_urls.get("pdf"),
                     html_url=download_urls.get("html"),
                     kdp_kit_url=download_urls.get("kdp_kit"),
+                    kdp_package_url=download_urls.get("kdp_package"),
+                    cover_art_url=download_urls.get("cover_art"),
                     created_at=datetime.now(timezone.utc),
                     completed_at=datetime.now(timezone.utc),
                     file_sizes=file_sizes,
                     word_count=word_count,
-                    page_count=max(1, word_count // 250)  # Estimate 250 words per page
+                    page_count=max(1, word_count // 250)
                 )
                 
                 update_progress("Publication completed", 1.0)
@@ -717,20 +743,14 @@ class PublishingService:
         combined_file = temp_path / "book.md"
         metadata_file = temp_path / "metadata.yaml"
         
-        try:
-            if fmt == PublishFormat.EPUB:
-                return await self._generate_epub(combined_file, metadata_file, temp_path, config, cover_art_url)
-            elif fmt == PublishFormat.PDF:
-                return await self._generate_pdf(combined_file, metadata_file, temp_path, config, cover_art_url)
-            elif fmt == PublishFormat.HTML:
-                return await self._generate_html(combined_file, metadata_file, temp_path, config)
-            else:
-                self.logger.warning(f"Unsupported format: {fmt}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Failed to generate {fmt}: {e}")
-            return None
+        if fmt == PublishFormat.EPUB:
+            return await self._generate_epub(combined_file, metadata_file, temp_path, config, cover_art_url)
+        elif fmt == PublishFormat.PDF:
+            return await self._generate_pdf(combined_file, metadata_file, temp_path, config, cover_art_url)
+        elif fmt == PublishFormat.HTML:
+            return await self._generate_html(combined_file, metadata_file, temp_path, config)
+        else:
+            raise ValueError(f"Unsupported format: {fmt}")
     
     async def _generate_epub(
         self, 
@@ -1091,6 +1111,16 @@ class PublishingService:
         if not config.kdp_author_bio:
             config.kdp_author_bio = llm_payload.get("author_bio")
 
+        if llm_payload.get("adult_content") is not None:
+            config.kdp_adult_content = bool(llm_payload["adult_content"])
+        if config.kdp_reading_age_min is None and llm_payload.get("reading_age_min") is not None:
+            config.kdp_reading_age_min = int(llm_payload["reading_age_min"])
+        if config.kdp_reading_age_max is None and llm_payload.get("reading_age_max") is not None:
+            config.kdp_reading_age_max = int(llm_payload["reading_age_max"])
+
+        self._kdp_description_html = llm_payload.get("description_html", "")
+
+        self._enforce_keyword_limits(config)
         self._validate_kdp_config(config)
 
     async def _generate_kdp_payload(self, source_material: str, config: PublishConfig) -> Dict[str, Any]:
@@ -1109,13 +1139,21 @@ class PublishingService:
         user_prompt = (
             "Generate KDP-ready fields using the source material below.\n\n"
             "Requirements:\n"
-            "- description: 150-220 words, persuasive, SEO-friendly, based only on source\n"
-            "- keywords: 7 items max, each 2-4 words, no duplicates\n"
-            "- categories: 2-3 BISAC-style categories\n"
+            "- description: 300-500 words, persuasive, SEO-friendly, based only on source. "
+            "Must not exceed 4000 characters. This will be the Amazon product description.\n"
+            "- description_html: Same description formatted with basic HTML tags that KDP accepts "
+            "(<b>, <i>, <br>, <h4>, <h5>, <h6>, <p>, <ul>, <ol>, <li>). Must not exceed 4000 characters.\n"
+            "- keywords: exactly 7 keyword phrases, each under 50 characters, no duplicates\n"
+            "- categories: 3 Amazon Kindle store categories formatted as 'Category > Subcategory > Placement' "
+            "(e.g. 'Fiction > Thriller > Psychological'). Use Amazon's proprietary category hierarchy, NOT BISAC codes.\n"
             "- language: full language name\n"
             "- primary_marketplace: Amazon marketplace (ex: Amazon.com)\n"
+            "- adult_content: boolean, true only if the book contains sexually explicit content\n"
+            "- reading_age_min: integer minimum reading age (use null for general adult fiction)\n"
+            "- reading_age_max: integer maximum reading age (use null for general adult fiction)\n"
             "- subtitle, series_name, series_number, author_bio are optional (omit or empty if unknown)\n\n"
-            "Return JSON with keys: description, keywords, categories, language, primary_marketplace, "
+            "Return JSON with keys: description, description_html, keywords, categories, language, "
+            "primary_marketplace, adult_content, reading_age_min, reading_age_max, "
             "subtitle, series_name, series_number, author_bio.\n\n"
             f"BOOK TITLE: {config.title}\n"
             f"AUTHOR: {config.author}\n\n"
@@ -1127,7 +1165,7 @@ class PublishingService:
             {"role": "user", "content": user_prompt},
         ]
 
-        response = await orchestrator._make_api_call(messages=messages, temperature=0.2, max_tokens=900)
+        response = await orchestrator._make_api_call(messages=messages, temperature=0.2, max_tokens=2000)
         content = response.choices[0].message.content if hasattr(response, "choices") else ""
         payload = self._parse_kdp_json(content)
 
@@ -1224,17 +1262,31 @@ class PublishingService:
             return text.strip()
         return " ".join(words[:max_words]).strip()
 
+    def _enforce_keyword_limits(self, config: PublishConfig) -> None:
+        """Truncate keywords to 50 characters each and cap at 7."""
+        if not config.kdp_keywords:
+            return
+        trimmed = []
+        for kw in config.kdp_keywords:
+            kw = kw.strip()
+            if kw:
+                trimmed.append(kw[:50])
+        config.kdp_keywords = trimmed[:7]
+
     def _validate_kdp_config(self, config: PublishConfig) -> None:
         """Validate KDP kit fields when requested."""
         if not config.include_kdp_kit:
             return
+
+        self._enforce_keyword_limits(config)
+
         missing = []
         if not config.kdp_description or not config.kdp_description.strip():
             missing.append("KDP description")
         if not config.kdp_keywords or len([k for k in config.kdp_keywords if k.strip()]) < 3:
             missing.append("at least 3 KDP keywords")
         if not config.kdp_categories or len([c for c in config.kdp_categories if c.strip()]) < 1:
-            missing.append("at least 1 KDP category")
+            missing.append("at least 1 Amazon Store category")
         if not config.kdp_language or not config.kdp_language.strip():
             missing.append("KDP language")
         if not config.kdp_primary_marketplace or not config.kdp_primary_marketplace.strip():
@@ -1242,18 +1294,37 @@ class PublishingService:
         if missing:
             raise ValueError("Missing required KDP kit fields: " + ", ".join(missing))
 
+        if config.kdp_description and len(config.kdp_description) > 4000:
+            self.logger.warning("KDP description exceeds 4000 chars, truncating")
+            config.kdp_description = config.kdp_description[:4000]
+
+        title_len = len(config.title or "")
+        subtitle_len = len(config.kdp_subtitle or "")
+        if title_len + subtitle_len > 200:
+            self.logger.warning(
+                f"Title + subtitle = {title_len + subtitle_len} chars (max 200). "
+                "KDP may reject this."
+            )
+
+        if (config.kdp_reading_age_min is not None
+                and config.kdp_reading_age_max is not None
+                and config.kdp_reading_age_min > config.kdp_reading_age_max):
+            self.logger.warning(
+                f"Reading age min ({config.kdp_reading_age_min}) > max ({config.kdp_reading_age_max}), swapping"
+            )
+            config.kdp_reading_age_min, config.kdp_reading_age_max = (
+                config.kdp_reading_age_max, config.kdp_reading_age_min
+            )
+
     def _build_kdp_markdown(
         self,
         project_data: Dict[str, Any],
         combined_md: str,
         config: PublishConfig
     ) -> str:
-        """Build a copy-ready KDP publishing kit in Markdown."""
+        """Build a copy-ready KDP publishing kit structured to mirror the 3-page KDP flow."""
         word_count = self._count_words(combined_md)
         page_estimate = max(1, word_count // 250)
-        cover_art_url = None
-        if config.use_existing_cover:
-            cover_art_url = project_data.get("cover_art_url")
 
         keywords = [k.strip() for k in (config.kdp_keywords or []) if k.strip()]
         categories = [c.strip() for c in (config.kdp_categories or []) if c.strip()]
@@ -1262,15 +1333,39 @@ class PublishingService:
         if config.kdp_series_number:
             series_line = f"{series_line} (Book {config.kdp_series_number})" if series_line else f"Book {config.kdp_series_number}"
 
+        rights_display = {
+            "own_copyright": "I own the copyright and I hold necessary publishing rights.",
+            "public_domain": "This is a public domain work."
+        }.get(config.kdp_publishing_rights, "I own the copyright and I hold necessary publishing rights.")
+
+        adult_display = "Yes" if config.kdp_adult_content else "No"
+
+        reading_age_display = ""
+        if config.kdp_reading_age_min is not None and config.kdp_reading_age_max is not None:
+            reading_age_display = f"{config.kdp_reading_age_min}-{config.kdp_reading_age_max} years"
+        elif config.kdp_reading_age_min is not None:
+            reading_age_display = f"{config.kdp_reading_age_min}+ years"
+
+        desc_char_count = len(config.kdp_description.strip()) if config.kdp_description else 0
+        description_html = getattr(self, '_kdp_description_html', '') or ''
+        if not description_html and config.kdp_description:
+            paragraphs = [p.strip() for p in config.kdp_description.strip().split('\n\n') if p.strip()]
+            description_html = '\n'.join(f'<p>{p}</p>' for p in paragraphs)
+
         lines = [
             f"# KDP Publishing Kit: {config.title}",
             "",
-            "## Ready-to-Copy KDP Fields",
+            "---",
             "",
+            "## Page 1: Book Details",
+            "*Copy these fields into the KDP \"Book Details\" page.*",
+            "",
+            f"**Language:** {config.kdp_language or 'English'}",
             f"**Book Title:** {config.title}",
         ]
         if config.kdp_subtitle:
-            lines.append(f"**Subtitle:** {config.kdp_subtitle}")
+            title_total = len(config.title or "") + len(config.kdp_subtitle or "")
+            lines.append(f"**Subtitle:** {config.kdp_subtitle}  *(title+subtitle: {title_total}/200 chars)*")
         if series_line:
             lines.append(f"**Series:** {series_line}")
         lines.append(f"**Author:** {config.author}")
@@ -1278,66 +1373,138 @@ class PublishingService:
             lines.append(f"**Contributors:** {config.kdp_contributors}")
         if config.kdp_edition:
             lines.append(f"**Edition:** {config.kdp_edition}")
-        lines.append(f"**Language:** {config.kdp_language}")
-        lines.append(f"**Primary Marketplace:** {config.kdp_primary_marketplace}")
-        if config.kdp_imprint or config.publisher:
-            lines.append(f"**Imprint:** {config.kdp_imprint or config.publisher}")
-        if config.isbn:
-            lines.append(f"**ISBN:** {config.isbn}")
-        if config.rights:
-            lines.append(f"**Publishing Rights:** {config.rights}")
 
         lines.extend([
             "",
             "### Book Description",
-            config.kdp_description.strip(),
+            f"*({desc_char_count}/4,000 characters)*",
             "",
-            "### Keywords",
+            config.kdp_description.strip() if config.kdp_description else "",
+            "",
         ])
-        for keyword in keywords:
-            lines.append(f"- {keyword}")
+
+        if description_html:
+            lines.extend([
+                "### Description — HTML Version (copy & paste into KDP)",
+                "```html",
+                description_html.strip(),
+                "```",
+                "",
+            ])
+
+        lines.extend([
+            f"**Publishing Rights:** {rights_display}",
+            f"**Sexually Explicit Content:** {adult_display}",
+        ])
+
+        if reading_age_display:
+            lines.append(f"**Reading Age:** {reading_age_display}")
+
+        lines.extend([
+            f"**Primary Marketplace:** {config.kdp_primary_marketplace or 'Amazon.com'}",
+            "",
+        ])
+
+        if config.kdp_imprint or config.publisher:
+            lines.append(f"**Imprint:** {config.kdp_imprint or config.publisher}")
+        if config.isbn:
+            lines.append(f"**ISBN:** {config.isbn}")
+
         lines.extend([
             "",
-            "### Categories (BISAC)",
+            "### Amazon Store Categories",
+            "*Select up to 3 categories in KDP that match your book.*",
+            "",
         ])
-        for category in categories:
-            lines.append(f"- {category}")
+        for i, category in enumerate(categories, 1):
+            lines.append(f"{i}. {category}")
+
+        lines.extend([
+            "",
+            "### Keywords",
+            "*Paste one keyword per field in KDP (up to 7, each under 50 characters).*",
+            "",
+        ])
+        for i, keyword in enumerate(keywords, 1):
+            lines.append(f'{i}. "{keyword}" ({len(keyword)}/50 chars)')
+
         if config.kdp_author_bio:
             lines.extend([
                 "",
                 "### Author Bio",
                 config.kdp_author_bio.strip()
             ])
-        if config.kdp_pricing:
-            lines.extend([
-                "",
-                "### Pricing Notes",
-                config.kdp_pricing.strip()
-            ])
 
         lines.extend([
             "",
-            "## File Package Checklist",
-            f"- EPUB file (for Kindle ebook): generated by the publishing system",
-            f"- Print-ready PDF (for paperback/hardcover): generated by the publishing system",
-            f"- Cover art: {cover_art_url or ''}",
+            "---",
             "",
-            "## KDP Publishing Steps (Quick Guide)",
-            "1. Sign in to KDP and choose **Create** → **Kindle eBook** or **Paperback**.",
-            "2. In **Book Details**, copy the fields from the **Ready-to-Copy KDP Fields** section above.",
-            "3. In **Keywords** and **Categories**, paste the lists exactly as provided.",
-            "4. In **Content**, upload the EPUB (ebook) or PDF (print) generated by this system.",
-            "5. Upload cover art if required for your chosen format.",
-            "6. Review the previewer to ensure formatting and navigation look correct.",
-            "7. Set pricing and territories, then publish.",
+            "## Page 2: Content Upload",
+            "*Upload your manuscript and cover in the KDP \"Content\" page.*",
             "",
-            "## Quick Book Stats",
-            f"- Total word count: {word_count}",
-            f"- Estimated pages: {page_estimate}",
+            f"- **DRM (Digital Rights Management):** {'Yes (recommended)' if config.kdp_drm else 'No'}",
+            f"- **Manuscript:** Upload `{self._get_book_slug(config.title)}.epub` (included in package)",
+            "- **Cover:** Upload `cover-art.jpg` (included in package, 1600×2560px, 300 DPI)",
+            "- Use the KDP previewer to verify formatting, TOC navigation, and page breaks.",
+            "",
+            "---",
+            "",
+            "## Page 3: Rights and Pricing",
+            "*Configure pricing on the KDP \"Rights and Pricing\" page.*",
+            "",
+        ])
+
+        kdp_select_display = "Not set — decide before publishing"
+        if config.kdp_select is True:
+            kdp_select_display = "Yes — enrolled in Kindle Unlimited (90-day exclusivity)"
+        elif config.kdp_select is False:
+            kdp_select_display = "No — sell on other platforms too"
+        lines.append(f"- **KDP Select (Kindle Unlimited):** {kdp_select_display}")
+
+        territories_display = "All territories (worldwide rights)" if config.kdp_territories == "worldwide" else "Individual territories — select in KDP"
+        lines.append(f"- **Territories:** {territories_display}")
+        lines.append("- **Royalty Plan:** 70% (recommended for books priced $2.99–$9.99)")
+
+        if config.kdp_pricing:
+            lines.append(f"- **Pricing Notes:** {config.kdp_pricing.strip()}")
+
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## Quick Stats",
+            f"- Word count: {word_count:,}",
+            f"- Estimated pages: {page_estimate:,}",
         ])
 
         return "\n".join(lines).strip() + "\n"
     
+    def _build_kdp_package_zip(
+        self,
+        temp_path: Path,
+        config: PublishConfig,
+        output_files: Dict[str, Path],
+        cover_file: Optional[Path] = None,
+        kdp_kit_file: Optional[Path] = None,
+    ) -> Optional[Path]:
+        """Bundle EPUB, PDF, cover art JPEG, and KDP kit PDF into a single ZIP."""
+        zip_path = temp_path / f"{self._get_book_slug(config.title)}-kdp-package.zip"
+        try:
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                if "epub" in output_files and output_files["epub"].exists():
+                    zf.write(output_files["epub"], f"{self._get_book_slug(config.title)}.epub")
+                if "pdf" in output_files and output_files["pdf"].exists():
+                    zf.write(output_files["pdf"], f"{self._get_book_slug(config.title)}-print.pdf")
+                if cover_file and cover_file.exists():
+                    zf.write(cover_file, "cover-art.jpg")
+                if kdp_kit_file and kdp_kit_file.exists():
+                    zf.write(kdp_kit_file, "kdp-publishing-kit.pdf")
+            self.logger.info(f"Built KDP package ZIP at {zip_path} ({zip_path.stat().st_size} bytes)")
+            return zip_path
+        except Exception as e:
+            self.logger.error(f"Failed to build KDP package ZIP: {e}")
+            return None
+
     async def _generate_html(
         self, 
         combined_file: Path, 
@@ -1408,13 +1575,13 @@ class PublishingService:
                 continue
                 
             try:
-                # Generate storage path
-                storage_path = f"projects/{project_id}/publishing/{job_id}/book.{fmt}"
-                
-                # Upload file
                 filename = f"book.{fmt}"
                 if fmt == "kdp_kit":
                     filename = "kdp-publishing-kit.pdf"
+                elif fmt == "kdp_package":
+                    filename = "kdp-publishing-package.zip"
+                elif fmt == "cover_art":
+                    filename = "cover-art.jpg"
                 download_url = await self.upload_file_to_storage(
                     file_path=file_path,
                     project_id=project_id,
@@ -1448,7 +1615,9 @@ class PublishingService:
             'epub': 'application/epub+zip',
             'pdf': 'application/pdf',
             'html': 'text/html',
-            'kdp_kit': 'application/pdf'
+            'kdp_kit': 'application/pdf',
+            'kdp_package': 'application/zip',
+            'cover_art': 'image/jpeg',
         }
         return content_types.get(fmt, 'application/octet-stream')
     

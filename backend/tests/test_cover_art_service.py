@@ -116,7 +116,7 @@ Third-person narrative with a focus on heroic themes.
         self.assertIn('medieval', details['visual_elements'])
     
     def test_generate_cover_prompt(self):
-        """Test cover prompt generation."""
+        """Test cover prompt generation with book_details fallback (no creative brief)."""
         book_details = {
             'title': "The Dragon's Quest",
             'genre': 'fantasy',
@@ -126,11 +126,9 @@ Third-person narrative with a focus on heroic themes.
             'themes': ['courage', 'love']
         }
         
-        prompt = self.service.generate_cover_prompt(book_details)
+        prompt = self.service.generate_cover_prompt(book_details=book_details)
         
-        # Check that prompt contains expected elements
-        self.assertIn('professional book cover', prompt.lower())
-        self.assertIn('fantasy', prompt.lower())
+        # Check that prompt contains expected elements from fallback path
         self.assertIn('castle', prompt.lower())
         self.assertIn('dramatic', prompt.lower())
         self.assertIn('sir gareth', prompt.lower())
@@ -138,7 +136,7 @@ Third-person narrative with a focus on heroic themes.
         self.assertIn('1.6:1', prompt)
         
         # Check prompt length is reasonable
-        self.assertLessEqual(len(prompt), 1000)
+        self.assertLessEqual(len(prompt), 4000)
     
     def test_generate_cover_prompt_with_feedback(self):
         """Test cover prompt generation with user feedback."""
@@ -148,7 +146,7 @@ Third-person narrative with a focus on heroic themes.
         }
         
         user_feedback = "Make it darker and more mysterious"
-        prompt = self.service.generate_cover_prompt(book_details, user_feedback)
+        prompt = self.service.generate_cover_prompt(book_details=book_details, user_feedback=user_feedback)
         
         # Check that feedback is included
         self.assertIn('darker and more mysterious', prompt.lower())

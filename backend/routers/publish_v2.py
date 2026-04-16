@@ -42,59 +42,85 @@ def get_job_processor() -> BackgroundJobProcessor:
     return job_processor
 
 
-def _persist_publish_result(project_id: str, result: PublishResult, user_id: Optional[str] = None):
-    """Persist publish result to Firestore on the user-scoped project document."""
+def _persist_publish_result(
+    project_id: str,
+    result: PublishResult,
+    user_id: Optional[str] = None,
+    project_data: Optional[Dict[str, Any]] = None,
+):
+    """Persist publish result to Firestore on BOTH user-scoped and root project docs."""
     try:
         db = get_firestore_client()
         from backend.models.firestore_models import PublishJobStatus
 
-        publishing_update = {
-            'latest': result.dict() if result.status == PublishJobStatus.COMPLETED else None
-        }
+        result_dict = result.dict()
+        latest = result_dict if result.status == PublishJobStatus.COMPLETED else None
+        now = datetime.now(timezone.utc)
 
-        # Write to user-scoped path (primary)
-        persisted = False
+        # 1) Write to user-scoped path (use update to avoid clobbering metadata)
         if user_id:
             try:
                 user_project_doc = db.collection('users').document(user_id)\
                     .collection('projects').document(project_id)
                 snapshot = user_project_doc.get()
-                if snapshot.exists:
-                    current_publishing = (snapshot.to_dict() or {}).get('publishing', {})
-                    history = current_publishing.get('history', [])
-                    history.append(result.dict())
-                    publishing_update['history'] = history
-                    if publishing_update['latest'] is None:
-                        publishing_update['latest'] = current_publishing.get('latest')
+                current_publishing = (snapshot.to_dict() or {}).get('publishing', {}) if snapshot.exists else {}
+                history = current_publishing.get('history', [])
+                history.append(result_dict)
+                publishing_update = {
+                    'latest': latest if latest else current_publishing.get('latest'),
+                    'history': history,
+                }
+                try:
+                    user_project_doc.update({
+                        'publishing': publishing_update,
+                        'metadata.updated_at': now,
+                    })
+                except Exception:
                     user_project_doc.set({
                         'publishing': publishing_update,
-                        'metadata': {'updated_at': datetime.now(timezone.utc)},
                     }, merge=True)
-                    persisted = True
-                    logger.info(f"Persisted publish result to users/{user_id}/projects/{project_id}")
+                logger.info(f"Persisted publish result to users/{user_id}/projects/{project_id}")
             except Exception as e:
                 logger.warning(f"User-scoped publish persist failed: {e}")
 
-        # Fallback: also write to root projects/ for legacy compatibility
-        if not persisted:
-            try:
-                project_doc = db.collection('projects').document(project_id)
-                snapshot = project_doc.get()
-                current_publishing = {}
-                if snapshot.exists:
-                    current_publishing = (snapshot.to_dict() or {}).get('publishing', {})
-                history = current_publishing.get('history', [])
-                history.append(result.dict())
-                publishing_update['history'] = history
-                if publishing_update['latest'] is None:
-                    publishing_update['latest'] = current_publishing.get('latest')
-                project_doc.set({
-                    'publishing': publishing_update,
-                    'updated_at': datetime.now(timezone.utc)
-                }, merge=True)
-                logger.info(f"Persisted publish result to projects/{project_id} (fallback)")
-            except Exception as e2:
-                logger.error(f"Failed to persist publish result for {project_id}: {e2}")
+        # 2) Write to root projects/ with complete metadata so library queries work
+        try:
+            project_doc = db.collection('projects').document(project_id)
+            snapshot = project_doc.get()
+            current_publishing = (snapshot.to_dict() or {}).get('publishing', {}) if snapshot.exists else {}
+            history = current_publishing.get('history', [])
+            history.append(result_dict)
+            publishing_update = {
+                'latest': latest if latest else current_publishing.get('latest'),
+                'history': history,
+            }
+
+            p_meta = (project_data or {}).get('metadata', {}) if project_data else {}
+            p_settings = (project_data or {}).get('settings', {}) if project_data else {}
+
+            root_update: Dict[str, Any] = {
+                'publishing': publishing_update,
+                'metadata': {
+                    'project_id': project_id,
+                    'title': p_meta.get('title'),
+                    'owner_id': user_id or p_meta.get('owner_id'),
+                    'owner_display_name': p_meta.get('owner_display_name'),
+                    'visibility': p_meta.get('visibility', 'private'),
+                    'collaborators': p_meta.get('collaborators', []),
+                    'updated_at': now,
+                },
+                'settings': {
+                    'genre': p_settings.get('genre'),
+                },
+            }
+
+            if project_data and project_data.get('cover_art'):
+                root_update['cover_art'] = project_data['cover_art']
+
+            project_doc.set(root_update, merge=True)
+            logger.info(f"Persisted publish result to projects/{project_id}")
+        except Exception as e2:
+            logger.warning(f"Root project publish persist failed for {project_id}: {e2}")
     except Exception as e:
         logger.error(f"Failed to persist publish result for {project_id}: {e}")
 
@@ -200,7 +226,7 @@ async def start_publish_job(
             result = await service.publish_book(project_id, config, progress_callback=_progress, job_id_override=publish_job_id)
             # Persist publish result for Library access
             try:
-                _persist_publish_result(project_id, result, user_id=user_id)
+                _persist_publish_result(project_id, result, user_id=user_id, project_data=project_data)
             except Exception as persist_err:
                 logger.error(f"Publish result persistence failed: {persist_err}")
             
@@ -217,6 +243,10 @@ async def start_publish_job(
                 download_urls["html"] = result.html_url
             if result.kdp_kit_url:
                 download_urls["kdp_kit"] = result.kdp_kit_url
+            if result.kdp_package_url:
+                download_urls["kdp_package"] = result.kdp_package_url
+            if result.cover_art_url:
+                download_urls["cover_art"] = result.cover_art_url
             
             # Persist final job status
             try:
@@ -225,7 +255,9 @@ async def start_publish_job(
                     'epub': download_urls.get('epub'),
                     'pdf': download_urls.get('pdf'),
                     'html': download_urls.get('html'),
-                    'kdp_kit': download_urls.get('kdp_kit')
+                    'kdp_kit': download_urls.get('kdp_kit'),
+                    'kdp_package': download_urls.get('kdp_package'),
+                    'cover_art': download_urls.get('cover_art'),
                 }
                 db.collection('publish_jobs').document(publish_job_id).set({
                     'status': result.status.value,
@@ -247,6 +279,8 @@ async def start_publish_job(
                         'pdf_url': download_urls_safe.get('pdf'),
                         'html_url': download_urls_safe.get('html'),
                         'kdp_kit_url': download_urls_safe.get('kdp_kit'),
+                        'kdp_package_url': download_urls_safe.get('kdp_package'),
+                        'cover_art_url': download_urls_safe.get('cover_art'),
                     }, merge=True)
             except Exception as _final_err:
                 logger.warning(f"Failed to persist final publish job result: {_final_err}")
@@ -307,13 +341,14 @@ async def get_publish_job_status(
                 try:
                     dl = result.get('download_urls') or {}
                     if isinstance(dl, dict):
-                        # Do not mutate original; build a merged copy
                         result = {
                             **result,
                             'epub_url': dl.get('epub'),
                             'pdf_url': dl.get('pdf'),
                             'html_url': dl.get('html'),
                             'kdp_kit_url': dl.get('kdp_kit'),
+                            'kdp_package_url': dl.get('kdp_package'),
+                            'cover_art_url': dl.get('cover_art'),
                         }
                 except Exception:
                     pass
@@ -358,6 +393,8 @@ async def get_publish_job_status(
                     response["result"]["pdf_url"] = job.result["download_urls"].get("pdf")
                     response["result"]["html_url"] = job.result["download_urls"].get("html")
                     response["result"]["kdp_kit_url"] = job.result["download_urls"].get("kdp_kit")
+                    response["result"]["kdp_package_url"] = job.result["download_urls"].get("kdp_package")
+                    response["result"]["cover_art_url"] = job.result["download_urls"].get("cover_art")
         if job.status == JobStatus.FAILED and job.error_message:
             response["error"] = job.error_message
         return response
@@ -403,15 +440,24 @@ async def get_project_publish_history(
                 detail="Access denied to this project"
             )
         
-        # Get publishing history from Firestore
+        # Get publishing history from Firestore (check user-scoped doc first, then root)
         db = get_firestore_client()
-        project_doc = db.collection('projects').document(project_id)
-        project_snapshot = project_doc.get()
-        
         publishing_data = {}
-        if project_snapshot.exists:
-            project_data = project_snapshot.to_dict()
-            publishing_data = project_data.get('publishing', {})
+
+        if user_id:
+            try:
+                user_doc = db.collection('users').document(user_id)\
+                    .collection('projects').document(project_id).get()
+                if user_doc.exists:
+                    publishing_data = (user_doc.to_dict() or {}).get('publishing', {})
+            except Exception as e:
+                logger.warning(f"User-scoped publish history read failed: {e}")
+
+        if not publishing_data:
+            project_doc = db.collection('projects').document(project_id)
+            project_snapshot = project_doc.get()
+            if project_snapshot.exists:
+                publishing_data = (project_snapshot.to_dict() or {}).get('publishing', {})
         
         return {
             "project_id": project_id,

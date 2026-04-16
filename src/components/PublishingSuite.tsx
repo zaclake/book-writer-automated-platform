@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CreativeLoader } from '@/components/ui/CreativeLoader'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
-import { Book, Download, FileText, Settings, Eye, CheckCircle } from 'lucide-react'
+import { Book, Download, FileText, Settings, Eye, CheckCircle, Package, Image } from 'lucide-react'
 import { usePublishJob } from '@/hooks/usePublishJob'
 import { Project } from '@/types/project'
 import { useAuthToken } from '@/lib/auth'
@@ -65,10 +65,15 @@ interface PublishFormData {
   kdp_author_bio?: string
   kdp_contributors?: string
   kdp_edition?: string
-  kdp_age_range?: string
-  kdp_grade_range?: string
+  kdp_reading_age_min?: string
+  kdp_reading_age_max?: string
   kdp_imprint?: string
   kdp_pricing?: string
+  kdp_adult_content: boolean
+  kdp_drm: boolean
+  kdp_select?: string
+  kdp_territories: string
+  kdp_publishing_rights: string
 }
 
 export default function PublishingSuite({ projectId, project }: PublishingSuiteProps) {
@@ -97,7 +102,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
       formats: ['epub', 'pdf'],
       use_existing_cover: !!project.cover_art?.image_url,
       include_toc: true,
-      include_kdp_kit: false,
+      include_kdp_kit: true,
       kdp_description: '',
       kdp_keywords: '',
       kdp_categories: '',
@@ -109,10 +114,15 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
       kdp_author_bio: '',
       kdp_contributors: '',
       kdp_edition: '',
-      kdp_age_range: '',
-      kdp_grade_range: '',
+      kdp_reading_age_min: '',
+      kdp_reading_age_max: '',
       kdp_imprint: '',
-      kdp_pricing: ''
+      kdp_pricing: '',
+      kdp_adult_content: false,
+      kdp_drm: true,
+      kdp_select: '',
+      kdp_territories: 'worldwide',
+      kdp_publishing_rights: 'own_copyright'
     }
   })
 
@@ -184,10 +194,15 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
         kdp_author_bio: data.kdp_author_bio?.trim() || undefined,
         kdp_contributors: data.kdp_contributors?.trim() || undefined,
         kdp_edition: data.kdp_edition?.trim() || undefined,
-        kdp_age_range: data.kdp_age_range?.trim() || undefined,
-        kdp_grade_range: data.kdp_grade_range?.trim() || undefined,
+        kdp_reading_age_min: data.kdp_reading_age_min ? parseInt(data.kdp_reading_age_min) : undefined,
+        kdp_reading_age_max: data.kdp_reading_age_max ? parseInt(data.kdp_reading_age_max) : undefined,
         kdp_imprint: data.kdp_imprint?.trim() || undefined,
-        kdp_pricing: data.kdp_pricing?.trim() || undefined
+        kdp_pricing: data.kdp_pricing?.trim() || undefined,
+        kdp_adult_content: data.kdp_adult_content,
+        kdp_drm: data.kdp_drm,
+        kdp_select: data.kdp_select === 'yes' ? true : data.kdp_select === 'no' ? false : undefined,
+        kdp_territories: data.kdp_territories,
+        kdp_publishing_rights: data.kdp_publishing_rights
       })
     } catch (err) {
       console.error('Failed to start publish job:', err)
@@ -284,7 +299,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
   }
 
   // Show results if completed
-  if (jobStatus?.status === 'completed' && downloadUrls && (downloadUrls.epub || downloadUrls.pdf || downloadUrls.html || downloadUrls.kdp_kit)) {
+  if (jobStatus?.status === 'completed' && downloadUrls && (downloadUrls.epub || downloadUrls.pdf || downloadUrls.html || downloadUrls.kdp_kit || downloadUrls.kdp_package)) {
     GlobalLoader.hide()
     return (
       <div className="space-y-6" data-cy="publish-success">
@@ -374,6 +389,24 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
               </div>
             )}
 
+            {downloadUrls.kdp_package && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border rounded-lg bg-amber-50/50">
+                <div className="flex items-center gap-3">
+                  <Package className="h-5 w-5" />
+                  <div>
+                    <p className="font-medium">KDP Publishing Package</p>
+                    <p className="text-sm text-muted-foreground">Complete ZIP with EPUB, PDF, cover art, and KDP metadata</p>
+                  </div>
+                </div>
+                <Button asChild variant="default">
+                  <a href={downloadUrls.kdp_package} download data-cy="download-kdp-package">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download Package
+                  </a>
+                </Button>
+              </div>
+            )}
+
             {downloadUrls.kdp_kit && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border rounded-lg">
                 <div className="flex items-center gap-3">
@@ -385,6 +418,24 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                 </div>
                 <Button asChild variant="outline">
                   <a href={downloadUrls.kdp_kit} download data-cy="download-kdp-kit">
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </a>
+                </Button>
+              </div>
+            )}
+
+            {downloadUrls.cover_art && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Image className="h-5 w-5" />
+                  <div>
+                    <p className="font-medium">Cover Art (KDP Specs)</p>
+                    <p className="text-sm text-muted-foreground">1600x2560 JPEG, 300 DPI, RGB</p>
+                  </div>
+                </div>
+                <Button asChild variant="outline">
+                  <a href={downloadUrls.cover_art} download data-cy="download-cover-art">
                     <Download className="h-4 w-4 mr-2" />
                     Download
                   </a>
@@ -803,7 +854,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                 <CardHeader>
                   <CardTitle>KDP Publishing Kit</CardTitle>
                   <CardDescription>
-                    Generate a copy-ready PDF with KDP fields and publishing steps. Leave fields blank to auto-generate from your book.
+                    Generate a ready-to-use publishing package for Amazon KDP. The kit PDF mirrors Amazon&apos;s 3-page submission flow so you can copy and paste directly.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -832,79 +883,132 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
 
                   {form.watch('include_kdp_kit') && (
                     <div className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="kdp_subtitle"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Subtitle (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="kdp_contributors"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Contributors (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      <Alert>
+                        <AlertDescription>
+                          Leave any field blank and we&apos;ll auto-generate it from your book content using AI. Fill in a field to override.
+                        </AlertDescription>
+                      </Alert>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="kdp_series_name"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Series Name (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="kdp_series_number"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Series Number (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      {/* --- Section: Book Details --- */}
+                      <div className="rounded-lg border p-5 space-y-4">
+                        <div>
+                          <h4 className="text-sm font-semibold">Book Details</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">Title, series, and edition info for the KDP &quot;Book Details&quot; page.</p>
+                        </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="kdp_language"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Language</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormDescription>Leave blank to auto-detect from book content.</FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="kdp_subtitle"
+                            render={({ field }) => {
+                              const titleLen = (form.watch('title') || '').length
+                              const subtitleLen = (field.value || '').length
+                              const totalLen = titleLen + subtitleLen
+                              return (
+                                <FormItem>
+                                  <FormLabel>Subtitle (Optional)</FormLabel>
+                                  <FormControl>
+                                    <Input {...field} />
+                                  </FormControl>
+                                  <div className="flex justify-between">
+                                    <FormDescription>Combined with title, must be under 200 characters.</FormDescription>
+                                    {subtitleLen > 0 && (
+                                      <span className={`text-xs ${totalLen > 200 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                                        {totalLen}/200
+                                      </span>
+                                    )}
+                                  </div>
+                                  <FormMessage />
+                                </FormItem>
+                              )
+                            }}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="kdp_contributors"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Contributors (Optional)</FormLabel>
+                                <FormControl>
+                                  <Input {...field} placeholder="e.g. Editor: Jane Smith" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="kdp_series_name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Series Name (Optional)</FormLabel>
+                                <FormControl>
+                                  <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="kdp_series_number"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Series Number (Optional)</FormLabel>
+                                <FormControl>
+                                  <Input {...field} placeholder="e.g. 1" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="kdp_language"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Language</FormLabel>
+                                <FormControl>
+                                  <Input {...field} placeholder="Auto-detect" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="kdp_edition"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Edition (Optional)</FormLabel>
+                                <FormControl>
+                                  <Input {...field} placeholder="1st" />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="kdp_imprint"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Imprint (Optional)</FormLabel>
+                                <FormControl>
+                                  <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
                         <FormField
                           control={form.control}
                           name="kdp_primary_marketplace"
@@ -912,102 +1016,7 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                             <FormItem>
                               <FormLabel>Primary Marketplace</FormLabel>
                               <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormDescription>Leave blank to auto-select based on language.</FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name="kdp_description"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>KDP Book Description</FormLabel>
-                            <FormControl>
-                              <Textarea {...field} rows={6} />
-                            </FormControl>
-                            <FormDescription>
-                              Leave blank to auto-generate from your book content.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="kdp_keywords"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>KDP Keywords</FormLabel>
-                            <FormControl>
-                              <Textarea {...field} rows={3} />
-                            </FormControl>
-                            <FormDescription>
-                              Leave blank to auto-generate (aim for 7). Separate with commas or new lines.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="kdp_categories"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>KDP Categories (BISAC)</FormLabel>
-                            <FormControl>
-                              <Textarea {...field} rows={3} />
-                            </FormControl>
-                            <FormDescription>
-                              Leave blank to auto-generate. Separate with commas or new lines.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="kdp_author_bio"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Author Bio (Optional)</FormLabel>
-                            <FormControl>
-                              <Textarea {...field} rows={4} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="kdp_edition"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Edition (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="kdp_imprint"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Imprint (Optional)</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
+                                <Input {...field} placeholder="Auto-select (e.g. Amazon.com)" />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -1015,28 +1024,77 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* --- Section: Description, Keywords & Categories --- */}
+                      <div className="rounded-lg border p-5 space-y-4">
+                        <div>
+                          <h4 className="text-sm font-semibold">Description, Keywords & Categories</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">Your Amazon product listing content. These are the most important fields for discoverability.</p>
+                        </div>
+
                         <FormField
                           control={form.control}
-                          name="kdp_age_range"
+                          name="kdp_description"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Age Range (Optional)</FormLabel>
+                              <FormLabel>Book Description</FormLabel>
                               <FormControl>
-                                <Input {...field} />
+                                <Textarea {...field} rows={8} />
                               </FormControl>
+                              <div className="flex justify-between">
+                                <FormDescription>
+                                  Leave blank to auto-generate a 300-500 word Amazon product description. HTML formatting is added automatically for KDP.
+                                </FormDescription>
+                                <span className={`text-xs whitespace-nowrap ml-4 ${(field.value?.length || 0) > 4000 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                                  {field.value?.length || 0} / 4,000
+                                </span>
+                              </div>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
+
                         <FormField
                           control={form.control}
-                          name="kdp_grade_range"
+                          name="kdp_keywords"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Grade Range (Optional)</FormLabel>
+                              <FormLabel>Keywords</FormLabel>
                               <FormControl>
-                                <Input {...field} />
+                                <Textarea {...field} rows={3} placeholder='e.g. "medieval fantasy books", "epic adventure series"' />
+                              </FormControl>
+                              <FormDescription>
+                                Up to 7 keyword phrases, each under 50 characters. Separate with commas or new lines.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_categories"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Amazon Store Categories</FormLabel>
+                              <FormControl>
+                                <Textarea {...field} rows={3} placeholder="e.g. Fiction > Thriller > Psychological" />
+                              </FormControl>
+                              <FormDescription>
+                                Up to 3 categories. Use Amazon&apos;s format: Category &gt; Subcategory &gt; Placement.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_author_bio"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Author Bio (Optional)</FormLabel>
+                              <FormControl>
+                                <Textarea {...field} rows={3} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -1044,19 +1102,204 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                         />
                       </div>
 
-                      <FormField
-                        control={form.control}
-                        name="kdp_pricing"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Pricing Notes (Optional)</FormLabel>
-                            <FormControl>
-                              <Textarea {...field} rows={3} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {/* --- Section: Content & Compliance --- */}
+                      <div className="rounded-lg border p-5 space-y-4">
+                        <div>
+                          <h4 className="text-sm font-semibold">Content & Compliance</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">Required KDP declarations. These rarely need changing for most books.</p>
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_publishing_rights"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Publishing Rights</FormLabel>
+                              <FormControl>
+                                <select
+                                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                >
+                                  <option value="own_copyright">I own the copyright and hold necessary publishing rights</option>
+                                  <option value="public_domain">This is a public domain work</option>
+                                </select>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_adult_content"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                              <div className="space-y-1 leading-none flex-1">
+                                <FormLabel>Contains Sexually Explicit Content</FormLabel>
+                                <FormDescription>
+                                  Most books answer No. Amazon requires this declaration for all submissions.
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="kdp_reading_age_min"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Reading Age — Min</FormLabel>
+                                <FormControl>
+                                  <select
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                  >
+                                    <option value="">Not specified</option>
+                                    <option value="0">0 years</option>
+                                    <option value="3">3 years</option>
+                                    <option value="6">6 years</option>
+                                    <option value="9">9 years</option>
+                                    <option value="13">13 years</option>
+                                    <option value="18">18 years</option>
+                                  </select>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="kdp_reading_age_max"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Reading Age — Max</FormLabel>
+                                <FormControl>
+                                  <select
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                  >
+                                    <option value="">Not specified</option>
+                                    <option value="2">2 years</option>
+                                    <option value="5">5 years</option>
+                                    <option value="8">8 years</option>
+                                    <option value="12">12 years</option>
+                                    <option value="17">17 years</option>
+                                    <option value="18">18+ years</option>
+                                  </select>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground -mt-2">Only needed for children&apos;s or young adult books. Leave as &quot;Not specified&quot; for adult fiction. Standard KDP bands: 0-2, 3-5, 6-8, 9-12, 13-17.</p>
+                      </div>
+
+                      {/* --- Section: Distribution & Pricing --- */}
+                      <div className="rounded-lg border p-5 space-y-4">
+                        <div>
+                          <h4 className="text-sm font-semibold">Distribution & Pricing</h4>
+                          <p className="text-xs text-muted-foreground mt-0.5">DRM, Kindle Unlimited enrollment, territories, and pricing for the KDP &quot;Rights and Pricing&quot; page.</p>
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_drm"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                              <div className="space-y-1 leading-none flex-1">
+                                <FormLabel>Digital Rights Management (DRM)</FormLabel>
+                                <FormDescription>
+                                  Helps protect against unauthorized copying. Recommended for most books.
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_select"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>KDP Select / Kindle Unlimited</FormLabel>
+                              <FormControl>
+                                <select
+                                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                >
+                                  <option value="">Decide later</option>
+                                  <option value="yes">Yes — enroll in Kindle Unlimited (90-day exclusivity)</option>
+                                  <option value="no">No — sell on other platforms too</option>
+                                </select>
+                              </FormControl>
+                              <FormDescription>
+                                KDP Select gives access to Kindle Unlimited readers but requires 90-day exclusivity.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_territories"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Territories</FormLabel>
+                              <FormControl>
+                                <select
+                                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                >
+                                  <option value="worldwide">All territories (worldwide rights)</option>
+                                  <option value="specific">Individual territories</option>
+                                </select>
+                              </FormControl>
+                              <FormDescription>
+                                Most authors choose worldwide. Select &quot;Individual territories&quot; only if you have restricted geographic rights.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="kdp_pricing"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Pricing Notes (Optional)</FormLabel>
+                              <FormControl>
+                                <Textarea {...field} rows={2} placeholder="e.g. $4.99 — 70% royalty tier ($2.99-$9.99 recommended)" />
+                              </FormControl>
+                              <FormDescription>
+                                70% royalty for $2.99–$9.99. 35% royalty outside that range.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
                     </div>
                   )}
                 </CardContent>

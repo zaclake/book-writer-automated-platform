@@ -213,47 +213,207 @@ class CoverArtService:
         """Check if the service is available."""
         return self.available
 
-    async def _generate_visual_spec(
+    @staticmethod
+    def _get_genre_art_direction(genre: str) -> str:
+        """Return marketing-informed cover design guidance for a given genre."""
+        genre_lower = (genre or '').lower().strip()
+
+        directions = {
+            'romance': (
+                "Romance covers that sell feature close-up figures (one or two people) with warm, "
+                "intimate lighting and soft-focus or lush painterly backgrounds. Palettes lean warm: "
+                "golds, deep reds, blush pinks, sunset tones. Photorealistic or oil-painting styles "
+                "dominate the market. Composition centers the figure(s) with a scenic or atmospheric "
+                "backdrop (beach, garden, city at dusk). Typography is elegant script or refined serif."
+            ),
+            'thriller': (
+                "Thriller/suspense covers use high contrast and a limited dark palette with one bold "
+                "accent color (red, electric blue, amber). Compositions favor a lone figure, an object "
+                "under dramatic directional lighting, or a striking urban/desolate landscape shot from "
+                "a cinematic angle. Photorealistic or gritty textured styles work best. Typography is "
+                "bold, oversized sans-serif or stencil. Atmosphere should feel tense and urgent."
+            ),
+            'suspense': (
+                "Thriller/suspense covers use high contrast and a limited dark palette with one bold "
+                "accent color (red, electric blue, amber). Compositions favor a lone figure, an object "
+                "under dramatic directional lighting, or a striking urban/desolate landscape shot from "
+                "a cinematic angle. Photorealistic or gritty textured styles work best. Typography is "
+                "bold, oversized sans-serif or stencil. Atmosphere should feel tense and urgent."
+            ),
+            'fantasy': (
+                "Fantasy covers feature sweeping, epic compositions: vast landscapes, dramatic skies, "
+                "towering architecture, or a central heroic figure. Rich saturated colors (deep blues, "
+                "purples, golds, emerald greens) dominate. Illustrated or digital-painting styles are "
+                "the standard. Magical elements (glowing runes, ethereal light, mythical creatures) add "
+                "genre signaling. Typography is ornate, bold serif or custom fantasy lettering."
+            ),
+            'science fiction': (
+                "Sci-fi covers lean cinematic: cool palettes (teals, steel blues, deep space blacks with "
+                "neon accents), sleek technological elements, vast space or futuristic cityscapes. "
+                "Photorealistic CGI or digital-art styles dominate. Composition often features a figure "
+                "dwarfed by scale, a ship, or an alien landscape. Typography is clean, modern sans-serif "
+                "or futuristic display type."
+            ),
+            'mystery': (
+                "Mystery covers use moody, atmospheric scenes: foggy streets, dimly lit interiors, "
+                "obscured or partially revealed objects. Palettes are muted and dark with one accent "
+                "color drawing the eye. Photorealistic or noir-tinged illustrative styles work well. "
+                "Composition suggests something hidden -- partial views, doorways, shadows. Typography "
+                "is clean serif or understated sans-serif."
+            ),
+            'horror': (
+                "Horror covers feature unsettling, atmospheric imagery: abandoned spaces, distorted "
+                "figures, eerie natural settings, or visceral close-ups. Palettes are heavily desaturated "
+                "with one shock color (blood red, sickly green). Gritty, textured, or photorealistic "
+                "styles create dread. Typography is distressed, cracked, or handwritten-style. Negative "
+                "space and darkness are used aggressively."
+            ),
+            'historical': (
+                "Historical fiction covers evoke the era through period-appropriate visual elements: "
+                "architecture, clothing, landscapes, artifacts. Painterly, oil-painting, or sepia-toned "
+                "photorealistic styles dominate. Warm earthy palettes (ochre, sienna, aged gold, deep "
+                "greens) suggest authenticity. A single figure in period dress or a sweeping landscape "
+                "establishes setting. Typography uses classic serif fonts."
+            ),
+            'literary fiction': (
+                "Literary fiction covers favor abstract, minimalist, or conceptual design. They may be "
+                "typography-forward with a single striking visual element, or use fine-art photography "
+                "or illustration. Muted, sophisticated palettes (dusty pastels, earth tones, monochrome "
+                "with one accent). The design signals intelligence and artistry over genre tropes. "
+                "Typography is refined -- elegant serif or modern minimalist."
+            ),
+            'young adult': (
+                "YA covers are vibrant, bold, and eye-catching. Dynamic compositions with strong central "
+                "imagery (a figure in action, a symbolic object, a dramatic landscape). Bright, saturated "
+                "color palettes or striking high-contrast designs. Stylized illustration, vector art, or "
+                "bold photographic treatments. Typography is large, impactful, and often integrated into "
+                "the artwork. Energy and emotion are paramount."
+            ),
+            'contemporary': (
+                "Contemporary fiction covers range from clean photographic designs to modern illustration. "
+                "They often use a single compelling image (an object, a scene, a candid figure) with "
+                "generous whitespace. Palettes are modern and fresh. Photography-based, collage, or "
+                "clean graphic design styles work well. Typography is clean and contemporary -- often "
+                "the dominant design element."
+            ),
+            'children': (
+                "Children's book covers are bright, colorful, and inviting with charming illustrated "
+                "characters and whimsical scenes. Bold, saturated primary and secondary colors. "
+                "Illustration styles range from watercolor to digital cartoon to hand-drawn. Characters "
+                "are expressive and engaging. Typography is playful, rounded, and highly readable."
+            ),
+        }
+
+        if genre_lower in directions:
+            return directions[genre_lower]
+
+        for key, direction in directions.items():
+            if key in genre_lower or genre_lower in key:
+                return direction
+
+        return (
+            "Design a distinctive, professional book cover. Choose an art style (photorealistic, "
+            "illustrated, painterly, minimalist, or graphic) that best matches the story's tone. "
+            "Use a strong focal point, a cohesive color palette, and a composition that reads well "
+            "at both full size and thumbnail. Make bold creative choices rather than defaulting to "
+            "generic imagery."
+        )
+
+    async def _generate_creative_brief(
         self,
         book_bible_content: str,
         reference_files: Dict[str, str],
+        genre: str = '',
         ui_options: Optional[Dict[str, Any]] = None,
-        vector_context: Optional[str] = None
+        vector_context: Optional[str] = None,
+        requirements: Optional[str] = None,
+        user_feedback: Optional[str] = None,
+        previous_prompt: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Use a text model to synthesize a concrete visual spec from the book bible and references.
-        Returns a dict with keys like: visual_elements (list), composition (str), palette (list), mood (str).
+        """Use an LLM to produce a rich, genre-aware creative brief for cover art.
+
+        Returns a dict with keys: art_style, composition, color_palette,
+        key_visual_elements, mood, typography_style, what_to_avoid, scene_description.
         """
         if not self.openai_client:
             return None
         try:
-            # Build short context
-            bible_excerpt = (book_bible_content or "")[:1200]
+            bible_excerpt = (book_bible_content or "")[:2500]
+
             ref_snippets: List[str] = []
             for name, content in (reference_files or {}).items():
                 if not content:
                     continue
-                ref_snippets.append(f"{name}: {content[:600]}")
-                if len(ref_snippets) >= 4:
+                ref_snippets.append(f"--- {name} ---\n{content[:400]}")
+                if len(ref_snippets) >= 6:
                     break
-            refs_joined = "\n".join(ref_snippets)
+            refs_joined = "\n\n".join(ref_snippets)
 
             title_txt = (ui_options or {}).get('title_text') or ''
             author_txt = (ui_options or {}).get('author_text') or ''
 
+            genre_direction = self._get_genre_art_direction(genre)
+
             system_msg = (
-                "You are a senior book cover art director. From the given context, produce a concise, concrete visual brief strictly grounded in the material. "
-                "Do not invent settings or motifs that are not present. Output valid JSON only with keys: visual_elements (list of 3-6 concise nouns), composition (one sentence), palette (list of 2-4 colors by common names), mood (one word)."
+                "You are an award-winning book cover designer and art director with deep knowledge "
+                "of what sells across every genre. Your job is to produce a vivid, specific creative "
+                "brief for a book cover image.\n\n"
+                "You must make bold, distinctive creative choices. Every book deserves a unique cover "
+                "that could not be confused with any other. Avoid generic or safe defaults.\n\n"
+                "Output valid JSON only with these keys:\n"
+                "- art_style: The rendering style (e.g. 'cinematic photorealistic', 'lush oil painting', "
+                "'stylized digital illustration', 'moody noir photography', 'watercolor wash', "
+                "'minimalist graphic design', 'detailed fantasy illustration'). Be specific.\n"
+                "- composition: A detailed 2-3 sentence description of the layout, focal point, "
+                "perspective, and spatial arrangement.\n"
+                "- color_palette: List of 3-5 specific colors (e.g. 'deep crimson', 'weathered gold', "
+                "'midnight navy' -- not just 'red', 'blue').\n"
+                "- key_visual_elements: List of 4-8 concrete visual elements to include, described "
+                "vividly (e.g. 'a crumbling stone archway overgrown with ivy' not just 'archway').\n"
+                "- mood: A 2-4 word evocative mood phrase (e.g. 'haunting intimacy', 'electric tension').\n"
+                "- typography_style: Suggested type treatment if text is included (e.g. 'bold distressed "
+                "sans-serif', 'elegant gold foil script').\n"
+                "- what_to_avoid: List of 2-4 things to explicitly avoid for this particular book.\n"
+                "- scene_description: A single vivid paragraph (3-5 sentences) describing exactly what "
+                "the cover image should depict, as if briefing a painter. This is the most important field."
             )
+
+            requirements_block = ""
+            if requirements:
+                requirements_block = (
+                    f"\n\nUSER REQUIREMENTS (HIGHEST PRIORITY -- these override genre conventions "
+                    f"and all other considerations):\n{requirements}\n"
+                )
+
+            feedback_block = ""
+            if user_feedback and previous_prompt:
+                feedback_block = (
+                    f"\n\nPREVIOUS ATTEMPT:\nThe previous cover used this prompt: {previous_prompt[:500]}\n"
+                    f"User feedback on that attempt: {user_feedback}\n"
+                    f"Adjust the brief to address this feedback while keeping what worked.\n"
+                )
+            elif user_feedback:
+                feedback_block = (
+                    f"\n\nUSER FEEDBACK on previous cover: {user_feedback}\n"
+                    f"Adjust the brief to address this feedback.\n"
+                )
+
             vector_block = ""
             if vector_context:
-                vector_block = f"\n\nVECTOR MEMORY (authoritative cues):\n{vector_context}\n"
+                vector_block = f"\n\nAdditional context from project memory:\n{vector_context}\n"
 
             user_msg = (
-                f"Title: {title_txt}\nAuthor: {author_txt}\n\n"
-                f"Book Bible (excerpt):\n{bible_excerpt}\n\n"
-                f"References (snippets):\n{refs_joined}\n\n"
+                f"Title: {title_txt}\nAuthor: {author_txt}\n"
+                f"Genre: {genre or 'Not specified'}\n\n"
+                f"GENRE MARKETING GUIDANCE:\n{genre_direction}\n\n"
+                f"BOOK BIBLE:\n{bible_excerpt}\n\n"
+                f"REFERENCE FILES:\n{refs_joined}\n"
                 f"{vector_block}"
-                "Constraints: No text rendering; we will add typography later. Choose only elements clearly supported by the context."
+                f"{requirements_block}"
+                f"{feedback_block}"
+                "\nProduce a creative brief that would result in a cover that stands out on a "
+                "bookstore shelf and clearly signals the genre to the target reader. Make specific, "
+                "bold choices -- never generic."
             )
 
             if self.billable_client:
@@ -264,8 +424,8 @@ class CoverArtService:
                             {"role": "system", "content": system_msg},
                             {"role": "user", "content": user_msg},
                         ],
-                        temperature=0.2,
-                        max_tokens=400,
+                        temperature=0.7,
+                        max_tokens=800,
                         timeout=90
                     )
                 response = billable_response.response
@@ -280,20 +440,25 @@ class CoverArtService:
                                 {"role": "system", "content": system_msg},
                                 {"role": "user", "content": user_msg},
                             ],
-                            temperature=0.2,
-                            max_tokens=400,
+                            temperature=0.7,
+                            max_tokens=800,
                             timeout=90
                         )
                     )
-            # OpenAI SDK returns ChatCompletion with message.content
+
             content = response.choices[0].message.content
+            raw = content.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                raw = re.sub(r'\s*```$', '', raw)
             import json as _json
-            spec = _json.loads(content)
-            if not isinstance(spec, dict) or "visual_elements" not in spec:
+            brief = _json.loads(raw)
+            if not isinstance(brief, dict):
                 return None
-            return spec
+            logger.info(f"Creative brief generated: {list(brief.keys())}")
+            return brief
         except Exception as e:
-            logger.error(f"Failed to generate visual spec: {e}")
+            logger.error(f"Failed to generate creative brief: {e}")
             return None
     
     def extract_book_details(self, book_bible_content: str, reference_files: Dict[str, str], ui_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -631,155 +796,132 @@ class CoverArtService:
     
     def generate_cover_prompt(
         self,
-        book_details: Dict[str, Any],
+        creative_brief: Optional[Dict[str, Any]] = None,
+        book_details: Optional[Dict[str, Any]] = None,
         user_feedback: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
         requirements: Optional[str] = None,
-        raw_bible_excerpt: Optional[str] = None,
-        references_digest: Optional[str] = None,
-        vector_context: Optional[str] = None
     ) -> str:
-        """
-        Generate a DALL-E 3 prompt for cover art based on book details.
-        
-        Args:
-            book_details: Extracted book details
-            user_feedback: Optional user feedback for regeneration
-            
-        Returns:
-            Generated prompt string
-        """
-        prompt_parts = []
-        
-        # Start with base cover art instruction - be very explicit about 2D only
-        prompt_parts.append("Create a professional 2D book cover design viewed straight-on from the front, completely flat with no 3D elements or perspective")
-        # Strict grounding policy: derive everything from references; avoid assumptions
-        prompt_parts.append("Ground every visual decision strictly in the provided book bible and reference files; do not invent details, settings, characters, symbols, or moods that are not supported by those materials")
+        """Build the image-generation prompt from the LLM creative brief.
 
-        # Enforce exact title/author rendering policy at the top to avoid truncation
+        Falls back to ``book_details`` (regex-extracted) when the creative brief
+        is unavailable.
+        """
+        prompt_parts: List[str] = []
+
+        # --- User requirements always come first when provided ---
+        if requirements:
+            prompt_parts.append(
+                f"PRIMARY DIRECTIVE -- the following user requirements take absolute precedence "
+                f"over every other instruction: {requirements}"
+            )
+
+        # --- Scene description (the creative core) ---
+        if creative_brief and creative_brief.get('scene_description'):
+            prompt_parts.append(creative_brief['scene_description'])
+
+        # --- Art style ---
+        if creative_brief and creative_brief.get('art_style'):
+            prompt_parts.append(f"Render in this style: {creative_brief['art_style']}")
+        elif not creative_brief:
+            prompt_parts.append("Create a striking, professional book cover")
+
+        # --- Composition ---
+        if creative_brief and creative_brief.get('composition'):
+            prompt_parts.append(f"Composition: {creative_brief['composition']}")
+        elif book_details and book_details.get('composition'):
+            prompt_parts.append(f"Composition: {book_details['composition']}")
+
+        # --- Key visual elements ---
+        if creative_brief and creative_brief.get('key_visual_elements'):
+            elements = creative_brief['key_visual_elements']
+            if isinstance(elements, list):
+                prompt_parts.append("Key visual elements: " + '; '.join(str(e) for e in elements[:8]))
+        elif book_details:
+            visual_elements = book_details.get('visual_elements', [])
+            if visual_elements:
+                prompt_parts.append("featuring " + ', '.join(visual_elements[:4]))
+
+        # --- Color palette ---
+        if creative_brief and creative_brief.get('color_palette'):
+            palette = creative_brief['color_palette']
+            if isinstance(palette, list):
+                prompt_parts.append("Color palette: " + ', '.join(str(c) for c in palette[:5]))
+        elif book_details and book_details.get('color_palette'):
+            prompt_parts.append("Color palette: " + ', '.join(book_details['color_palette']))
+
+        # --- Mood ---
+        if creative_brief and creative_brief.get('mood'):
+            prompt_parts.append(f"The overall mood is {creative_brief['mood']}")
+        elif book_details and book_details.get('mood_tone'):
+            prompt_parts.append(f"The overall mood is {book_details['mood_tone']}")
+
+        # --- What to avoid ---
+        if creative_brief and creative_brief.get('what_to_avoid'):
+            avoids = creative_brief['what_to_avoid']
+            if isinstance(avoids, list):
+                prompt_parts.append("Avoid: " + '; '.join(str(a) for a in avoids[:4]))
+
+        # --- Fallback character / theme injection when no creative brief ---
+        if not creative_brief and book_details:
+            characters = book_details.get('main_characters', [])
+            if characters:
+                prompt_parts.append(f"featuring {characters[0]}")
+            themes = book_details.get('themes', [])
+            if themes:
+                prompt_parts.append(f"conveying themes of {', '.join(themes[:2])}")
+
+        # --- User feedback (regeneration) ---
+        if user_feedback:
+            prompt_parts.append(f"Incorporating this feedback from the user: {user_feedback}")
+
+        # --- Typography ---
         include_title_opt = bool((options or {}).get('include_title'))
         include_author_opt = bool((options or {}).get('include_author'))
         title_text_opt = ((options or {}).get('title_text') or '').strip()
         author_text_opt = ((options or {}).get('author_text') or '').strip()
 
         if include_title_opt or include_author_opt:
-            # Hard constraints for on-image text fidelity
             prompt_parts.append(
-                "Render ONLY the exact text strings provided below on the cover. Do not invent, paraphrase, translate, or replace with placeholders. Do not add ANY other text (no subtitles, taglines, logos, publisher marks, numbers, or series names). Do not include quotation marks around the text. Use standard Latin letters only."
+                "Render ONLY the exact text strings provided below on the cover. "
+                "Do not invent, paraphrase, or add ANY other text (no subtitles, taglines, "
+                "logos, publisher marks, or series names). No quotation marks around the text. "
+                "Use standard Latin letters only."
             )
             if include_title_opt and title_text_opt:
-                prompt_parts.append(
-                    f'Title (render exactly as given, without quotes): {title_text_opt}'
-                )
+                prompt_parts.append(f'Title (render exactly): {title_text_opt}')
             if include_author_opt and author_text_opt:
-                prompt_parts.append(
-                    f'Author (render exactly as given, without quotes): {author_text_opt}'
-                )
+                prompt_parts.append(f'Author (render exactly): {author_text_opt}')
+
+            typography_style = ''
+            if creative_brief and creative_brief.get('typography_style'):
+                typography_style = creative_brief['typography_style']
+            prompt_parts.append(
+                f"Typography: high-contrast, clean, legible. "
+                f"{typography_style + '. ' if typography_style else ''}"
+                f"No other text anywhere on the cover."
+            )
         else:
-            # When no typography is requested, strictly forbid any text
             prompt_parts.append("Do NOT render any text anywhere on the image.")
 
-        # Add optional user requirements early and give them precedence
-        if requirements:
-            prompt_parts.append(
-                "User requirements (override genre and mood cues from references when conflicting): "
-                + requirements
-            )
-
-        # Operating instructions: prioritization and how to use references
+        # --- Technical: flat front cover, portrait orientation ---
         prompt_parts.append(
-            "Follow this priority of guidance: (1) user requirements (if provided), (2) book bible main content, (3) reference files. "
-            "When using reference files: derive concrete visual elements only from (a) setting/world-building (environments, landscapes, architecture), (b) characters (include named characters but do not fabricate appearance details that are not specified; use non-specific silhouettes if needed), (c) themes (only symbolic elements explicitly mentioned), and (d) color palette if specified. "
-            "If information is missing or ambiguous, keep the composition simple and neutral rather than assuming details. No logos or series marks. No other text besides the exact title and/or author when provided."
+            "Portrait orientation book cover (aspect ratio ~1.6:1). "
+            "Must read clearly at both full size and thumbnail."
+        )
+        prompt_parts.append(
+            "IMPORTANT: Create ONLY the flat front cover design viewed straight-on. "
+            "NO 3D perspective, NO physical book object, NO spine, NO back cover, "
+            "NO thickness, NO depth, NO mockup. Completely flat 2D design filling "
+            "the entire frame edge-to-edge."
         )
 
-        # Add explicit grounding context (not to be rendered on image)
-        if raw_bible_excerpt or references_digest or vector_context:
-            prompt_parts.append(
-                "Grounding context (for guidance only; do NOT render any of this text on the image):"
-            )
-            if raw_bible_excerpt:
-                prompt_parts.append(f"Book bible core excerpt: {raw_bible_excerpt}")
-            if references_digest:
-                prompt_parts.append(f"Reference highlights: {references_digest}")
-            if vector_context:
-                prompt_parts.append(f"Vector memory cues: {vector_context}")
-        
-        # Optionally acknowledge genre without prescribing a style
-        genre = book_details.get('genre', '').lower()
-        if genre:
-            if requirements:
-                prompt_parts.append(
-                    f"Align with the story's genre: {genre}, only where it does not conflict with the user requirements"
-                )
-            else:
-                prompt_parts.append(
-                    f"The visual language should align with the story's genre: {genre}, without relying on generic tropes or preconceived aesthetics"
-                )
-        
-        # Prefer explicit composition from spec if provided
-        composition = book_details.get('composition', '')
-        if composition:
-            prompt_parts.append(f"Composition: {composition}")
-
-        # Add visual elements from setting/world-building
-        visual_elements = book_details.get('visual_elements', [])
-        if visual_elements:
-            elements_str = ', '.join(visual_elements[:3])  # Top 3 elements
-            prompt_parts.append(f"featuring {elements_str}")
-        else:
-            # Explicitly instruct neutrality when we found no credible environment evidence
-            prompt_parts.append("Use a simple, neutral background and a minimal symbolic element derived only from explicit references, if any")
-        
-        # Add mood/tone (neutral phrasing, no hardcoded adjectives beyond extracted label)
-        # Do not inject tone descriptors automatically; tone should emerge from user requirements and reference content
-        
-        # Add character elements if available
-        characters = book_details.get('main_characters', [])
-        if characters and len(characters) > 0:
-            if len(characters) == 1:
-                prompt_parts.append(f"featuring {characters[0]} as the protagonist")
-            else:
-                prompt_parts.append(f"with characters including {characters[0]}")
-        
-        # Add themes if available
-        themes = book_details.get('themes', [])
-        if themes:
-            theme_str = ', '.join(themes[:2])  # Top 2 themes
-            prompt_parts.append(f"conveying themes of {theme_str}")
-        
-        # Technical specifications for KDP compliance
-        prompt_parts.append(f"Designed as a book cover with portrait orientation (aspect ratio 1.6:1)")
-        prompt_parts.append("with clean, readable composition suitable for both large and thumbnail sizes")
-        prompt_parts.append("Professional quality, high contrast, commercially viable design")
-        prompt_parts.append("Adhere strictly to the cultural, historical, and stylistic context present in the references; avoid adding symbols, attire, or architecture that are not supported by the provided materials")
-        
-        # Add user feedback if provided
-        if user_feedback:
-            prompt_parts.append(f"Incorporating this feedback: {user_feedback}")
-
-        # When requirements present, they already appeared earlier with precedence
-        # Typography guidance was already added at the top to avoid truncation. Reinforce minimalism only.
-        if include_title_opt or include_author_opt:
-            prompt_parts.append("Ensure high-contrast, clean, legible typography for the provided strings; no other text anywhere on the cover.")
-
-        # Critical: ONLY the front cover, no 3D book mockup
-        prompt_parts.append("IMPORTANT: Create ONLY the flat front cover design as if looking straight at it from the front. NO 3D perspective, NO physical book object, NO spine visible, NO back cover, NO thickness, NO depth, NO mockup presentation. This should be a completely flat 2D cover design that fills the entire frame edge-to-edge, as if it were printed on paper and photographed straight-on.")
-
-        # Color palette guidance (only if palette was explicitly derived from style/voice files)
-        if book_details.get('color_palette'):
-            palette_str = ', '.join(book_details['color_palette'])
-            prompt_parts.append(f"Primary color palette (only if explicitly specified in style/voice references): {palette_str}")
-        
-        # Join all parts
         full_prompt = '. '.join(prompt_parts) + '.'
-        
-        # Ensure prompt isn't too long
-        if len(full_prompt) > 1800:
-            # Prefer trimming the end (palette and context) while keeping typographic constraints at the start
-            full_prompt = full_prompt[:1800] + '...'
-        
-        logger.info(f"Generated cover art prompt: {full_prompt[:200]}...")
+
+        if len(full_prompt) > 4000:
+            full_prompt = full_prompt[:3997] + '...'
+
+        logger.info(f"Generated cover art prompt ({len(full_prompt)} chars): {full_prompt[:200]}...")
         return full_prompt
     
     async def generate_cover_image(self, prompt: str) -> Tuple[str, bytes]:
@@ -1292,80 +1434,55 @@ class CoverArtService:
         )
         
         try:
-            # Step 1: Extract book details
+            # Step 1: Detect genre via lightweight extraction (needed for creative brief)
             logger.info(f"Extracting book details for project {project_id}")
             book_details = self.extract_book_details(book_bible_content, reference_files, ui_options=options or {})
-            # Step 1b: Generate explicit visual spec and merge conservatively
-            spec = await self._generate_visual_spec(
+            detected_genre = book_details.get('genre', '')
+
+            # Step 2: Generate LLM creative brief (primary path)
+            logger.info(f"Generating creative brief for project {project_id}")
+            creative_brief = await self._generate_creative_brief(
                 book_bible_content,
                 reference_files,
-                options or {},
-                vector_context=vector_context
+                genre=detected_genre,
+                ui_options=options or {},
+                vector_context=vector_context,
+                requirements=requirements,
+                user_feedback=user_feedback,
+                previous_prompt=job.prompt if user_feedback else None
             )
-            if spec:
-                try:
-                    ve = spec.get('visual_elements') or []
-                    if isinstance(ve, list) and ve:
-                        book_details['visual_elements'] = [str(x)[:24] for x in ve][:6]
-                    palette = spec.get('palette') or []
-                    if isinstance(palette, list) and palette:
-                        book_details['color_palette'] = [str(x)[:16] for x in palette][:4]
-                    mood = spec.get('mood')
-                    if isinstance(mood, str) and mood:
-                        book_details['mood_tone'] = mood[:16]
-                    comp = spec.get('composition')
-                    if isinstance(comp, str) and comp:
-                        book_details['composition'] = comp[:200]
-                    logger.info(f"Visual spec merged: {spec}")
-                except Exception:
-                    pass
-            
-            # Step 2: Generate prompt, with explicit grounding excerpts to discourage model hallucinations
+            if creative_brief:
+                logger.info(f"Creative brief generated successfully for project {project_id}")
+            else:
+                logger.warning(f"Creative brief failed for project {project_id}, falling back to regex extraction")
+
+            # Step 3: Build the image prompt
             logger.info(f"Generating cover art prompt for project {project_id}")
-            bible_excerpt = (book_bible_content or "")[:400]
-            try:
-                ref_parts = []
-                for name, content in (reference_files or {}).items():
-                    if not content:
-                        continue
-                    ref_parts.append(f"{name}: {content[:120]}")
-                references_digest = "; ".join(ref_parts)[:400]
-            except Exception:
-                references_digest = None
+
+            resolved_options = {}
+            include_title = bool((options or {}).get('include_title'))
+            include_author = bool((options or {}).get('include_author'))
+            title_text = ((options or {}).get('title_text') or book_details.get('title') or '').strip()
+            author_text = ((options or {}).get('author_text') or '').strip()
+            resolved_options['include_title'] = include_title and bool(title_text)
+            resolved_options['include_author'] = include_author and bool(author_text)
+            resolved_options['title_text'] = title_text if resolved_options['include_title'] else ''
+            resolved_options['author_text'] = author_text if resolved_options['include_author'] else ''
 
             prompt = self.generate_cover_prompt(
-                book_details,
-                user_feedback,
-                # Resolve typography options to avoid placeholders
-                (lambda opts, details: (
-                    (lambda include_title, include_author, title_text, author_text: {
-                        'include_title': include_title and bool(title_text),
-                        'include_author': include_author and bool(author_text),
-                        'title_text': title_text if (include_title and bool(title_text)) else '',
-                        'author_text': author_text if (include_author and bool(author_text)) else ''
-                    })(
-                        bool((opts or {}).get('include_title')),
-                        bool((opts or {}).get('include_author')),
-                        ((opts or {}).get('title_text') or details.get('title') or '').strip(),
-                        ((opts or {}).get('author_text') or '').strip()
-                    )
-                ))(options, book_details),
-                requirements,
-                raw_bible_excerpt=bible_excerpt,
-                references_digest=references_digest,
-                vector_context=vector_context
+                creative_brief=creative_brief,
+                book_details=book_details if not creative_brief else None,
+                user_feedback=user_feedback,
+                options=resolved_options,
+                requirements=requirements,
             )
             job.prompt = prompt
             
-            # Step 3: Generate image (GPT-image-1 only; no fallback)
+            # Step 4: Generate image (GPT-image-1 only; no fallback)
             logger.info(f"Generating cover image for project {project_id}")
             original_url, image_bytes = await self.generate_cover_image(prompt)
-
-            # NOTE: We intentionally do NOT overlay text programmatically anymore. The GPT-image-1 model now renders
-            # the exact title and author typography directly on the cover. This preserves artistic integrity and avoids
-            # double-rendering issues that were causing random title/author substitutions.
             
-            # Step 4: Upload to Firebase
+            # Step 5: Upload to Firebase
             logger.info(f"Uploading cover art for project {project_id}")
             public_url = await self.upload_to_firebase(image_bytes, project_id, job_id)
             

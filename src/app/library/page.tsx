@@ -14,9 +14,38 @@ interface BookCard {
   cover_url?: string
   epub_url?: string
   pdf_url?: string
+  kdp_kit_url?: string
+  kdp_package_url?: string
+  cover_art_download_url?: string
 }
 
 type SortKey = 'title' | 'genre' | 'recent'
+
+const DownloadIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+)
+
+function DownloadChip({
+  href,
+  label,
+  colorClass,
+}: {
+  href: string
+  label: string
+  colorClass: string
+}) {
+  return (
+    <a
+      className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition ${colorClass}`}
+      href={href}
+      download
+      onClick={(e) => e.stopPropagation()}
+    >
+      <DownloadIcon />
+      {label}
+    </a>
+  )
+}
 
 function SkeletonTile() {
   return (
@@ -50,12 +79,17 @@ const BookTile = React.memo(function BookTile({
   cacheBuster: string
   onReload: () => void
 }) {
+  const [showMore, setShowMore] = useState(false)
+
+  const pid = encodeURIComponent(book.project_id)
+  const hasSecondary = !!(book.kdp_package_url || book.kdp_kit_url || book.cover_art_download_url)
+
   return (
     <div
       role="link"
       tabIndex={0}
-      onClick={() => { window.location.href = `/reader/${encodeURIComponent(book.project_id)}` }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.location.href = `/reader/${encodeURIComponent(book.project_id)}` } }}
+      onClick={() => { window.location.href = `/reader/${pid}` }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.location.href = `/reader/${pid}` } }}
       className="group relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-all duration-300 border border-gray-100 hover:border-gray-200 hover:-translate-y-1 cursor-pointer"
       aria-label={`Read ${book.title}`}
     >
@@ -101,30 +135,72 @@ const BookTile = React.memo(function BookTile({
 
         {mine && (
           <div className="pt-1.5 space-y-2">
-            <LibraryVisibilityToggle projectId={book.project_id} current={book.visibility} onUpdated={onReload} />
+            <div className="flex items-center gap-2">
+              <LibraryVisibilityToggle projectId={book.project_id} current={book.visibility} onUpdated={onReload} />
+              <a
+                href={`/project/${pid}/publish`}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-600 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-md transition"
+                title="Edit project"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Edit
+              </a>
+            </div>
+
             {(book.epub_url || book.pdf_url) && (
               <div className="flex gap-2 flex-wrap">
                 {book.epub_url && (
-                  <a
-                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-indigo-700 bg-indigo-50 rounded-md hover:bg-indigo-100 transition"
-                    href={`/api/v2/library/book/${encodeURIComponent(book.project_id)}/epub`}
-                    download
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    EPUB
-                  </a>
+                  <DownloadChip
+                    href={`/api/v2/library/book/${pid}/epub`}
+                    label="EPUB"
+                    colorClass="text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                  />
                 )}
                 {book.pdf_url && (
-                  <a
-                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-orange-700 bg-orange-50 rounded-md hover:bg-orange-100 transition"
-                    href={`/api/v2/library/book/${encodeURIComponent(book.project_id)}/pdf`}
-                    download
-                    onClick={(e) => e.stopPropagation()}
+                  <DownloadChip
+                    href={`/api/v2/library/book/${pid}/pdf`}
+                    label="PDF"
+                    colorClass="text-orange-700 bg-orange-50 hover:bg-orange-100"
+                  />
+                )}
+
+                {hasSecondary && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowMore(v => !v) }}
+                    className="inline-flex items-center gap-0.5 px-2 py-1 text-[11px] font-medium text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-md transition"
+                    aria-label={showMore ? 'Hide additional downloads' : 'Show additional downloads'}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    PDF
-                  </a>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={`transition-transform ${showMore ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
+                    More
+                  </button>
+                )}
+              </div>
+            )}
+
+            {showMore && hasSecondary && (
+              <div className="flex gap-2 flex-wrap">
+                {book.kdp_package_url && (
+                  <DownloadChip
+                    href={`/api/v2/library/book/${pid}/kdp-package`}
+                    label="KDP Package"
+                    colorClass="text-amber-700 bg-amber-50 hover:bg-amber-100"
+                  />
+                )}
+                {book.kdp_kit_url && (
+                  <DownloadChip
+                    href={`/api/v2/library/book/${pid}/kdp-kit`}
+                    label="KDP Kit"
+                    colorClass="text-violet-700 bg-violet-50 hover:bg-violet-100"
+                  />
+                )}
+                {book.cover_art_download_url && (
+                  <DownloadChip
+                    href={`/api/v2/library/book/${pid}/cover`}
+                    label="Cover"
+                    colorClass="text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                  />
                 )}
               </div>
             )}

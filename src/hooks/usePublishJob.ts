@@ -36,10 +36,15 @@ interface PublishConfig {
   kdp_author_bio?: string
   kdp_contributors?: string
   kdp_edition?: string
-  kdp_age_range?: string
-  kdp_grade_range?: string
+  kdp_reading_age_min?: number
+  kdp_reading_age_max?: number
   kdp_imprint?: string
   kdp_pricing?: string
+  kdp_adult_content?: boolean
+  kdp_drm?: boolean
+  kdp_select?: boolean
+  kdp_territories?: string
+  kdp_publishing_rights?: string
 }
 
 interface JobProgress {
@@ -57,6 +62,8 @@ interface JobStatus {
     pdf_url?: string
     html_url?: string
     kdp_kit_url?: string
+    kdp_package_url?: string
+    cover_art_url?: string
     file_sizes?: Record<string, number>
     word_count?: number
     page_count?: number
@@ -77,6 +84,8 @@ interface PublishJobHook {
     pdf?: string
     html?: string
     kdp_kit?: string
+    kdp_package?: string
+    cover_art?: string
   } | null
 }
 
@@ -207,6 +216,8 @@ export function usePublishJob(): PublishJobHook {
     pdf: jobStatus.result?.pdf_url || (jobStatus as any)?.download_urls?.pdf,
     html: jobStatus.result?.html_url || (jobStatus as any)?.download_urls?.html,
     kdp_kit: jobStatus.result?.kdp_kit_url || (jobStatus as any)?.download_urls?.kdp_kit,
+    kdp_package: (jobStatus.result as any)?.kdp_package_url || (jobStatus as any)?.download_urls?.kdp_package,
+    cover_art: (jobStatus.result as any)?.cover_art_url || (jobStatus as any)?.download_urls?.cover_art,
   } : null
 
   return {

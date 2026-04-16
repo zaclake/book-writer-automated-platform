@@ -442,12 +442,12 @@ class PublishConfig(BaseModel):
     formats: List[PublishFormat] = Field(default=[PublishFormat.EPUB, PublishFormat.PDF], description="Output formats")
     use_existing_cover: bool = Field(True, description="Use existing cover art if available")
     include_toc: bool = Field(True, description="Include table of contents")
-    include_kdp_kit: bool = Field(False, description="Generate KDP publishing kit PDF")
+    include_kdp_kit: bool = Field(True, description="Generate KDP publishing kit PDF")
 
     # KDP publishing kit details (only used when include_kdp_kit is true)
     kdp_description: Optional[str] = Field(None, description="KDP product description")
     kdp_keywords: List[str] = Field(default_factory=list, description="KDP keywords (up to 7)")
-    kdp_categories: List[str] = Field(default_factory=list, description="KDP categories (BISAC)")
+    kdp_categories: List[str] = Field(default_factory=list, description="Amazon Store categories (up to 3)")
     kdp_subtitle: Optional[str] = Field(None, description="KDP subtitle")
     kdp_series_name: Optional[str] = Field(None, description="KDP series name")
     kdp_series_number: Optional[str] = Field(None, description="KDP series number")
@@ -456,10 +456,15 @@ class PublishConfig(BaseModel):
     kdp_author_bio: Optional[str] = Field(None, description="KDP author bio")
     kdp_contributors: Optional[str] = Field(None, description="KDP contributors")
     kdp_edition: Optional[str] = Field(None, description="KDP edition number")
-    kdp_age_range: Optional[str] = Field(None, description="KDP age range")
-    kdp_grade_range: Optional[str] = Field(None, description="KDP grade range")
+    kdp_reading_age_min: Optional[int] = Field(None, description="KDP reading age minimum")
+    kdp_reading_age_max: Optional[int] = Field(None, description="KDP reading age maximum")
     kdp_imprint: Optional[str] = Field(None, description="KDP imprint")
     kdp_pricing: Optional[str] = Field(None, description="KDP pricing notes")
+    kdp_adult_content: bool = Field(False, description="Contains sexually explicit content")
+    kdp_drm: bool = Field(True, description="Enable DRM (recommended)")
+    kdp_select: Optional[bool] = Field(None, description="Enroll in KDP Select / Kindle Unlimited")
+    kdp_territories: str = Field("worldwide", description="Territory rights: 'worldwide' or 'specific'")
+    kdp_publishing_rights: str = Field("own_copyright", description="'own_copyright' or 'public_domain'")
 
 class PublishRequest(BaseModel):
     """Request to publish a book."""
@@ -489,6 +494,8 @@ class PublishResult(BaseModel):
     pdf_url: Optional[str] = Field(None, description="PDF download URL")
     html_url: Optional[str] = Field(None, description="HTML download URL")
     kdp_kit_url: Optional[str] = Field(None, description="KDP publishing kit PDF URL")
+    kdp_package_url: Optional[str] = Field(None, description="KDP package ZIP URL (EPUB + PDF + cover + kit)")
+    cover_art_url: Optional[str] = Field(None, description="Standalone cover art JPEG URL")
     
     # Metadata
     created_at: datetime = Field(..., description="Job creation time")

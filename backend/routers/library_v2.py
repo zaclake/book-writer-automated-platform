@@ -89,10 +89,13 @@ async def _get_latest_publish_urls(project_id: str) -> Dict[str, Optional[str]]:
             return {
                 'epub_url': dl.get('epub'),
                 'pdf_url': dl.get('pdf'),
+                'kdp_kit_url': dl.get('kdp_kit'),
+                'kdp_package_url': dl.get('kdp_package'),
+                'cover_art_url': dl.get('cover_art'),
             }
     except Exception as e:
         logger.warning(f"Failed to fetch latest publish job for {project_id}: {e}")
-    return {'epub_url': None, 'pdf_url': None}
+    return {'epub_url': None, 'pdf_url': None, 'kdp_kit_url': None, 'kdp_package_url': None, 'cover_art_url': None}
 
 def _project_card_from_project(
     project: Dict[str, Any],
@@ -108,12 +111,22 @@ def _project_card_from_project(
 
     epub_url = None
     pdf_url = None
+    kdp_kit_url = None
+    kdp_package_url = None
+    cover_art_download_url = None
+
+    latest_pub = None
     if publishing and isinstance(publishing.get("latest"), dict):
-        epub_url = publishing.get("latest", {}).get("epub_url")
-        pdf_url = publishing.get("latest", {}).get("pdf_url")
+        latest_pub = publishing["latest"]
     elif isinstance(project.get("publishing"), dict) and isinstance(project["publishing"].get("latest"), dict):
-        epub_url = project["publishing"]["latest"].get("epub_url")
-        pdf_url = project["publishing"]["latest"].get("pdf_url")
+        latest_pub = project["publishing"]["latest"]
+
+    if latest_pub:
+        epub_url = latest_pub.get("epub_url")
+        pdf_url = latest_pub.get("pdf_url")
+        kdp_kit_url = latest_pub.get("kdp_kit_url")
+        kdp_package_url = latest_pub.get("kdp_package_url")
+        cover_art_download_url = latest_pub.get("cover_art_url")
 
     owner_display_name = metadata.get("owner_display_name") or None
 
@@ -128,6 +141,9 @@ def _project_card_from_project(
         "cover_url": cover_url,
         "epub_url": epub_url,
         "pdf_url": pdf_url,
+        "kdp_kit_url": kdp_kit_url,
+        "kdp_package_url": kdp_package_url,
+        "cover_art_download_url": cover_art_download_url,
         "updated_at": metadata.get("updated_at") or metadata.get("created_at"),
     }
 
@@ -187,6 +203,9 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                 if urls.get('epub_url') or urls.get('pdf_url'):
                     card['epub_url'] = urls.get('epub_url')
                     card['pdf_url'] = urls.get('pdf_url')
+                    card['kdp_kit_url'] = urls.get('kdp_kit_url')
+                    card['kdp_package_url'] = urls.get('kdp_package_url')
+                    card['cover_art_download_url'] = urls.get('cover_art_url')
             my_cards.append(card)
 
         # Public projects (from root collection with visibility == public)
@@ -231,7 +250,17 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                     if url:
                         data = dict(data)
                         data['cover_art'] = {'image_url': url}
-                public_cards.append(_project_card_from_project(data, data.get("publishing")))
+                card = _project_card_from_project(data, data.get("publishing"))
+                pid = data.get('id') or data.get('metadata', {}).get('project_id')
+                if pid and not (card.get('epub_url') or card.get('pdf_url')):
+                    urls = await _get_latest_publish_urls(pid)
+                    if urls.get('epub_url') or urls.get('pdf_url'):
+                        card['epub_url'] = urls.get('epub_url')
+                        card['pdf_url'] = urls.get('pdf_url')
+                        card['kdp_kit_url'] = urls.get('kdp_kit_url')
+                        card['kdp_package_url'] = urls.get('kdp_package_url')
+                        card['cover_art_download_url'] = urls.get('cover_art_url')
+                public_cards.append(card)
 
             if not docs:
                 # Fallback: query all user subcollections via collection group 'projects'
@@ -262,9 +291,8 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
             public_cards = []
             next_cursor = None
 
-        # Filter to only published (has EPUB). Treat published as complete for library purposes.
-        my_cards = [c for c in my_cards if c.get("epub_url")]
-        public_cards = [c for c in public_cards if c.get("epub_url")]
+        my_cards = [c for c in my_cards if c.get("epub_url") or c.get("pdf_url")]
+        public_cards = [c for c in public_cards if c.get("epub_url") or c.get("pdf_url")]
 
         return {
             "my_projects": my_cards,
@@ -313,7 +341,17 @@ async def get_public_library(current_user: dict = Depends(get_current_user), lim
         for doc in docs:
             data = doc.to_dict() or {}
             data["id"] = doc.id
-            projects.append(_project_card_from_project(data, data.get("publishing")))
+            card = _project_card_from_project(data, data.get("publishing"))
+            pid = data.get('id') or data.get('metadata', {}).get('project_id')
+            if pid and not (card.get('epub_url') or card.get('pdf_url')):
+                urls = await _get_latest_publish_urls(pid)
+                if urls.get('epub_url') or urls.get('pdf_url'):
+                    card['epub_url'] = urls.get('epub_url')
+                    card['pdf_url'] = urls.get('pdf_url')
+                    card['kdp_kit_url'] = urls.get('kdp_kit_url')
+                    card['kdp_package_url'] = urls.get('kdp_package_url')
+                    card['cover_art_download_url'] = urls.get('cover_art_url')
+            projects.append(card)
 
         if docs:
             last = docs[-1]
@@ -321,8 +359,7 @@ async def get_public_library(current_user: dict = Depends(get_current_user), lim
             if isinstance(last_updated, datetime):
                 next_cursor = last_updated.isoformat()
 
-        # Filter to only published (has EPUB)
-        projects = [c for c in projects if c.get("epub_url")]
+        projects = [c for c in projects if c.get("epub_url") or c.get("pdf_url")]
         return {"projects": projects, "next_cursor": next_cursor}
 
     except HTTPException:
@@ -354,12 +391,21 @@ async def get_book_card(project_id: str, current_user: dict = Depends(get_curren
         publishing = (root_doc or {}).get("publishing") or project.get("publishing")
         card = _project_card_from_project(project, publishing)
 
-        epub_url = card.get("epub_url")
+        # Fallback to publish_jobs if URLs are missing
+        if not (card.get('epub_url') or card.get('pdf_url')):
+            urls = await _get_latest_publish_urls(project_id)
+            if urls.get('epub_url') or urls.get('pdf_url'):
+                card['epub_url'] = urls.get('epub_url')
+                card['pdf_url'] = urls.get('pdf_url')
+                card['kdp_kit_url'] = urls.get('kdp_kit_url')
+                card['kdp_package_url'] = urls.get('kdp_package_url')
+                card['cover_art_download_url'] = urls.get('cover_art_url')
+
+        has_readable_format = bool(card.get("epub_url") or card.get("pdf_url"))
         is_owner_or_collab = (user_id == owner_id) or (user_id in collaborators)
         is_public = visibility == "public"
-        can_access_public = is_public
 
-        can_read = bool(epub_url) and (is_owner_or_collab or can_access_public)
+        can_read = has_readable_format and (is_owner_or_collab or is_public)
         can_download = can_read
 
         return {**card, "can_read": can_read, "can_download": can_download}
@@ -477,3 +523,128 @@ async def stream_book_pdf(project_id: str, current_user: dict = Depends(get_curr
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stream PDF")
 
 
+@router.get("/book/{project_id}/kdp-kit")
+async def stream_book_kdp_kit(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Stream the KDP publishing kit PDF."""
+    try:
+        card = await get_book_card(project_id, current_user)
+        if not card.get("can_read"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        kdp_kit_url = card.get("kdp_kit_url")
+        if not kdp_kit_url:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KDP kit not available")
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            r = await client.get(kdp_kit_url, follow_redirects=True)
+            if r.status_code != 200:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch KDP kit from storage")
+
+            raw_title = card.get("title") or "book"
+            title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_title).strip().replace(" ", "-").lower()[:60] or "book"
+            content_length = r.headers.get("content-length")
+
+            headers = {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": f'attachment; filename="{title_slug}-kdp-kit.pdf"',
+                "Cache-Control": "private, max-age=3600",
+            }
+            if content_length:
+                headers["Content-Length"] = content_length
+
+            async def file_iterator(chunk_size: int = 1024 * 128):
+                async for chunk in r.aiter_bytes(chunk_size=chunk_size):
+                    yield chunk
+
+            return StreamingResponse(file_iterator(), headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stream KDP kit for {project_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stream KDP kit")
+
+
+@router.get("/book/{project_id}/kdp-package")
+async def stream_book_kdp_package(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Stream the KDP publishing package ZIP (EPUB + PDF + cover + metadata)."""
+    try:
+        card = await get_book_card(project_id, current_user)
+        if not card.get("can_read"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        kdp_package_url = card.get("kdp_package_url")
+        if not kdp_package_url:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KDP package not available")
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            r = await client.get(kdp_package_url, follow_redirects=True)
+            if r.status_code != 200:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch KDP package from storage")
+
+            raw_title = card.get("title") or "book"
+            title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_title).strip().replace(" ", "-").lower()[:60] or "book"
+            content_length = r.headers.get("content-length")
+
+            headers = {
+                "Content-Type": "application/zip",
+                "Content-Disposition": f'attachment; filename="{title_slug}-kdp-package.zip"',
+                "Cache-Control": "private, max-age=3600",
+            }
+            if content_length:
+                headers["Content-Length"] = content_length
+
+            async def file_iterator(chunk_size: int = 1024 * 128):
+                async for chunk in r.aiter_bytes(chunk_size=chunk_size):
+                    yield chunk
+
+            return StreamingResponse(file_iterator(), headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stream KDP package for {project_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stream KDP package")
+
+
+@router.get("/book/{project_id}/cover")
+async def stream_book_cover(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Stream the standalone cover art JPEG."""
+    try:
+        card = await get_book_card(project_id, current_user)
+        if not card.get("can_read"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        cover_url = card.get("cover_art_download_url") or card.get("cover_url")
+        if not cover_url:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cover art not available")
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            r = await client.get(cover_url, follow_redirects=True)
+            if r.status_code != 200:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch cover art from storage")
+
+            raw_title = card.get("title") or "book"
+            title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_title).strip().replace(" ", "-").lower()[:60] or "book"
+            content_length = r.headers.get("content-length")
+            content_type = r.headers.get("content-type", "image/jpeg")
+
+            headers = {
+                "Content-Type": content_type,
+                "Content-Disposition": f'attachment; filename="{title_slug}-cover.jpg"',
+                "Cache-Control": "private, max-age=3600",
+            }
+            if content_length:
+                headers["Content-Length"] = content_length
+
+            async def file_iterator(chunk_size: int = 1024 * 128):
+                async for chunk in r.aiter_bytes(chunk_size=chunk_size):
+                    yield chunk
+
+            return StreamingResponse(file_iterator(), headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stream cover art for {project_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stream cover art")

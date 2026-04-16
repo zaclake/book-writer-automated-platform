@@ -3376,19 +3376,6 @@ async def generate_cover_art(
                 except Exception:
                     pass
                 
-                # Build short grounding excerpts for prompt fidelity
-                bible_excerpt = (book_bible_content or "")[:400]
-                # Create a concise references digest (filenames + first 120 chars)
-                try:
-                    ref_parts = []
-                    for name, content in (reference_files or {}).items():
-                        if not content:
-                            continue
-                        ref_parts.append(f"{name}: {content[:120]}")
-                    references_digest = "; ".join(ref_parts)[:400]
-                except Exception:
-                    references_digest = None
-
                 logger.info(f"Cover art UI options: {request.options}")
                 vector_context = ""
                 try:
@@ -3420,19 +3407,8 @@ async def generate_cover_art(
                     requirements=request.requirements,
                     vector_context=vector_context
                 )
-                # Regenerate prompt with explicit grounding context for improved adherence (stored in job)
-                try:
-                    job.prompt = cover_art_service.generate_cover_prompt(
-                        cover_art_service.extract_book_details(book_bible_content, reference_files, ui_options or {}),
-                        request.user_feedback,
-                        ui_options,
-                        request.requirements,
-                        raw_bible_excerpt=bible_excerpt,
-                        references_digest=references_digest,
-                        vector_context=vector_context
-                    )
-                except Exception:
-                    pass
+                # The prompt is now set inside generate_cover_art via the creative brief flow;
+                # no need to recompute it here.
                 job.attempt_number = attempt_number
                 _cover_art_jobs[job_id] = job
                 

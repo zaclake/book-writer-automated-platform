@@ -101,7 +101,7 @@ async def debug_cover_art_service():
             'mood_tone': 'adventurous'
         }
         
-        prompt = service.generate_cover_prompt(test_book_details)
+        prompt = service.generate_cover_prompt(book_details=test_book_details)
         print("   ✓ Prompt generation successful")
         print(f"   Generated prompt: {prompt[:100]}...")
         print(f"   Prompt length: {len(prompt)} characters")
