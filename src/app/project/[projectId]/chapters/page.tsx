@@ -95,6 +95,7 @@ export default function ChapterWritingPage() {
   const [applyToFuture, setApplyToFuture] = useState(true)
   const [noteScope, setNoteScope] = useState<'chapter' | 'global'>('chapter')
   const editorContainerRef = useRef<HTMLDivElement>(null)
+  const selectionActiveRef = useRef(false)
 
   // Preview state
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -252,6 +253,10 @@ export default function ChapterWritingPage() {
   useEffect(() => {
     if (noteScope === 'global' && !applyToFuture) setApplyToFuture(true)
   }, [noteScope, applyToFuture])
+
+  useEffect(() => {
+    selectionActiveRef.current = !!selectionInfo
+  }, [selectionInfo])
 
   const currentChapterRecord = chapters.find(ch => Number((ch as any).chapter_number) === Number(currentChapter))
   const currentChapterId = loadedChapterId || currentChapterRecord?.id
@@ -422,10 +427,10 @@ export default function ChapterWritingPage() {
   const handleSelectionCoords = useCallback((coords: SelectionCoords | null) => {
     if (pendingSelectionRef.current) {
       pendingSelectionRef.current.coords = coords
-    } else if (selectionInfo) {
+    } else if (selectionActiveRef.current) {
       setSelectionCoords(coords)
     }
-  }, [selectionInfo])
+  }, [])
 
   const ensureChapterId = () => {
     if (!currentChapterId) {
@@ -466,10 +471,30 @@ export default function ChapterWritingPage() {
     }
   }
 
+  const saveRewriteDirectionNote = async (chapterId: string, instruction: string, scope: 'chapter' | 'global') => {
+    try {
+      const authHeaders = await getAuthHeaders()
+      await fetchApi(`/api/chapters/${chapterId}/notes`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: `Rewrite direction: ${instruction}`,
+          apply_to_future: true,
+          scope,
+        }),
+      })
+    } catch {
+      // best-effort; steering service also creates a note
+    }
+  }
+
   const rewriteSelection = async () => {
     if (!selectionInfo || !selectionInstruction.trim()) return
     const chapterId = ensureChapterId()
     if (!chapterId) return
+    const shouldPersistNote = applyToFuture
+    const instructionForNote = selectionInstruction.trim()
+    const scopeForNote = noteScope
     try {
       setSelectionBusy(true)
       const authHeaders = await getAuthHeaders()
@@ -488,6 +513,9 @@ export default function ChapterWritingPage() {
       setChapterContent(cleaned)
       setOriginalContent(cleaned)
       showStatus('Selection rewritten successfully')
+      if (shouldPersistNote) {
+        saveRewriteDirectionNote(chapterId, instructionForNote, scopeForNote)
+      }
       resetSelection()
       runRippleAnalysis()
     } catch (error) {
@@ -879,6 +907,10 @@ export default function ChapterWritingPage() {
         setRippleData(data)
         if (data.affected_chapters?.length > 0) {
           setShowRippleNotification(true)
+          const highCount = data.affected_chapters.filter((c: { severity: string }) => c.severity === 'high').length
+          if (highCount > 0) {
+            showStatus(`${highCount} downstream chapter(s) need updates — see the notification below`, 0)
+          }
         }
       }
     } catch (error) {
@@ -898,6 +930,10 @@ export default function ChapterWritingPage() {
       resetSelection()
       return
     }
+    const shouldPersistNote = applyToFuture
+    const instructionForNote = selectionInstruction.trim()
+    const chapterIdForNote = currentChapterId
+    const scopeForNote = noteScope
     try {
       setSelectionBusy(true)
       const authHeaders = await getAuthHeaders()
@@ -915,6 +951,9 @@ export default function ChapterWritingPage() {
         setChapterContent(previewContent)
         setOriginalContent(previewContent)
         showStatus('Rewrite applied and saved')
+        if (shouldPersistNote && instructionForNote) {
+          saveRewriteDirectionNote(chapterIdForNote, instructionForNote, scopeForNote)
+        }
         runRippleAnalysis()
       } else {
         setChapterContent(previewContent)

@@ -268,6 +268,28 @@ export default function SelectionToolsPopover({
             className="w-full min-h-[80px] rounded-lg border border-brand-lavender/20 p-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-lavender/40 resize-none"
             placeholder="Tell AI how to rewrite this selection (shorter, punchier, clarify voice, fix continuity)."
           />
+          <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-500">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={applyToFuture}
+                onChange={(e) => setApplyToFuture(e.target.checked)}
+                disabled={noteScope === 'global'}
+              />
+              Apply to future chapters
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span>Scope</span>
+              <select
+                value={noteScope}
+                onChange={(e) => setNoteScope(e.target.value as 'chapter' | 'global')}
+                className="rounded-md border border-gray-200 px-1.5 py-0.5 text-xs"
+              >
+                <option value="chapter">Chapter only</option>
+                <option value="global">Global guidance</option>
+              </select>
+            </label>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={previewRewriteSelection}
