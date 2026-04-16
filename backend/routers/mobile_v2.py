@@ -148,15 +148,37 @@ async def _get_cover_art_url(project_id: str) -> Optional[str]:
 async def _get_latest_audiobook(project_id: str) -> Optional[Dict[str, Any]]:
     try:
         client = get_firestore_client()
+        # Try compound query first (requires composite index)
+        try:
+            query = client.collection('audiobook_jobs').where(
+                filter=FieldFilter('project_id', '==', project_id)
+            ).where(
+                filter=FieldFilter('status', '==', 'completed')
+            )
+            latest = None
+            latest_ts = None
+            for doc in query.stream():
+                data = doc.to_dict() or {}
+                ts = data.get('completed_at') or data.get('created_at')
+                if ts and (latest_ts is None or ts > latest_ts):
+                    latest = data
+                    latest_ts = ts
+                    latest['job_id'] = doc.id
+            if latest:
+                return latest
+        except Exception as e:
+            logger.warning(f"Compound audiobook query failed for {project_id} (index may be missing): {e}")
+
+        # Fallback: single-field query, filter status client-side
         query = client.collection('audiobook_jobs').where(
             filter=FieldFilter('project_id', '==', project_id)
-        ).where(
-            filter=FieldFilter('status', '==', 'completed')
         )
         latest = None
         latest_ts = None
         for doc in query.stream():
             data = doc.to_dict() or {}
+            if data.get('status') != 'completed':
+                continue
             ts = data.get('completed_at') or data.get('created_at')
             if ts and (latest_ts is None or ts > latest_ts):
                 latest = data
@@ -164,7 +186,7 @@ async def _get_latest_audiobook(project_id: str) -> Optional[Dict[str, Any]]:
                 latest['job_id'] = doc.id
         return latest
     except Exception as e:
-        logger.debug(f"Audiobook lookup failed for {project_id}: {e}")
+        logger.warning(f"Audiobook lookup failed for {project_id}: {e}")
     return None
 
 def _get_progress(client, user_id: str, project_id: str):
@@ -406,10 +428,12 @@ async def get_mobile_audiobook_info(
         _verify_project_access(project, user_id)
     else:
         if not _verify_user_owns_project(user_id, project_id):
+            logger.warning(f"Mobile audiobook: project {project_id} not found for user {user_id}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     audiobook = await _get_latest_audiobook(project_id)
     if not audiobook:
+        logger.warning(f"Mobile audiobook: no completed audiobook job found for project {project_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No audiobook found")
 
     chapter_urls_raw = audiobook.get('chapter_urls') or {}
