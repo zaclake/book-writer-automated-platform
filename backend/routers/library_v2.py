@@ -60,6 +60,37 @@ async def _get_latest_cover_art_url(project_id: str) -> Optional[str]:
         logger.warning(f"Failed to fetch latest cover art for {project_id}: {e}")
     return None
 
+async def _get_latest_audiobook_url(project_id: str) -> Optional[str]:
+    """Fetch the full-book MP3 URL from the latest completed audiobook_jobs for a project."""
+    try:
+        try:
+            from backend.services.firestore_service import get_firestore_client
+        except Exception:
+            from services.firestore_service import get_firestore_client  # type: ignore
+
+        client = get_firestore_client()
+        query = client.collection('audiobook_jobs').where(
+            filter=FieldFilter('project_id', '==', project_id)
+        )
+        docs = list(query.stream())
+        latest = None
+        latest_ts = None
+        for d in docs:
+            data = d.to_dict() or {}
+            if data.get('status') != 'completed':
+                continue
+            ts = data.get('completed_at') or data.get('created_at')
+            if ts and (latest_ts is None or ts > latest_ts):
+                latest = data
+                latest_ts = ts
+        if latest:
+            result = latest.get('result') or {}
+            return result.get('full_book_url')
+    except Exception as e:
+        logger.warning(f"Failed to fetch latest audiobook for {project_id}: {e}")
+    return None
+
+
 async def _get_latest_publish_urls(project_id: str) -> Dict[str, Optional[str]]:
     """Fallback: read latest publish_jobs entry for this project and extract download URLs.
     Avoid composite indexes by scanning and selecting most recent client-side.
@@ -144,6 +175,7 @@ def _project_card_from_project(
         "kdp_kit_url": kdp_kit_url,
         "kdp_package_url": kdp_package_url,
         "cover_art_download_url": cover_art_download_url,
+        "audiobook_url": None,
         "updated_at": metadata.get("updated_at") or metadata.get("created_at"),
     }
 
@@ -206,6 +238,11 @@ async def get_library(current_user: dict = Depends(get_current_user), limit: int
                     card['kdp_kit_url'] = urls.get('kdp_kit_url')
                     card['kdp_package_url'] = urls.get('kdp_package_url')
                     card['cover_art_download_url'] = urls.get('cover_art_url')
+            # Audiobook URL
+            if project_id:
+                ab_url = await _get_latest_audiobook_url(project_id)
+                if ab_url:
+                    card['audiobook_url'] = ab_url
             my_cards.append(card)
 
         # Public projects (from root collection with visibility == public)
@@ -400,6 +437,11 @@ async def get_book_card(project_id: str, current_user: dict = Depends(get_curren
                 card['kdp_kit_url'] = urls.get('kdp_kit_url')
                 card['kdp_package_url'] = urls.get('kdp_package_url')
                 card['cover_art_download_url'] = urls.get('cover_art_url')
+
+        # Audiobook URL
+        ab_url = await _get_latest_audiobook_url(project_id)
+        if ab_url:
+            card['audiobook_url'] = ab_url
 
         has_readable_format = bool(card.get("epub_url") or card.get("pdf_url"))
         is_owner_or_collab = (user_id == owner_id) or (user_id in collaborators)
@@ -648,3 +690,45 @@ async def stream_book_cover(project_id: str, current_user: dict = Depends(get_cu
     except Exception as e:
         logger.error(f"Failed to stream cover art for {project_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stream cover art")
+
+
+@router.get("/book/{project_id}/audiobook")
+async def stream_book_audiobook(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Stream the audiobook MP3 file."""
+    try:
+        card = await get_book_card(project_id, current_user)
+        if not card.get("can_read") and not card.get("can_download"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        audiobook_url = card.get("audiobook_url")
+        if not audiobook_url:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audiobook not available")
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            r = await client.get(audiobook_url, follow_redirects=True)
+            if r.status_code != 200:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch audiobook from storage")
+
+            raw_title = card.get("title") or "book"
+            title_slug = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_title).strip().replace(" ", "-").lower()[:60] or "book"
+            content_length = r.headers.get("content-length")
+
+            headers = {
+                "Content-Type": "audio/mpeg",
+                "Content-Disposition": f'attachment; filename="{title_slug}-audiobook.mp3"',
+                "Cache-Control": "private, max-age=3600",
+            }
+            if content_length:
+                headers["Content-Length"] = content_length
+
+            async def file_iterator(chunk_size: int = 1024 * 128):
+                async for chunk in r.aiter_bytes(chunk_size=chunk_size):
+                    yield chunk
+
+            return StreamingResponse(file_iterator(), headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stream audiobook for {project_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stream audiobook")

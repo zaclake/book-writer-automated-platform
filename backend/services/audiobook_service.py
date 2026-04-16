@@ -331,6 +331,7 @@ class AudiobookService:
         chapters: List[Dict[str, Any]],
         config: Dict[str, Any],
         progress_callback: Optional[Callable] = None,
+        completed_chapters: Optional[Dict[int, str]] = None,
     ) -> Dict[str, Any]:
         """Generate a full audiobook from chapters.
 
@@ -338,7 +339,8 @@ class AudiobookService:
             project_id: Project ID
             chapters: Sorted list of chapter dicts with 'content', 'chapter_number', 'title'
             config: AudiobookConfig dict with voice_id, model_id, pronunciation_glossary
-            progress_callback: Optional async callback(status, current_chapter, total_chapters, percentage)
+            progress_callback: Optional async callback(status, current_chapter, total_chapters, percentage, chapter_urls)
+            completed_chapters: Optional dict of chapter_number -> existing MP3 URL (for resume)
 
         Returns:
             Dict with chapter_urls, full_book_url, file_sizes, total_duration_seconds, etc.
@@ -359,6 +361,7 @@ class AudiobookService:
         file_sizes: Dict[str, int] = {}
         total_chars = 0
         job_id = config.get("job_id", project_id)
+        completed = completed_chapters or {}
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             for idx, chapter in enumerate(chapters):
@@ -370,12 +373,42 @@ class AudiobookService:
                     logger.warning(f"Skipping empty chapter {chapter_number}")
                     continue
 
+                # Resume: skip chapters that are already completed
+                if chapter_number in completed:
+                    existing_url = completed[chapter_number]
+                    logger.info(
+                        f"Chapter {chapter_number}/{total_chapters}: reusing existing MP3 (resume)"
+                    )
+                    chapter_urls[chapter_number] = existing_url
+                    # Download existing MP3 for final concatenation
+                    try:
+                        import requests as _requests
+                        resp = _requests.get(existing_url, timeout=120)
+                        resp.raise_for_status()
+                        chapter_audio_segments.append((chapter_number, resp.content))
+                        file_sizes[f"chapter_{chapter_number}"] = len(resp.content)
+                    except Exception as dl_err:
+                        logger.warning(f"Failed to download existing chapter {chapter_number} MP3: {dl_err}")
+                        # Fall through to regenerate this chapter
+                        del chapter_urls[chapter_number]
+                    else:
+                        if progress_callback:
+                            await progress_callback(
+                                "generating",
+                                chapter_number,
+                                total_chapters,
+                                round(((idx + 1) / total_chapters) * 100, 1),
+                                chapter_urls,
+                            )
+                        continue
+
                 if progress_callback:
                     await progress_callback(
                         "generating",
                         chapter_number,
                         total_chapters,
                         round((idx / total_chapters) * 100, 1),
+                        chapter_urls,
                     )
 
                 # Preprocess text into chunks
@@ -407,19 +440,32 @@ class AudiobookService:
                     f"{len(chapter_mp3)} bytes"
                 )
 
+                # Persist chapter URLs incrementally so resume can find them
+                if progress_callback:
+                    await progress_callback(
+                        "generating",
+                        chapter_number,
+                        total_chapters,
+                        round(((idx + 1) / total_chapters) * 100, 1),
+                        chapter_urls,
+                    )
+
             if not chapter_audio_segments:
                 raise RuntimeError("No audio was generated — all chapters were empty or skipped")
 
+            # Sort segments by chapter number for correct order
+            chapter_audio_segments.sort(key=lambda x: x[0])
+
             # Concatenate all chapters into full book
             if progress_callback:
-                await progress_callback("concatenating", total_chapters, total_chapters, 95.0)
+                await progress_callback("concatenating", total_chapters, total_chapters, 95.0, chapter_urls)
 
             all_chapter_bytes = [audio for _, audio in chapter_audio_segments]
             full_book_mp3 = self._concatenate_mp3(all_chapter_bytes)
 
             # Upload full book
             if progress_callback:
-                await progress_callback("uploading", total_chapters, total_chapters, 98.0)
+                await progress_callback("uploading", total_chapters, total_chapters, 98.0, chapter_urls)
 
             full_book_path = f"audiobooks/{project_id}/{job_id}/full-book.mp3"
             full_book_url = await self._upload_to_firebase(
@@ -461,21 +507,25 @@ class AudiobookService:
         return result
 
     async def _tts_call(self, text: str, voice_id: str, model_id: str) -> bytes:
-        """Make a single TTS API call."""
+        """Make a single TTS API call.
+
+        The ElevenLabs SDK returns a generator from convert(). Both the API
+        call and generator consumption must run inside the thread to avoid
+        blocking the asyncio event loop (which would starve gunicorn heartbeats).
+        """
         async with semaphore(get_image_semaphore()):
-            audio_iterator = await asyncio.to_thread(
-                self.elevenlabs_client.text_to_speech.convert,
-                text=text,
-                voice_id=voice_id,
-                model_id=model_id,
-                output_format=DEFAULT_OUTPUT_FORMAT,
-            )
-            # The SDK returns a generator; consume into bytes
-            chunks = []
-            for chunk in audio_iterator:
-                if isinstance(chunk, bytes):
-                    chunks.append(chunk)
-            return b"".join(chunks)
+            def _sync_tts() -> bytes:
+                audio_iterator = self.elevenlabs_client.text_to_speech.convert(
+                    text=text,
+                    voice_id=voice_id,
+                    model_id=model_id,
+                    output_format=DEFAULT_OUTPUT_FORMAT,
+                )
+                return b"".join(
+                    chunk for chunk in audio_iterator if isinstance(chunk, bytes)
+                )
+
+            return await asyncio.to_thread(_sync_tts)
 
     async def _tts_call_with_retry(
         self, text: str, voice_id: str, model_id: str

@@ -20,6 +20,7 @@ import {
   useAudiobookJob,
   useAudiobookVoices,
   useAudiobookEstimate,
+  useResumableAudiobook,
   type PronunciationEntry,
   type AbbreviationSuggestion,
 } from '@/hooks/useAudiobookJob'
@@ -1352,8 +1353,10 @@ interface AudiobookTabProps {
 function AudiobookTab({ projectId, chapterCount }: AudiobookTabProps) {
   const { voices, isLoading: voicesLoading, error: voicesError } = useAudiobookVoices()
   const { estimate, isLoading: estimateLoading, error: estimateError } = useAudiobookEstimate(projectId)
+  const { resumable, refresh: refreshResumable } = useResumableAudiobook(projectId)
   const {
     startAudiobookJob,
+    resumeAudiobookJob,
     generatePreview,
     scanAbbreviations,
     jobStatus,
@@ -1457,6 +1460,16 @@ function AudiobookTab({ projectId, chapterCount }: AudiobookTabProps) {
       model_id: 'eleven_multilingual_v2',
       pronunciation_glossary: glossary,
     })
+  }
+
+  const handleResume = async () => {
+    if (!selectedVoiceId) return
+    await resumeAudiobookJob(projectId, {
+      voice_id: selectedVoiceId,
+      model_id: 'eleven_multilingual_v2',
+      pronunciation_glossary: glossary,
+    })
+    refreshResumable()
   }
 
   const isJobRunning = jobLoading || (jobStatus && !['completed', 'failed'].includes(jobStatus.status))
@@ -1783,6 +1796,39 @@ function AudiobookTab({ projectId, chapterCount }: AudiobookTabProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Resume previous job */}
+      {resumable?.resumable && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-900">
+              <Headphones className="h-5 w-5" />
+              Resume Audiobook
+            </CardTitle>
+            <CardDescription className="text-amber-800">
+              A previous generation was interrupted with{' '}
+              <strong>{resumable.completed_chapters} of {resumable.total_chapters}</strong>{' '}
+              chapters completed. Resume to generate only the remaining{' '}
+              <strong>{(resumable.total_chapters || 0) - (resumable.completed_chapters || 0)}</strong>{' '}
+              chapters without re-paying for completed ones.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              type="button"
+              onClick={handleResume}
+              disabled={!selectedVoiceId || jobLoading}
+              className="w-full gap-2"
+            >
+              <Headphones className="h-4 w-4" />
+              Resume — Generate Remaining Chapters
+            </Button>
+            {!selectedVoiceId && (
+              <p className="text-xs text-amber-700 mt-2">Select a narrator voice above to resume.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Cost Estimate & Generate */}
       <Card>

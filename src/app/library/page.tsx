@@ -17,6 +17,7 @@ interface BookCard {
   kdp_kit_url?: string
   kdp_package_url?: string
   cover_art_download_url?: string
+  audiobook_url?: string
 }
 
 type SortKey = 'title' | 'genre' | 'recent'
@@ -82,7 +83,7 @@ const BookTile = React.memo(function BookTile({
   const [showMore, setShowMore] = useState(false)
 
   const pid = encodeURIComponent(book.project_id)
-  const hasSecondary = !!(book.kdp_package_url || book.kdp_kit_url || book.cover_art_download_url)
+  const hasSecondary = !!(book.kdp_package_url || book.kdp_kit_url || book.cover_art_download_url || book.audiobook_url)
 
   return (
     <div
@@ -148,7 +149,7 @@ const BookTile = React.memo(function BookTile({
               </a>
             </div>
 
-            {(book.epub_url || book.pdf_url) && (
+            {(book.epub_url || book.pdf_url || book.audiobook_url) && (
               <div className="flex gap-2 flex-wrap">
                 {book.epub_url && (
                   <DownloadChip
@@ -162,6 +163,13 @@ const BookTile = React.memo(function BookTile({
                     href={`/api/v2/library/book/${pid}/pdf`}
                     label="PDF"
                     colorClass="text-orange-700 bg-orange-50 hover:bg-orange-100"
+                  />
+                )}
+                {book.audiobook_url && (
+                  <DownloadChip
+                    href={`/api/v2/library/book/${pid}/audiobook`}
+                    label="Audiobook"
+                    colorClass="text-teal-700 bg-teal-50 hover:bg-teal-100"
                   />
                 )}
 

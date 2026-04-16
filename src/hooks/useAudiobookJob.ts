@@ -112,6 +112,29 @@ export function useAudiobookEstimate(projectId: string | null) {
   return { estimate: data, error, isLoading, refresh: mutate }
 }
 
+// ── useResumableAudiobook ──────────────────────────────────────────
+
+export interface ResumableJob {
+  resumable: boolean
+  job_id?: string
+  completed_chapters?: number
+  total_chapters?: number
+  chapter_urls?: Record<string, string>
+}
+
+export function useResumableAudiobook(projectId: string | null) {
+  const { getAuthHeaders } = useAuthToken()
+  const fetcher = createFetcher(getAuthHeaders)
+
+  const { data, error, isLoading, mutate } = useSWR<ResumableJob>(
+    projectId ? `/api/v2/audiobook/resumable/${projectId}` : null,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
+
+  return { resumable: data, error, isLoading, refresh: mutate }
+}
+
 // ── useAudiobookJob ────────────────────────────────────────────────
 
 export function useAudiobookJob() {
@@ -246,6 +269,54 @@ export function useAudiobookJob() {
     }
   }
 
+  const resumeAudiobookJob = async (projectId: string, config: AudiobookConfig) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      if (!isLoaded || !isSignedIn) throw new Error('User not authenticated')
+
+      const authHeaders = await getAuthHeaders()
+      if (!authHeaders.Authorization) throw new Error('No authentication token found')
+
+      GlobalLoader.show({
+        title: 'Resuming Audiobook',
+        stage: 'Picking up where we left off...',
+        showProgress: true,
+        safeToLeave: true,
+        canMinimize: true,
+        customMessages: [
+          'Reusing completed chapters...',
+          'Generating remaining chapters...',
+          'Converting speech...',
+          'Building audiobook...',
+          'Uploading files...',
+        ],
+        timeoutMs: 7200000,
+      })
+
+      const response = await fetchApi(`/api/v2/audiobook/resume/${projectId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(config),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        GlobalLoader.hide()
+        throw new Error(errorData.detail || errorData.error || 'Failed to resume audiobook job')
+      }
+
+      const result = await response.json()
+      setCurrentJobId(result.job_id)
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'))
+      GlobalLoader.hide()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const downloadUrls = jobStatus?.status === 'completed' && jobStatus.result
     ? {
         full_book: jobStatus.result.full_book_url,
@@ -255,6 +326,7 @@ export function useAudiobookJob() {
 
   return {
     startAudiobookJob,
+    resumeAudiobookJob,
     generatePreview,
     scanAbbreviations,
     jobStatus,

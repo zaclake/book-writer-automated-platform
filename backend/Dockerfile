@@ -38,6 +38,6 @@ COPY backend/system /app/system
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "gunicorn backend.main:app -w 3 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 300"]
+CMD ["sh", "-c", "gunicorn backend.main:app -w 3 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --timeout 14400"]
 
 

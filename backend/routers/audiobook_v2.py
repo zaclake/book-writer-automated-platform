@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from backend.models.firestore_models import (
     AudiobookConfig, PronunciationEntry
@@ -193,6 +194,294 @@ async def scan_abbreviations(
     return detect_abbreviations(chapter_texts)
 
 
+def _find_resumable_job(project_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    """Find the latest failed/stuck audiobook job with partial chapter progress."""
+    try:
+        db = get_firestore_client()
+        query = db.collection("audiobook_jobs").where(
+            filter=FieldFilter("project_id", "==", project_id)
+        )
+        docs = list(query.stream())
+        best = None
+        best_ts = None
+        for d in docs:
+            data = d.to_dict() or {}
+            if data.get("user_id") != user_id:
+                continue
+            status = data.get("status", "")
+            if status not in ("failed", "generating", "preprocessing", "concatenating"):
+                continue
+            result = data.get("result") or {}
+            ch_urls = result.get("chapter_urls") or {}
+            if not ch_urls:
+                continue
+            ts = data.get("created_at") or ""
+            if best_ts is None or ts > best_ts:
+                best = data
+                best_ts = ts
+        return best
+    except Exception as e:
+        logger.warning(f"Failed to find resumable job: {e}")
+    return None
+
+
+@router.get("/resumable/{project_id}", response_model=Dict[str, Any])
+async def get_resumable_job(
+    project_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Check if there's a resumable (partially completed) audiobook job for this project."""
+    user_id = current_user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth")
+
+    project_data = await get_project(project_id)
+    if not project_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    _verify_project_access(project_data, user_id)
+
+    job = _find_resumable_job(project_id, user_id)
+    if not job:
+        return {"resumable": False}
+
+    ch_urls = (job.get("result") or {}).get("chapter_urls") or {}
+    total = (job.get("progress") or {}).get("total_chapters", 0)
+    return {
+        "resumable": True,
+        "job_id": job.get("job_id"),
+        "completed_chapters": len(ch_urls),
+        "total_chapters": total,
+        "chapter_urls": ch_urls,
+    }
+
+
+@router.post("/resume/{project_id}", response_model=Dict[str, str])
+async def resume_audiobook_job(
+    project_id: str,
+    config: AudiobookConfig,
+    current_user: dict = Depends(get_current_user),
+):
+    """Resume a failed/stuck audiobook job, skipping already-completed chapters."""
+    audiobook_job_id = None
+    try:
+        user_id = current_user.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth")
+
+        project_data = await get_project(project_id)
+        if not project_data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        _verify_project_access(project_data, user_id)
+
+        # Find the previous job with partial progress
+        prev_job = _find_resumable_job(project_id, user_id)
+        if not prev_job:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No resumable audiobook job found for this project",
+            )
+
+        prev_ch_urls = (prev_job.get("result") or {}).get("chapter_urls") or {}
+        completed_chapters: Dict[int, str] = {}
+        for ch_str, url in prev_ch_urls.items():
+            try:
+                completed_chapters[int(ch_str)] = url
+            except (ValueError, TypeError):
+                pass
+
+        if not completed_chapters:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Previous job has no completed chapters to resume from",
+            )
+
+        chapters_raw = await get_project_chapters(project_id)
+        if not chapters_raw:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No chapters")
+
+        chapters = _normalize_chapters(chapters_raw)
+
+        if config.pronunciation_glossary:
+            _save_glossary(project_id, config.pronunciation_glossary)
+
+        # Create a new job doc for the resume
+        audiobook_job_id = f"audiobook_{project_id}_{int(datetime.now(timezone.utc).timestamp())}"
+        now = datetime.now(timezone.utc).isoformat()
+        remaining = len(chapters) - len(completed_chapters)
+        try:
+            db = get_firestore_client()
+            db.collection("audiobook_jobs").document(audiobook_job_id).set({
+                "job_id": audiobook_job_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                "status": "pending",
+                "config": config.dict(),
+                "resumed_from": prev_job.get("job_id"),
+                "progress": {
+                    "current_step": f"Resuming — {len(completed_chapters)} chapters already done",
+                    "current_chapter": 0,
+                    "total_chapters": len(chapters),
+                    "progress_percentage": 0.0,
+                    "last_update": now,
+                },
+                "result": {
+                    "chapter_urls": prev_ch_urls,
+                },
+                "created_at": now,
+                "started_at": None,
+                "completed_at": None,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to create resume job doc: {e}")
+
+        processor = get_job_processor()
+
+        async def audiobook_resume_func():
+            from backend.services.audiobook_service import AudiobookService
+
+            api_key = config.elevenlabs_api_key or None
+            service = AudiobookService(user_id=user_id, elevenlabs_api_key=api_key)
+            if not service.is_available():
+                raise RuntimeError("Audiobook service not available")
+
+            _started_at_written = False
+
+            async def _progress(
+                step: str, current_ch: int, total_ch: int, pct: float,
+                ch_urls: Optional[Dict] = None,
+            ):
+                nonlocal _started_at_written
+                try:
+                    if step == "generating":
+                        step_text = f"Generating chapter {current_ch} of {total_ch}"
+                    elif step == "concatenating":
+                        step_text = "Concatenating audio..."
+                    elif step == "uploading":
+                        step_text = "Uploading files..."
+                    else:
+                        step_text = step.replace("_", " ").capitalize()
+
+                    update: Dict[str, Any] = {
+                        "status": step,
+                        "progress": {
+                            "current_step": step_text,
+                            "current_chapter": current_ch,
+                            "total_chapters": total_ch,
+                            "progress_percentage": round(pct, 1),
+                            "last_update": datetime.now(timezone.utc).isoformat(),
+                        },
+                    }
+                    if not _started_at_written:
+                        update["started_at"] = datetime.now(timezone.utc).isoformat()
+                        _started_at_written = True
+                    if ch_urls:
+                        update["result"] = {
+                            "chapter_urls": {str(k): v for k, v in ch_urls.items()},
+                        }
+
+                    db = get_firestore_client()
+                    db.collection("audiobook_jobs").document(audiobook_job_id).set(
+                        update, merge=True
+                    )
+                except Exception as pe:
+                    logger.warning(f"Progress update failed: {pe}")
+
+            config_dict = config.dict()
+            config_dict["job_id"] = audiobook_job_id
+            glossary_dicts = [
+                {"abbreviation": e.abbreviation, "spoken_form": e.spoken_form}
+                for e in (config.pronunciation_glossary or [])
+            ]
+            config_dict["pronunciation_glossary"] = glossary_dicts
+
+            try:
+                result = await service.generate_audiobook(
+                    project_id=project_id,
+                    chapters=chapters,
+                    config=config_dict,
+                    progress_callback=_progress,
+                    completed_chapters=completed_chapters,
+                )
+            except Exception as gen_err:
+                try:
+                    db = get_firestore_client()
+                    db.collection("audiobook_jobs").document(audiobook_job_id).set({
+                        "status": "failed",
+                        "error_message": str(gen_err),
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "progress": {
+                            "current_step": "Failed",
+                            "progress_percentage": 0.0,
+                            "last_update": datetime.now(timezone.utc).isoformat(),
+                        },
+                    }, merge=True)
+                except Exception:
+                    pass
+                raise
+
+            try:
+                db = get_firestore_client()
+                db.collection("audiobook_jobs").document(audiobook_job_id).set({
+                    "status": "completed",
+                    "progress": {
+                        "current_step": "Completed",
+                        "current_chapter": len(chapters),
+                        "total_chapters": len(chapters),
+                        "progress_percentage": 100.0,
+                        "last_update": datetime.now(timezone.utc).isoformat(),
+                    },
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "result": {
+                        "chapter_urls": {str(k): v for k, v in (result.get("chapter_urls") or {}).items()},
+                        "full_book_url": result.get("full_book_url"),
+                        "file_sizes": result.get("file_sizes"),
+                        "total_characters": result.get("total_characters"),
+                        "total_duration_seconds": result.get("total_duration_seconds"),
+                        "credits_charged": result.get("credits_charged"),
+                        "cost_usd": result.get("cost_usd"),
+                    },
+                }, merge=True)
+            except Exception as pe:
+                logger.error(f"Failed to persist audiobook resume result: {pe}")
+
+            return {
+                "status": "completed",
+                "result": result,
+                "job_id": audiobook_job_id,
+            }
+
+        await processor.submit_job(audiobook_job_id, audiobook_resume_func)
+
+        logger.info(
+            f"Audiobook resume job {audiobook_job_id} submitted for {project_id} "
+            f"({len(completed_chapters)} chapters already done, {remaining} remaining)"
+        )
+        return {
+            "job_id": audiobook_job_id,
+            "status": "submitted",
+            "message": f"Resuming audiobook — {len(completed_chapters)} chapters done, {remaining} remaining",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resume audiobook job: {e}")
+        if audiobook_job_id:
+            try:
+                db = get_firestore_client()
+                db.collection("audiobook_jobs").document(audiobook_job_id).set({
+                    "status": "failed",
+                    "error_message": str(e),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }, merge=True)
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resume audiobook job: {str(e)}",
+        )
+
+
 @router.post("/project/{project_id}", response_model=Dict[str, str])
 async def start_audiobook_job(
     project_id: str,
@@ -259,7 +548,10 @@ async def start_audiobook_job(
 
             _started_at_written = False
 
-            async def _progress(step: str, current_ch: int, total_ch: int, pct: float):
+            async def _progress(
+                step: str, current_ch: int, total_ch: int, pct: float,
+                ch_urls: Optional[Dict] = None,
+            ):
                 nonlocal _started_at_written
                 try:
                     if step == "generating":
@@ -284,6 +576,12 @@ async def start_audiobook_job(
                     if not _started_at_written:
                         update["started_at"] = datetime.now(timezone.utc).isoformat()
                         _started_at_written = True
+
+                    # Persist completed chapter URLs incrementally for resume
+                    if ch_urls:
+                        update["result"] = {
+                            "chapter_urls": {str(k): v for k, v in ch_urls.items()},
+                        }
 
                     db = get_firestore_client()
                     db.collection("audiobook_jobs").document(audiobook_job_id).set(
@@ -414,10 +712,39 @@ async def get_audiobook_job_status(
 
                 progress = data.get("progress", {}) or {}
                 result = data.get("result", {}) or {}
+                job_status_val = data.get("status", "pending")
+
+                # Auto-detect stuck jobs: if non-terminal and no progress
+                # update for 15+ minutes, mark as failed
+                if job_status_val in ("generating", "preprocessing", "pending"):
+                    last_update = progress.get("last_update")
+                    if last_update:
+                        try:
+                            last_dt = datetime.fromisoformat(last_update.replace("Z", "+00:00"))
+                            age_minutes = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
+                            if age_minutes > 15:
+                                logger.warning(
+                                    f"Audiobook job {job_id} stuck for {age_minutes:.0f}min — marking as failed"
+                                )
+                                db.collection("audiobook_jobs").document(job_id).set({
+                                    "status": "failed",
+                                    "error_message": (
+                                        "Generation timed out — the worker may have restarted. "
+                                        "Use Resume to continue from where it left off."
+                                    ),
+                                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                                }, merge=True)
+                                job_status_val = "failed"
+                                result["error_message"] = (
+                                    "Generation timed out — the worker may have restarted. "
+                                    "Use Resume to continue from where it left off."
+                                )
+                        except Exception:
+                            pass
 
                 response_data = {
                     "job_id": job_id,
-                    "status": data.get("status", "pending"),
+                    "status": job_status_val,
                     "progress": {
                         "current_step": progress.get("current_step", ""),
                         "current_chapter": progress.get("current_chapter", 0),
