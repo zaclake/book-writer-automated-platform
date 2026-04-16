@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,8 +14,15 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CreativeLoader } from '@/components/ui/CreativeLoader'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
-import { Book, Download, FileText, Settings, Eye, CheckCircle, Package, Image } from 'lucide-react'
+import { Book, Download, FileText, Settings, Eye, CheckCircle, Package, Image, Headphones, Play, Pause, Search, Plus, Trash2, Volume2 } from 'lucide-react'
 import { usePublishJob } from '@/hooks/usePublishJob'
+import {
+  useAudiobookJob,
+  useAudiobookVoices,
+  useAudiobookEstimate,
+  type PronunciationEntry,
+  type AbbreviationSuggestion,
+} from '@/hooks/useAudiobookJob'
 import { Project } from '@/types/project'
 import { useAuthToken } from '@/lib/auth'
 import { fetchApi } from '@/lib/api-client'
@@ -529,12 +536,16 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handlePublish)} className="space-y-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full gap-2 h-auto">
+            <TabsList className="grid grid-cols-2 md:grid-cols-6 w-full gap-2 h-auto">
               <TabsTrigger value="details" data-cy="tab-details">Book Details</TabsTrigger>
               <TabsTrigger value="sections" data-cy="tab-sections">Optional Sections</TabsTrigger>
               <TabsTrigger value="engagement" data-cy="tab-engagement">Reader Engagement</TabsTrigger>
               <TabsTrigger value="settings" data-cy="tab-settings">Settings</TabsTrigger>
               <TabsTrigger value="kdp" data-cy="tab-kdp">KDP Kit</TabsTrigger>
+              <TabsTrigger value="audiobook" data-cy="tab-audiobook" className="gap-1.5">
+                <Headphones className="h-3.5 w-3.5" />
+                Audiobook
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="space-y-4">
@@ -1305,6 +1316,10 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="audiobook" className="space-y-4">
+              <AudiobookTab projectId={projectId} chapterCount={chapterCount} />
+            </TabsContent>
           </Tabs>
 
           <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-6 border-t">
@@ -1325,4 +1340,535 @@ export default function PublishingSuite({ projectId, project }: PublishingSuiteP
       </Form>
     </div>
   )
-} 
+}
+
+// ── Audiobook Tab Component ────────────────────────────────────────
+
+interface AudiobookTabProps {
+  projectId: string
+  chapterCount: number
+}
+
+function AudiobookTab({ projectId, chapterCount }: AudiobookTabProps) {
+  const { voices, isLoading: voicesLoading, error: voicesError } = useAudiobookVoices()
+  const { estimate, isLoading: estimateLoading, error: estimateError } = useAudiobookEstimate(projectId)
+  const {
+    startAudiobookJob,
+    generatePreview,
+    scanAbbreviations,
+    jobStatus,
+    isLoading: jobLoading,
+    error: jobError,
+    downloadUrls,
+  } = useAudiobookJob()
+
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>('')
+  const [glossary, setGlossary] = useState<PronunciationEntry[]>([])
+  const [abbreviationSuggestions, setAbbreviationSuggestions] = useState<AbbreviationSuggestion[]>([])
+  const [scanningAbbreviations, setScanningAbbreviations] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewPlaying, setPreviewPlaying] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [newEntry, setNewEntry] = useState({ abbreviation: '', spoken_form: '' })
+  const previewUrlRef = useRef<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    const audio = new Audio()
+    audio.onended = () => setPreviewPlaying(false)
+    audio.onpause = () => setPreviewPlaying(false)
+    audio.onplay = () => setPreviewPlaying(true)
+    audioRef.current = audio
+
+    return () => {
+      audio.pause()
+      audio.src = ''
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
+  const handleScanAbbreviations = async () => {
+    setScanningAbbreviations(true)
+    try {
+      const suggestions = await scanAbbreviations(projectId)
+      const existingAbbrevs = new Set(glossary.map(g => g.abbreviation))
+      setAbbreviationSuggestions(suggestions.filter(s => !existingAbbrevs.has(s.abbreviation)))
+    } finally {
+      setScanningAbbreviations(false)
+    }
+  }
+
+  const acceptSuggestion = (suggestion: AbbreviationSuggestion) => {
+    setGlossary(prev => [...prev, { abbreviation: suggestion.abbreviation, spoken_form: suggestion.spoken_form }])
+    setAbbreviationSuggestions(prev => prev.filter(s => s.abbreviation !== suggestion.abbreviation))
+  }
+
+  const dismissSuggestion = (abbreviation: string) => {
+    setAbbreviationSuggestions(prev => prev.filter(s => s.abbreviation !== abbreviation))
+  }
+
+  const removeGlossaryEntry = (abbreviation: string) => {
+    setGlossary(prev => prev.filter(e => e.abbreviation !== abbreviation))
+  }
+
+  const addGlossaryEntry = () => {
+    if (!newEntry.abbreviation.trim() || !newEntry.spoken_form.trim()) return
+    setGlossary(prev => [...prev, { abbreviation: newEntry.abbreviation.trim(), spoken_form: newEntry.spoken_form.trim() }])
+    setNewEntry({ abbreviation: '', spoken_form: '' })
+  }
+
+  const handlePreview = async () => {
+    if (!selectedVoiceId) return
+    setPreviewLoading(true)
+    try {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current)
+        previewUrlRef.current = null
+        setPreviewUrl(null)
+      }
+      const url = await generatePreview(projectId, selectedVoiceId, undefined, glossary)
+      if (url) {
+        previewUrlRef.current = url
+        setPreviewUrl(url)
+        if (audioRef.current) {
+          audioRef.current.src = url
+          audioRef.current.play().catch(() => {})
+        }
+      }
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const togglePlayPause = () => {
+    if (!audioRef.current || !previewUrl) return
+    if (previewPlaying) {
+      audioRef.current.pause()
+    } else {
+      audioRef.current.play().catch(() => {})
+    }
+  }
+
+  const handleGenerate = async () => {
+    setShowConfirm(false)
+    await startAudiobookJob(projectId, {
+      voice_id: selectedVoiceId,
+      model_id: 'eleven_multilingual_v2',
+      pronunciation_glossary: glossary,
+    })
+  }
+
+  const isJobRunning = jobLoading || (jobStatus && !['completed', 'failed'].includes(jobStatus.status))
+
+  // Show results if completed
+  if (jobStatus?.status === 'completed' && downloadUrls) {
+    const result = jobStatus.result
+    const chapterUrls = downloadUrls.chapters || {}
+    const sortedChapters = Object.entries(chapterUrls).sort(([a], [b]) => Number(a) - Number(b))
+
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <CheckCircle className="h-8 w-8 text-green-500" />
+              <div>
+                <CardTitle>Audiobook Ready</CardTitle>
+                <CardDescription>
+                  {result?.total_duration_seconds
+                    ? `${Math.round(result.total_duration_seconds / 60)} minutes of audio`
+                    : 'Your audiobook has been generated'}
+                  {result?.credits_charged ? ` — ${result.credits_charged} credits used` : ''}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {downloadUrls.full_book && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border rounded-lg bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <Headphones className="h-6 w-6" />
+                  <div>
+                    <p className="font-semibold">Complete Audiobook</p>
+                    <p className="text-sm text-muted-foreground">
+                      Full book MP3
+                      {result?.file_sizes?.full_book
+                        ? ` — ${(result.file_sizes.full_book / (1024 * 1024)).toFixed(1)} MB`
+                        : ''}
+                    </p>
+                  </div>
+                </div>
+                <Button asChild>
+                  <a href={downloadUrls.full_book} download>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </a>
+                </Button>
+              </div>
+            )}
+
+            {sortedChapters.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Individual Chapters</p>
+                <div className="grid gap-2">
+                  {sortedChapters.map(([chapterNum, url]) => (
+                    <div key={chapterNum} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Volume2 className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Chapter {chapterNum}</span>
+                      </div>
+                      <Button asChild variant="outline" size="sm">
+                        <a href={url} download>
+                          <Download className="h-3 w-3 mr-1" />
+                          Download
+                        </a>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Button
+              variant="outline"
+              onClick={() => window.location.reload()}
+              className="w-full mt-4"
+            >
+              Generate Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Show failure state
+  if (jobStatus?.status === 'failed') {
+    const errorMessage = jobStatus.error || jobStatus.result?.error_message || 'Audiobook generation failed'
+    return (
+      <Card>
+        <CardContent className="py-12 text-center space-y-4">
+          <Headphones className="h-12 w-12 mx-auto text-destructive" />
+          <h3 className="text-lg font-semibold">Audiobook Generation Failed</h3>
+          <Alert variant="destructive" className="max-w-md mx-auto text-left">
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+          <Button
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
+            Try Again
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Show progress if running
+  if (isJobRunning) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center space-y-4">
+          <Headphones className="h-12 w-12 mx-auto text-muted-foreground animate-pulse" />
+          <h3 className="text-lg font-semibold">Generating Audiobook</h3>
+          <p className="text-muted-foreground">
+            {jobStatus?.progress?.current_step || 'Preparing chapters...'}
+          </p>
+          {jobStatus?.progress?.progress_percentage != null && (
+            <div className="max-w-md mx-auto">
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${jobStatus.progress.progress_percentage}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {Math.round(jobStatus.progress.progress_percentage)}%
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Voice Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Headphones className="h-5 w-5" />
+            Narrator Voice
+          </CardTitle>
+          <CardDescription>
+            Choose a voice for your audiobook narration
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {voicesError ? (
+            <Alert variant="destructive">
+              <AlertDescription>Failed to load voices. Please try refreshing.</AlertDescription>
+            </Alert>
+          ) : voicesLoading ? (
+            <p className="text-sm text-muted-foreground">Loading voices...</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {voices.map((voice) => (
+                <button
+                  key={voice.id}
+                  type="button"
+                  onClick={() => setSelectedVoiceId(voice.id)}
+                  className={`p-4 border rounded-lg text-left transition-all hover:border-primary/50 ${
+                    selectedVoiceId === voice.id
+                      ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+                      : 'border-border'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-medium">{voice.name}</span>
+                    <div className="flex gap-1.5">
+                      <Badge variant="outline" className="text-xs">
+                        {voice.gender}
+                      </Badge>
+                      <Badge variant="secondary" className="text-xs">
+                        {voice.accent}
+                      </Badge>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{voice.description}</p>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {selectedVoiceId && (
+            <div className="flex items-center gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handlePreview}
+                disabled={previewLoading || chapterCount === 0}
+                className="gap-2"
+              >
+                {previewLoading ? (
+                  <>Loading...</>
+                ) : (
+                  <>
+                    <Play className="h-3.5 w-3.5" />
+                    Preview with my book
+                  </>
+                )}
+              </Button>
+
+              {previewUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={togglePlayPause}
+                  className="gap-2"
+                >
+                  {previewPlaying ? (
+                    <><Pause className="h-3.5 w-3.5" /> Pause</>
+                  ) : (
+                    <><Play className="h-3.5 w-3.5" /> Play again</>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pronunciation Glossary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Pronunciation Glossary</CardTitle>
+          <CardDescription>
+            Define how abbreviations and special terms should be spoken
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleScanAbbreviations}
+            disabled={scanningAbbreviations || chapterCount === 0}
+            className="gap-2"
+          >
+            <Search className="h-3.5 w-3.5" />
+            {scanningAbbreviations ? 'Scanning...' : 'Scan for Abbreviations'}
+          </Button>
+
+          {abbreviationSuggestions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Suggestions</p>
+              {abbreviationSuggestions.map((suggestion) => (
+                <div key={suggestion.abbreviation} className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg text-sm">
+                  <code className="font-mono bg-background px-1.5 py-0.5 rounded">
+                    {suggestion.abbreviation}
+                  </code>
+                  <span className="text-muted-foreground">→</span>
+                  <span>{suggestion.spoken_form}</span>
+                  <Badge variant="secondary" className="text-xs ml-auto">
+                    {suggestion.occurrences}x
+                  </Badge>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => acceptSuggestion(suggestion)}>
+                    Accept
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => dismissSuggestion(suggestion.abbreviation)}>
+                    Dismiss
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {glossary.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Active Glossary</p>
+              {glossary.map((entry) => (
+                <div key={entry.abbreviation} className="flex items-center gap-2 p-2 border rounded-lg text-sm">
+                  <code className="font-mono bg-muted px-1.5 py-0.5 rounded">
+                    {entry.abbreviation}
+                  </code>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="flex-1">{entry.spoken_form}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeGlossaryEntry(entry.abbreviation)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-1">
+              <label className="text-xs text-muted-foreground">Abbreviation</label>
+              <Input
+                placeholder="e.g. DO"
+                value={newEntry.abbreviation}
+                onChange={(e) => setNewEntry(prev => ({ ...prev, abbreviation: e.target.value }))}
+                className="h-9"
+              />
+            </div>
+            <div className="flex-1 space-y-1">
+              <label className="text-xs text-muted-foreground">Spoken Form</label>
+              <Input
+                placeholder="e.g. D. O."
+                value={newEntry.spoken_form}
+                onChange={(e) => setNewEntry(prev => ({ ...prev, spoken_form: e.target.value }))}
+                className="h-9"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addGlossaryEntry}
+              disabled={!newEntry.abbreviation.trim() || !newEntry.spoken_form.trim()}
+              className="h-9"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cost Estimate & Generate */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Generate Audiobook</CardTitle>
+          <CardDescription>
+            Review the estimate and generate your audiobook
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {estimateError ? (
+            <Alert variant="destructive">
+              <AlertDescription>Failed to load cost estimate.</AlertDescription>
+            </Alert>
+          ) : estimateLoading ? (
+            <p className="text-sm text-muted-foreground">Calculating estimate...</p>
+          ) : estimate ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg">
+              <div>
+                <p className="text-xs text-muted-foreground">Characters</p>
+                <p className="text-lg font-semibold">{estimate.total_characters.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Chapters</p>
+                <p className="text-lg font-semibold">{estimate.total_chapters}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Est. Cost</p>
+                <p className="text-lg font-semibold">
+                  {estimate.estimated_credits} credits
+                  <span className="text-xs text-muted-foreground ml-1">
+                    (~${estimate.estimated_cost_usd})
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Est. Time</p>
+                <p className="text-lg font-semibold">{estimate.estimated_duration_minutes} min</p>
+              </div>
+            </div>
+          ) : chapterCount === 0 ? (
+            <Alert>
+              <AlertDescription>No chapters found. Write some chapters first.</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {jobError && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {jobError instanceof Error ? jobError.message : String(jobError)}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {!showConfirm ? (
+            <Button
+              type="button"
+              onClick={() => setShowConfirm(true)}
+              disabled={!selectedVoiceId || chapterCount === 0 || jobLoading}
+              className="w-full gap-2"
+            >
+              <Headphones className="h-4 w-4" />
+              Generate Audiobook
+            </Button>
+          ) : (
+            <div className="p-4 border rounded-lg space-y-3">
+              <p className="font-medium">Confirm audiobook generation</p>
+              <p className="text-sm text-muted-foreground">
+                This will use approximately{' '}
+                <strong>{estimate?.estimated_credits || '—'} credits</strong>{' '}
+                (~${estimate?.estimated_cost_usd || '—'}) and take about{' '}
+                <strong>{estimate?.estimated_duration_minutes || '—'} minutes</strong>.
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" onClick={handleGenerate} className="gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  Confirm & Generate
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setShowConfirm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

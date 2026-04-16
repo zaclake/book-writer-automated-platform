@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { lockScroll, unlockScroll } from "@/lib/scroll-lock"
 
 const Dialog = ({ open, onOpenChange, children }: {
   open?: boolean
@@ -62,9 +63,8 @@ const DialogContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => {
   const { open, onOpenChange } = React.useContext(DialogContext)
 
-  if (!open) return null
-
   React.useEffect(() => {
+    if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onOpenChange(false)
@@ -72,16 +72,15 @@ const DialogContent = React.forwardRef<
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onOpenChange])
+  }, [open, onOpenChange])
 
   React.useEffect(() => {
-    // Prevent background scroll on mobile while modal is open.
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
-  }, [])
+    if (!open) return
+    lockScroll()
+    return () => { unlockScroll() }
+  }, [open])
+
+  if (!open) return null
 
   return (
     <div

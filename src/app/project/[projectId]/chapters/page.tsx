@@ -933,18 +933,26 @@ export default function ChapterWritingPage() {
     }
   }
 
+  const [isApproving, setIsApproving] = useState(false)
+
   const approveChapter = async () => {
-    if (hasUnsavedChanges) {
-      const saved = await saveChapter()
-      if (!saved) {
-        showStatus('Cannot approve: save failed. Please try saving again.', 0)
-        return
+    if (isApproving) return
+    setIsApproving(true)
+    try {
+      if (hasUnsavedChanges) {
+        const saved = await saveChapter()
+        if (!saved) {
+          showStatus('Cannot approve: save failed. Please try saving again.', 0)
+          return
+        }
       }
-    }
-    showStatus('Chapter approved!')
-    const maxChapter = Math.max(project?.settings?.target_chapters || 25, chapters.length || 0)
-    if (currentChapter < maxChapter) {
-      setTimeout(() => requestChapterChange(currentChapter + 1), 600)
+      showStatus('Chapter approved!')
+      const maxChapter = Math.max(project?.settings?.target_chapters || 25, chapters.length || 0)
+      if (currentChapter < maxChapter) {
+        setTimeout(() => requestChapterChange(currentChapter + 1), 600)
+      }
+    } finally {
+      setIsApproving(false)
     }
   }
 
@@ -989,7 +997,7 @@ export default function ChapterWritingPage() {
                       name="currentChapter"
                       value={currentChapter}
                       onChange={(e) => requestChapterChange(Number(e.target.value))}
-                      disabled={isChapterLoading || isGenerating || isPollingChapter}
+                      disabled={isChapterLoading || isGenerating || isPollingChapter || (chaptersLoading && chapters.length === 0)}
                       className="bg-white/20 backdrop-blur-sm text-white px-3 py-1 rounded-lg text-sm font-semibold border border-white/20 focus:bg-white/30 transition-colors"
                       style={{ color: 'white' }}
                     >
@@ -1065,7 +1073,7 @@ export default function ChapterWritingPage() {
                 name="currentChapter"
                 value={currentChapter}
                 onChange={(e) => requestChapterChange(Number(e.target.value))}
-                disabled={isChapterLoading || isGenerating || isPollingChapter}
+                disabled={isChapterLoading || isGenerating || isPollingChapter || (chaptersLoading && chapters.length === 0)}
                 className="flex-1 min-w-[8rem] bg-white border border-gray-300 rounded-full px-3 py-1 text-xs font-semibold text-gray-800"
                 aria-label="Select chapter"
               >
@@ -1520,10 +1528,11 @@ export default function ChapterWritingPage() {
 
                   <button
                     onClick={approveChapter}
-                    className="bg-gray-900 text-white px-6 py-2 rounded-xl font-semibold hover:bg-gray-800 transition-all w-full sm:w-auto"
+                    disabled={isApproving}
+                    className="bg-gray-900 text-white px-6 py-2 rounded-xl font-semibold hover:bg-gray-800 transition-all w-full sm:w-auto disabled:opacity-50"
                   >
                     <CheckCircleIcon className="w-4 h-4 mr-2 inline" />
-                    Approve Chapter
+                    {isApproving ? 'Approving...' : 'Approve Chapter'}
                   </button>
                   {focusMode && (
                     <button

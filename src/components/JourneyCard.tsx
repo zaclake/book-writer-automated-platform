@@ -24,6 +24,7 @@ interface Project {
     genre?: string
     status?: string
   }
+  cover_art_url?: string
 }
 
 interface JourneyCardProps {
@@ -89,6 +90,7 @@ const JourneyCard: React.FC<JourneyCardProps> = ({ project, onDelete }) => {
   const totalWords = project.progress?.current_word_count || 0
   const progressPct = Math.min(100, Math.round((chaptersWritten / targetChapters) * 100))
   const spineColor = getSpineColor(title)
+  const coverUrl = project.cover_art_url
   const created = formatDate(project.created_at || (project.metadata as any)?.created_at)
 
   return (
@@ -108,9 +110,19 @@ const JourneyCard: React.FC<JourneyCardProps> = ({ project, onDelete }) => {
         {/* Card body */}
         <div className="p-5">
           <div className="flex items-start gap-3.5 mb-4">
-            {/* Book spine */}
-            <div className={`shrink-0 w-10 h-14 bg-gradient-to-b ${spineColor} rounded-md shadow-md`}>
-              <div className="w-full h-full bg-gradient-to-r from-white/20 to-transparent rounded-md" />
+            {/* Book spine / cover art */}
+            <div className={`shrink-0 w-10 h-14 rounded-md shadow-md overflow-hidden bg-gradient-to-b ${spineColor}`}>
+              {coverUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={coverUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-r from-white/20 to-transparent" />
+              )}
             </div>
 
             {/* Title + meta */}

@@ -338,17 +338,6 @@ class FirestoreOfflineManager {
     }
   }
 
-  // Destroy the manager and clean up
-  public destroy() {
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval)
-    }
-    
-    window.removeEventListener('online', this.processSyncQueue)
-    window.removeEventListener('offline', () => {})
-    
-    this.listeners = []
-  }
 }
 
 // Create singleton instance (lazy initialization)

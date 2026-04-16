@@ -272,6 +272,7 @@ class Project(BaseModel):
     progress: ProjectProgress = ProjectProgress()
     story_continuity: StoryContinuity = StoryContinuity()
     memory: ProjectMemory = ProjectMemory()
+    cover_art_url: Optional[str] = None
 
 # =====================================================================
 # CHAPTER MODELS
@@ -511,6 +512,62 @@ class ProjectPublishingHistory(BaseModel):
     """Publishing history for a project."""
     history: List[PublishResult] = Field(default=[], description="Publishing job history")
     latest: Optional[PublishResult] = Field(None, description="Latest successful publish")
+
+# =====================================================================
+# AUDIOBOOK MODELS
+# =====================================================================
+
+class PronunciationEntry(BaseModel):
+    """A single abbreviation-to-spoken-form mapping for TTS pronunciation."""
+    abbreviation: str = Field(..., description="Text to find (e.g., 'DO')")
+    spoken_form: str = Field(..., description="Replacement spoken text (e.g., 'D. O.')")
+
+class AudiobookConfig(BaseModel):
+    """Configuration for audiobook generation."""
+    voice_id: str = Field(..., description="ElevenLabs voice ID from curated list")
+    model_id: str = Field(default="eleven_multilingual_v2", description="ElevenLabs TTS model")
+    pronunciation_glossary: List[PronunciationEntry] = Field(
+        default_factory=list, description="Custom pronunciation overrides"
+    )
+    elevenlabs_api_key: Optional[str] = Field(
+        None, description="User-provided ElevenLabs API key (BYOK); if None, platform key is used"
+    )
+
+class AudiobookJobStatus(str, Enum):
+    """Audiobook generation job status."""
+    PENDING = "pending"
+    PREPROCESSING = "preprocessing"
+    GENERATING = "generating"
+    CONCATENATING = "concatenating"
+    UPLOADING = "uploading"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+class AudiobookResult(BaseModel):
+    """Result of an audiobook generation job."""
+    job_id: str = Field(..., description="Job ID")
+    project_id: str = Field(..., description="Project ID")
+    status: AudiobookJobStatus = Field(..., description="Current job status")
+    config: AudiobookConfig = Field(..., description="Configuration used")
+
+    chapter_urls: Optional[Dict[int, str]] = Field(
+        None, description="Chapter number -> MP3 download URL"
+    )
+    full_book_url: Optional[str] = Field(None, description="Combined full-book MP3 URL")
+
+    current_chapter: Optional[int] = Field(None, description="Chapter currently being processed")
+    total_chapters: Optional[int] = Field(None, description="Total number of chapters")
+    progress_percentage: float = Field(default=0.0, description="Overall progress 0-100")
+
+    total_characters: Optional[int] = Field(None, description="Total characters processed")
+    total_duration_seconds: Optional[float] = Field(None, description="Total audio duration in seconds")
+    file_sizes: Optional[Dict[str, int]] = Field(None, description="File sizes in bytes")
+    credits_charged: Optional[int] = Field(None, description="Total credits charged")
+    cost_usd: Optional[float] = Field(None, description="Estimated USD cost")
+
+    created_at: datetime = Field(..., description="Job creation time")
+    completed_at: Optional[datetime] = Field(None, description="Job completion time")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
 
 # =====================================================================
 # REQUEST/RESPONSE MODELS

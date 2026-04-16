@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Zap, Plus, AlertCircle, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,34 +33,36 @@ export function CreditBalance({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [authFailed, setAuthFailed] = useState(false)
+  const authFailedRef = useRef(false)
   const creditsEnabled = process.env.NEXT_PUBLIC_CREDITS_ENABLED === 'true'
 
   useEffect(() => {
     if (!creditsEnabled) {
       setLoading(false)
       setAuthFailed(false)
+      authFailedRef.current = false
       return
     }
 
     if (!isLoaded || !isSignedIn || !user) {
       setLoading(false)
       setAuthFailed(false)
+      authFailedRef.current = false
       return
     }
 
     setAuthFailed(false)
+    authFailedRef.current = false
     loadBalance()
 
-    // Set up periodic refresh every 30 seconds, but stop if auth fails
     const interval = setInterval(() => {
-      if (!authFailed) {
+      if (!authFailedRef.current) {
         loadBalance()
       }
     }, 30000)
 
-    // Listen for manual refresh events
     const handleRefresh = () => {
-      if (!authFailed) {
+      if (!authFailedRef.current) {
         loadBalance()
       }
     }
@@ -70,7 +72,8 @@ export function CreditBalance({
       clearInterval(interval)
       window.removeEventListener('refreshCreditBalance', handleRefresh)
     }
-  }, [creditsEnabled, isLoaded, isSignedIn, user, authFailed])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creditsEnabled, isLoaded, isSignedIn, user])
 
   const loadBalance = async () => {
     // Don't attempt to load balance if user is not available or not signed in
@@ -92,9 +95,9 @@ export function CreditBalance({
         setBalance(null)
         setError(null)
       } else if (response.status === 401) {
-        // User not authenticated - stop polling to prevent spam
         setBalance(null)
         setError(null)
+        authFailedRef.current = true
         setAuthFailed(true)
         setLoading(false)
         console.log('Credits: Authentication failed, stopping balance polling')

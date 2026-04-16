@@ -6,7 +6,7 @@
  * New development should use TopNav + AppLayout pattern.
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { 
   ChevronLeftIcon, 
@@ -19,6 +19,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAuthToken } from '@/lib/auth'
 import { fetchApi } from '@/lib/api-client'
+import { lockScroll, unlockScroll } from '@/lib/scroll-lock'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -54,25 +55,31 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
   const [loading, setLoading] = useState(true)
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
 
+  const hasLoadedSidebarOnce = useRef(false)
+
+  useEffect(() => {
+    hasLoadedSidebarOnce.current = false
+  }, [projectId])
+
   useEffect(() => {
     if (!isOpen) return
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
+    lockScroll()
+    return () => { unlockScroll() }
   }, [isOpen])
 
   useEffect(() => {
     if (isSignedIn && projectId && isOpen) {
       loadSidebarData()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, projectId, isOpen])
 
   const loadSidebarData = async () => {
     if (!projectId) return
 
-    setLoading(true)
+    if (!hasLoadedSidebarOnce.current) {
+      setLoading(true)
+    }
     try {
       const authHeaders = await getAuthHeaders()
 
@@ -118,6 +125,7 @@ export function CollapsibleSidebar({ isOpen, onToggle, className = '' }: Collaps
     } finally {
       setLastRefreshedAt(new Date())
       setLoading(false)
+      hasLoadedSidebarOnce.current = true
     }
   }
 

@@ -822,7 +822,40 @@ async def list_user_projects(
                         )
         except Exception as enrich_err:
             logger.warning(f"Failed to enrich projects with chapter counts: {enrich_err}")
-        
+
+        # Enrich each project with cover art URL
+        try:
+            from google.cloud.firestore_v1.base_query import FieldFilter as _FF
+            for proj in projects_data:
+                proj_id = proj.get("id") or (proj.get("metadata") or {}).get("project_id")
+                if not proj_id:
+                    continue
+                try:
+                    cover_url = None
+                    ca = proj.get("cover_art")
+                    if isinstance(ca, dict) and ca.get("image_url"):
+                        cover_url = ca["image_url"]
+                    if not cover_url and fs_db:
+                        query = fs_db.collection("cover_art_jobs").where(
+                            filter=_FF("project_id", "==", proj_id)
+                        )
+                        latest = None
+                        latest_ts = None
+                        for d in query.stream():
+                            data = d.to_dict() or {}
+                            ts = data.get("created_at") or data.get("updated_at")
+                            if ts and (latest_ts is None or ts > latest_ts):
+                                latest = data
+                                latest_ts = ts
+                        if latest:
+                            cover_url = latest.get("image_url")
+                    if cover_url:
+                        proj["cover_art_url"] = cover_url
+                except Exception as ca_err:
+                    logger.warning(f"Failed to fetch cover art for {proj_id}: {ca_err}")
+        except Exception as cover_enrich_err:
+            logger.warning(f"Failed to enrich projects with cover art: {cover_enrich_err}")
+
         # Convert to Pydantic models for validation
         projects = []
         for project_data in projects_data:

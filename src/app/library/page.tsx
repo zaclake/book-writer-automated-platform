@@ -316,7 +316,10 @@ export default function LibraryPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Library</h1>
               <p className="text-sm text-gray-500 mt-0.5">
-                {filteredMyBooks.length + filteredPublicBooks.length} book{filteredMyBooks.length + filteredPublicBooks.length !== 1 ? 's' : ''}{searchQuery ? ' found' : ' available'}
+                {loading
+                  ? 'Loading your library...'
+                  : `${filteredMyBooks.length + filteredPublicBooks.length} book${filteredMyBooks.length + filteredPublicBooks.length !== 1 ? 's' : ''}${searchQuery ? ' found' : ' available'}`
+                }
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -350,9 +353,11 @@ export default function LibraryPage() {
         <section>
           <div className="flex items-center gap-3 mb-5">
             <h2 className="text-lg font-semibold text-gray-900">My Books</h2>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-              {filteredMyBooks.length}
-            </span>
+            {!loading && (
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                {filteredMyBooks.length}
+              </span>
+            )}
           </div>
 
           {loading ? (
@@ -371,9 +376,11 @@ export default function LibraryPage() {
         <section>
           <div className="flex items-center gap-3 mb-5">
             <h2 className="text-lg font-semibold text-gray-900">Public Library</h2>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-              {filteredPublicBooks.length}
-            </span>
+            {!loading && (
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                {filteredPublicBooks.length}
+              </span>
+            )}
           </div>
 
           {loading ? (

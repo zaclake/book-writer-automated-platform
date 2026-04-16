@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthToken } from '@/lib/auth'
 import { createBookBibleProject } from '@/lib/book-bible-client'
@@ -13,7 +13,6 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import Celebration from '@/components/ui/Celebration'
 import { GlobalLoader } from '@/stores/useGlobalLoaderStore'
-import { useRef } from 'react'
 
 export default function PasteIdeaPage() {
   const router = useRouter()
@@ -76,6 +75,16 @@ export default function PasteIdeaPage() {
   }
 
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
+      GlobalLoader.forceHide()
+    }
+  }, [])
 
   const BOOK_LENGTH_SPECS: Record<BookLengthTier, BookLengthSpecs> = {
     [BookLengthTier.NOVELLA]: {

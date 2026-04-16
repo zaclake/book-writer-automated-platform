@@ -59,6 +59,7 @@ export interface Project {
       engagement: number
     }
   }
+  cover_art_url?: string
 }
 
 export interface Chapter {
@@ -148,13 +149,15 @@ function usePolling<T>(
   const [error, setError] = useState<Error | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const isMountedRef = useRef(true)
+  const fetcherRef = useRef(fetcher)
+  fetcherRef.current = fetcher
 
   const fetchData = useCallback(async () => {
-    if (!enabled || !isMountedRef.current) return
+    if (!isMountedRef.current) return
 
     try {
       setError(null)
-      const result = await fetcher()
+      const result = await fetcherRef.current()
       if (isMountedRef.current) {
         setData(result)
         setLoading(false)
@@ -165,7 +168,7 @@ function usePolling<T>(
         setLoading(false)
       }
     }
-  }, [fetcher, enabled])
+  }, [])
 
   const refresh = useCallback(() => {
     fetchData()
@@ -179,10 +182,8 @@ function usePolling<T>(
 
     let isPageVisible = !document.hidden
 
-    // Initial fetch
     fetchData()
 
-    // Set up polling with visibility check
     const startPolling = () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
@@ -196,9 +197,8 @@ function usePolling<T>(
 
     startPolling()
 
-    // Handle visibility changes (with throttling)
     let lastRefreshTime = 0
-    const REFRESH_COOLDOWN = 30000 // 30 seconds cooldown
+    const REFRESH_COOLDOWN = 30000
     
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden
@@ -206,9 +206,9 @@ function usePolling<T>(
         const now = Date.now()
         if (now - lastRefreshTime > REFRESH_COOLDOWN) {
           lastRefreshTime = now
-          fetchData() // Refresh when page becomes visible
+          fetchData()
         }
-        startPolling() // Always restart polling
+        startPolling()
       }
     }
 
@@ -304,9 +304,7 @@ export function useUserProjects() {
           const data = await response.json()
           const backendProjects = data.projects || []
 
-          // Convert backend format to frontend format with real chapter counts
           const formattedProjects: Project[] = backendProjects.map((project: any) => {
-            // Prioritize backend title, fallback to localStorage, then UUID
             const finalTitle = (project.metadata?.title && project.metadata.title.trim())
               ? project.metadata.title.trim()
               : localStorage.getItem(`projectTitle-${project.id}`)
@@ -359,7 +357,8 @@ export function useUserProjects() {
                   freshness: 0,
                   engagement: 0
                 }
-              }
+              },
+              cover_art_url: project.cover_art_url || undefined,
             }
           })
           setProjects(formattedProjects)
@@ -380,7 +379,6 @@ export function useUserProjects() {
       setLoading(false)
       hasLoadedOnce.current = true
 
-      // Return empty unsubscribe function
       return () => {}
     } catch (err) {
       errorMonitoring.trackProjectsLoadError(err)
@@ -392,51 +390,50 @@ export function useUserProjects() {
       clearTimeout(timeoutId)
       inFlightRef.current = null
     }
-  }, [getAuthHeaders, isLoaded, isSignedIn, userId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn, userId])
+
+  const fetchProjectsRef = useRef(fetchProjects)
+  fetchProjectsRef.current = fetchProjects
 
   useEffect(() => {
     let isPageVisible = !document.hidden
 
-    // Initial fetch
-    fetchProjects()
+    fetchProjectsRef.current()
     
-    // Set up polling with reduced frequency using stable ref
     const startPolling = () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
       }
       intervalRef.current = setInterval(() => {
         if (isPageVisible) {
-          fetchProjects()
+          fetchProjectsRef.current()
         }
       }, POLLING_INTERVALS.projects)
     }
 
     startPolling()
 
-    // Throttle refreshes to prevent excessive data fetching
     let lastRefreshTime = 0
-    const REFRESH_COOLDOWN = 30000 // 30 seconds cooldown
+    const REFRESH_COOLDOWN = 30000
 
-    // Add window focus revalidation for better UX (with throttling)
     const handleFocus = () => {
       const now = Date.now()
       if (now - lastRefreshTime > REFRESH_COOLDOWN) {
         lastRefreshTime = now
-        fetchProjects()
+        fetchProjectsRef.current()
       }
     }
 
-    // Pause/resume polling based on page visibility (with throttling)
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden
       if (isPageVisible) {
         const now = Date.now()
         if (now - lastRefreshTime > REFRESH_COOLDOWN) {
           lastRefreshTime = now
-          fetchProjects() // Refresh when page becomes visible
+          fetchProjectsRef.current()
         }
-        startPolling() // Always restart polling
+        startPolling()
       }
     }
 
@@ -450,7 +447,7 @@ export function useUserProjects() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [fetchProjects])
+  }, [isLoaded, isSignedIn])
 
   return { projects, loading, error, refetch: fetchProjects }
 }
@@ -500,8 +497,6 @@ export function useProject(projectId: string | null) {
     }
 
     try {
-      // Show global loading indicator only on the first fetch. Subsequent
-      // polling should happen silently in the background.
       if (!hasLoadedOnce.current) {
         setLoading(true)
       }
@@ -509,7 +504,6 @@ export function useProject(projectId: string | null) {
 
       const authHeaders = await getAuthHeaders()
 
-      // Fetch project data from backend
       const projectResponse = await fetchApi(`/api/v2/projects/${encodeURIComponent(projectId)}`, {
         method: 'GET',
         headers: {
@@ -544,7 +538,6 @@ export function useProject(projectId: string | null) {
       const targetChapters = foundProject.settings?.target_chapters || 25
       const wordsPerChapter = foundProject.settings?.word_count_per_chapter || 3800
 
-      // Format project using backend progress data
       const formattedProject: Project = {
         id: foundProject.id,
         metadata: {
@@ -609,29 +602,31 @@ export function useProject(projectId: string | null) {
       setLoading(false)
       hasLoadedOnce.current = true
     }
-  }, [projectId, getAuthHeaders, isLoaded, isSignedIn, userId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, isLoaded, isSignedIn, userId])
+
+  const fetchProjectRef = useRef(fetchProject)
+  fetchProjectRef.current = fetchProject
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | undefined
     let isPageVisible = !document.hidden
 
-    fetchProject()
+    fetchProjectRef.current()
     
-    // Set up polling for real-time updates with visibility check
     const startPolling = () => {
       if (intervalId) clearInterval(intervalId)
       intervalId = setInterval(() => {
         if (isPageVisible) {
-          fetchProject()
+          fetchProjectRef.current()
         }
       }, POLLING_INTERVALS.projects)
     }
 
     startPolling()
 
-    // Handle visibility changes (with throttling)
     let lastRefreshTime = 0
-    const REFRESH_COOLDOWN = 30000 // 30 seconds cooldown
+    const REFRESH_COOLDOWN = 30000
     
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden
@@ -639,9 +634,9 @@ export function useProject(projectId: string | null) {
         const now = Date.now()
         if (now - lastRefreshTime > REFRESH_COOLDOWN) {
           lastRefreshTime = now
-          fetchProject()
+          fetchProjectRef.current()
         }
-        startPolling() // Always restart polling
+        startPolling()
       }
     }
 
@@ -651,7 +646,7 @@ export function useProject(projectId: string | null) {
       if (intervalId) clearInterval(intervalId)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [fetchProject])
+  }, [projectId, isLoaded, isSignedIn])
 
   return {
     project,

@@ -1130,6 +1130,13 @@ async def expand_beat(
         "After the opening beat establishes the scene, subsequent beats should focus on "
         "CHARACTER ACTION, DIALOGUE, and THOUGHT. Setting details should be brief and "
         "woven into action, not standalone paragraphs of observation.\n"
+        "- DESCRIPTIVE ACTION DISCIPLINE: When describing a recurring activity (typing, "
+        "scanning screens, checking instruments, riding, fighting, cooking, etc.), vary the "
+        "VERBS and DETAILS each time. If a character has already 'typed' or 'scrolled' or "
+        "'checked the screen' in this chapter, use DIFFERENT actions next time — reading "
+        "specific text, reacting to a result, speaking about what they see. Do NOT describe "
+        "the same physical action (fingers on keys, eyes on screen, hands on controls) more "
+        "than twice per chapter. Show the RESULT or CONSEQUENCE, not the action itself.\n"
         "- Use proper nouns exactly as they appear in the entity registry.\n"
         "- Ground each scene in at least one sensory detail from the world reference.\n"
         "- GESTURE BUDGET: Default is 3 physical gestures for the ENTIRE chapter (nod, sigh, "
@@ -1151,6 +1158,12 @@ async def expand_beat(
         "temperature, light quality) that appeared in earlier beats. Each beat needs a NEW "
         "sensory detail from a DIFFERENT sense. If earlier beats used sound, use smell or "
         "touch. Never write 'the air felt' or 'the hum of' if those phrases appeared before.\n"
+        "- VOCABULARY FRESHNESS: Track which adjectives and verbs you've already used in this "
+        "chapter. Do NOT reuse: 'sharp', 'faint', 'steady', 'thin', 'flat', 'tight', 'clipped' "
+        "more than ONCE each per chapter. These are the most common LLM default modifiers. "
+        "After one use, find a SPECIFIC alternative (not another generic modifier — a detail "
+        "unique to this moment). 'His voice was sharp' once is fine. Twice is lazy. Use the "
+        "character's actual words or silence to convey tone instead.\n"
         "- SENSORY BALANCE: Default maximum of 2 references to any SINGLE sense per chapter "
         "(e.g. max 2 smell references, max 2 sound references). Rotate across all five "
         "senses. No specific sensory detail (a particular smell, a particular sound) should "
@@ -1536,15 +1549,16 @@ def _scan_within_chapter_repetition(accumulated_text: str) -> str:
         "half", "felt", "keep", "kept", "last", "next", "same",
     })
     flagged = 0
-    for word, count in word_counts.most_common(15):
-        if flagged >= 6:
+    # Scan top 30 words (not just 15) to catch crutch words that aren't
+    # the most frequent but still repeat too much. Flag at 3+ for short
+    # texts, but use a proportional threshold for longer texts.
+    proportional_threshold = max(3, total_words // 400)
+    for word, count in word_counts.most_common(30):
+        if flagged >= 8:
             break
         if word in _STOPWORDS or word in capitalized_words or word in _HIGH_FREQ_PROSE:
             continue
-        # 4+ char words flagged at 3+ (catches nodded, sighed, shifted, clipboard, etc.)
-        # 3-char words flagged at 3+ (catches cup, mug, pen, gun)
-        threshold = 3
-        if count >= threshold:
+        if count >= proportional_threshold:
             warnings.append(f'word "{word}" ({count}x — find alternatives or omit)')
             flagged += 1
 
@@ -1723,6 +1737,18 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
          "kept his voice/face even/flat/steady"),
         (r'(?:he|she)\s+(?:thought|wondered)\s+(?:about|of|how|if|whether)',
          "He thought/wondered about"),
+        # Voice-action crutch: "voice cut/dropped/came/stayed/sounded"
+        (r'(?:his|her|their)\s+voice\s+(?:was|stayed|came|cut|dropped|sounded|cracked|'
+         r'broke|went|turned|dipped|rose|carried|rang|echoed)',
+         "his/her voice [verb]"),
+        # Fingers-action crutch: "fingers hovered/moved/flew"
+        (r'fingers?\s+(?:hovered|moved|flew|slipped|tapped|trembled|curled|tightened|'
+         r'froze|paused|raced|danced|drummed|traced)',
+         "fingers [verb]"),
+        # Flicker/pulse crutch: screens and lights that flicker/pulse
+        (r'(?:screen|monitor|display|overlay|light|icon|status|cursor|interface)\s+'
+         r'(?:flickered|pulsed|blinked|glowed|flashed|stuttered|shimmered|glitched)',
+         "screen/light flickered/pulsed"),
     ]
     crutch_issues = []
     for pattern, label in construction_patterns:
@@ -1742,6 +1768,11 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
         r'(?:hum|drone|clang|clatter|rattle|buzz|whir|thud|scrape|creak|'
         r'click|snap|bang|slam|rumble|echo)\b', text_lower
     ))
+    # Visual-tech stacking: flickered/pulsed/glowed/blinked (common in tech-focused narratives)
+    visual_flicker_words = len(re.findall(
+        r'(?:flickered|flickering|pulsed|pulsing|blinked|blinking|glowed|glowing|'
+        r'flashed|flashing|stuttered|stuttering|shimmered|glitched)\b', text_lower
+    ))
     if smell_words >= 6:
         issues.append(
             f"SENSORY IMBALANCE: Smell references ({smell_words}x) dominate — "
@@ -1751,6 +1782,12 @@ def _build_chapter_repetition_report(chapter_text: str) -> str:
         issues.append(
             f"SENSORY IMBALANCE: Sound references ({sound_words}x) dominate — "
             f"cut to 4 max, vary with other senses"
+        )
+    if visual_flicker_words >= 6:
+        issues.append(
+            f"VISUAL MONOTONY: Flicker/pulse/glow references ({visual_flicker_words}x) — "
+            f"cut to 3 max. Vary with specific visual details (color, shape, text content) "
+            f"instead of repeating the same motion verb"
         )
 
     return "\n".join(issues) if issues else ""

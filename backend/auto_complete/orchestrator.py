@@ -5083,11 +5083,19 @@ class AutoCompleteBookOrchestrator:
                 continue
             avg_per_chapter = total / ch_count
             spread_ratio = ch_count / total_chapters_written
-            # Flag if: heavy per-chapter use (avg 1.5+)
-            # OR: wide spread across 40%+ of chapters (catches 1x-per-chapter tics)
-            #     but only for 4+ word phrases (avoids flagging common 3-word patterns)
-            is_heavy = avg_per_chapter >= 1.5
-            is_widespread = spread_ratio >= 0.4 and len(phrase.split()) >= 4
+            phrase_len = len(phrase.split())
+            # Flag if: heavy per-chapter use (avg 1.3+)
+            # OR: wide spread across chapters (catches 1x-per-chapter tics)
+            # For 3-word phrases: 50%+ spread. For 4+ word: 40%+ spread.
+            # For 2-word phrases: only flag at 60%+ spread (to avoid false positives
+            # on common bigrams) OR high avg (1.3+)
+            is_heavy = avg_per_chapter >= 1.3
+            if phrase_len >= 4:
+                is_widespread = spread_ratio >= 0.4
+            elif phrase_len == 3:
+                is_widespread = spread_ratio >= 0.5
+            else:
+                is_widespread = spread_ratio >= 0.6
             if not is_heavy and not is_widespread:
                 continue
             results.append({

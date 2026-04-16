@@ -457,6 +457,7 @@ try:
         prewriting_v2 = None
         publish_v2 = None
         credits_v2 = None
+        audiobook_v2 = None
 
         try:
             projects_v2 = importlib.import_module("backend.routers.projects_v2")
@@ -497,6 +498,11 @@ try:
             logger.info("✅ credits_v2 imported via backend.* path")
         except Exception as e:
             logger.warning(f"credits_v2 import via backend.* failed: {e}")
+        try:
+            audiobook_v2 = importlib.import_module("backend.routers.audiobook_v2")
+            logger.info("✅ audiobook_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"audiobook_v2 import via backend.* failed: {e}")
 
         # If any core router is still None, fall back to relative imports
         if not (projects_v2 and chapters_v2 and users_v2 and auth_v2):
@@ -802,7 +808,22 @@ try:
         
     if credits_v2:
         app.include_router(credits_v2.router)
-        
+
+    if audiobook_v2:
+        app.include_router(audiobook_v2.router)
+        logger.info("✅ audiobook_v2 router included")
+
+    # Mobile reader/player API
+    try:
+        try:
+            from backend.routers import mobile_v2
+        except Exception:
+            import routers.mobile_v2 as mobile_v2
+        app.include_router(mobile_v2.router)
+        logger.info("✅ mobile_v2 router included")
+    except Exception as e_mobile:
+        logger.warning(f"mobile_v2 router unavailable: {e_mobile}")
+
     # Log router status
     included_routers = []
     if projects_v2: included_routers.append('projects_v2')
@@ -812,7 +833,9 @@ try:
     if prewriting_v2: included_routers.append('prewriting_v2')
     if publish_v2: included_routers.append('publish_v2')
     if credits_v2: included_routers.append('credits_v2')
-        
+    if audiobook_v2: included_routers.append('audiobook_v2')
+    included_routers.append('mobile_v2')
+
     logger.info(f"✅ Routers included successfully: {', '.join(included_routers)}")
 except Exception as e:
     logger.error(f"❌ CRITICAL: Failed to include routers: {e}")

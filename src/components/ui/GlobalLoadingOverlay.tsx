@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useGlobalLoaderStore } from '@/stores/useGlobalLoaderStore'
+import { lockScroll, unlockScroll } from '@/lib/scroll-lock'
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -69,9 +70,8 @@ export function GlobalLoadingOverlay() {
 
   useEffect(() => {
     if (!isVisible || minimized) return
-    const original = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = original }
+    lockScroll()
+    return () => { unlockScroll() }
   }, [isVisible, minimized])
 
   if (!isVisible) return null

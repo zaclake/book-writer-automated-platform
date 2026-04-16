@@ -382,6 +382,7 @@ export default function ReferenceReviewPage() {
   const [activeTab, setActiveTab] = useState(REFERENCE_TABS[0].id)
   const [files, setFiles] = useState<Record<string, ReferenceFile>>({})
   const [loading, setLoading] = useState(false)
+  const hasLoadedOnce = useRef(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editableSections, setEditableSections] = useState<Array<ParsedSection & { text: string }>>([])
   const [aiEditOpen, setAiEditOpen] = useState(false)
@@ -409,9 +410,9 @@ export default function ReferenceReviewPage() {
   const [rewriteSubmitting, setRewriteSubmitting] = useState(false)
   const [rewriteSourceEntry, setRewriteSourceEntry] = useState<CanonLogEntry | null>(null)
 
-  // Reset hasLoaded when projectId changes
   useEffect(() => {
     setHasLoaded(false)
+    hasLoadedOnce.current = false
   }, [projectId])
 
   useEffect(() => {
@@ -449,7 +450,9 @@ export default function ReferenceReviewPage() {
   }, [])
 
   const loadReferenceFiles = async () => {
-    setLoading(true)
+    if (!hasLoadedOnce.current) {
+      setLoading(true)
+    }
     const filesData: Record<string, ReferenceFile> = {}
 
     const normalizeFilename = (name: string) => (name.endsWith('.md') ? name : `${name}.md`)
@@ -558,6 +561,7 @@ export default function ReferenceReviewPage() {
       setStatus('❌ Failed to load reference files')
     } finally {
       setLoading(false)
+      hasLoadedOnce.current = true
     }
   }
 
@@ -1166,17 +1170,19 @@ export default function ReferenceReviewPage() {
     </div>
   )
 
-  if (loading) {
+  if (loading && !hasLoadedOnce.current) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-            <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-            <div className="h-64 bg-gray-200 rounded"></div>
+      <ProjectLayout projectId={actualProjectId || rawProjectId} projectTitle={projectTitle}>
+        <div className="min-h-screen bg-gray-50 p-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="animate-pulse space-y-4">
+              <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+              <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+              <div className="h-64 bg-gray-200 rounded"></div>
+            </div>
           </div>
         </div>
-      </div>
+      </ProjectLayout>
     )
   }
 

@@ -78,6 +78,17 @@ export function ProjectNavigation({ projectTitle, className = '' }: ProjectNavig
 
   const projectList = useMemo(() => projects || [], [projects])
 
+  const resolvedTitle = useMemo(() => {
+    if (projectTitle) return projectTitle
+    const match = projectList.find((p: any) => p.id === projectId)
+    if (match?.metadata?.title) return match.metadata.title
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem(`projectTitle-${projectId}`)
+      if (cached) return cached
+    }
+    return 'Project'
+  }, [projectTitle, projectList, projectId])
+
   const navigationItems: NavigationItem[] = useMemo(() => [
     { id: 'overview', label: 'Overview', href: `/project/${projectId}/overview`, icon: HomeIcon, description: 'Project dashboard and progress' },
     { id: 'chapters', label: 'Chapters', href: `/project/${projectId}/chapters`, icon: DocumentTextIcon, description: 'Write and manage chapters' },
@@ -118,7 +129,7 @@ export function ProjectNavigation({ projectTitle, className = '' }: ProjectNavig
             </button>
             <span className="hidden sm:inline text-gray-300 shrink-0">/</span>
             <div className="text-gray-900 font-bold truncate text-sm sm:text-base min-w-0 max-w-[40vw]">
-              {projectTitle || 'Project'}
+              {resolvedTitle}
             </div>
             {projectList.length > 1 && (
               <div className="hidden md:flex items-center gap-2 min-w-0">

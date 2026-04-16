@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 const SESSION_COOKIE = 'user_session'
 const USER_ID_COOKIE = 'user_id'
@@ -70,16 +70,19 @@ export function useAuthToken() {
     }
   }, [])
 
-  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  const tokenRef = useRef(token)
+  tokenRef.current = token
+
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const currentToken = getClientSessionToken()
-    if (currentToken && currentToken !== token) {
+    if (currentToken && currentToken !== tokenRef.current) {
       setToken(currentToken)
     }
     if (!currentToken) {
       return {}
     }
     return { Authorization: `Bearer ${currentToken}` }
-  }
+  }, [])
 
   return {
     getAuthHeaders,

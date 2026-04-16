@@ -71,6 +71,12 @@ class PricingRegistry:
             },
             'replicate': {
                 'stable-diffusion-3': ModelPricing('replicate', 'stable-diffusion-3', job_usd=0.02)
+            },
+            'elevenlabs': {
+                'eleven_multilingual_v2': ModelPricing('elevenlabs', 'eleven_multilingual_v2', input_usd_per_1k=0.10, output_usd_per_1k=0.0),
+                'eleven_v3': ModelPricing('elevenlabs', 'eleven_v3', input_usd_per_1k=0.10, output_usd_per_1k=0.0),
+                'eleven_flash_v2_5': ModelPricing('elevenlabs', 'eleven_flash_v2_5', input_usd_per_1k=0.05, output_usd_per_1k=0.0),
+                'eleven_turbo_v2_5': ModelPricing('elevenlabs', 'eleven_turbo_v2_5', input_usd_per_1k=0.05, output_usd_per_1k=0.0),
             }
         }
         

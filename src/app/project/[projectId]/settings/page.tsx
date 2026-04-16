@@ -99,19 +99,24 @@ export default function ProjectSettingsPage() {
     updateField(key as keyof SettingsFormState, safeValue as SettingsFormState[keyof SettingsFormState])
   }
 
+  const isDirtyRef = useRef(isDirty)
+  isDirtyRef.current = isDirty
+  const isSavingRef = useRef(isSaving)
+  isSavingRef.current = isSaving
+  const handleSaveRef = useRef<() => void>(() => {})
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        if (isDirty && !isSaving) {
-          handleSave()
+        if (isDirtyRef.current && !isSavingRef.current) {
+          handleSaveRef.current()
         }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, isSaving, formState])
+  }, [])
 
   const handleSave = async () => {
     if (isSaving) return
@@ -173,6 +178,7 @@ export default function ProjectSettingsPage() {
       setIsSaving(false)
     }
   }
+  handleSaveRef.current = handleSave
 
   return (
     <ProjectLayout 

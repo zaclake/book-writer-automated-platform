@@ -16,6 +16,7 @@ RUN apt-get update -o Acquire::Retries=5 \
        texlive-fonts-recommended \
        lmodern \
        ca-certificates \
+       ffmpeg \
        --option Acquire::Retries=5 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

@@ -208,8 +208,15 @@ export function CoverArtGenerator({ projectId }: CoverArtGeneratorProps) {
   const [error, setError] = useState<string | null>(null)
   const [includeTitle, setIncludeTitle] = useState(true)
   const [includeAuthor, setIncludeAuthor] = useState(true)
-  const [titleText, setTitleText] = useState('')
-  const [authorText, setAuthorText] = useState('')
+  const [titleText, setTitleText] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(`projectTitle-${projectId}`) || ''
+    }
+    return ''
+  })
+  const [authorText, setAuthorText] = useState(() => {
+    return user?.fullName || ''
+  })
   const [coverArtCacheBuster, setCoverArtCacheBuster] = useState<number | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [generationStage, setGenerationStage] = useState(0)

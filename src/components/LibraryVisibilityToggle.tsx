@@ -37,16 +37,18 @@ export default function LibraryVisibilityToggle({ projectId, current, onUpdated 
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 text-xs" onClick={e => e.stopPropagation()}>
       <span className="text-gray-600">Visibility:</span>
       {(['private','public'] as Visibility[]).map(opt => (
         <button
           key={opt}
           disabled={loading}
           className={`px-2 py-1 rounded border ${value===opt ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 hover:bg-gray-50'}`}
-          onClick={() => update(opt)}
+          onClick={(e) => { e.stopPropagation(); update(opt) }}
         >{opt}</button>
       ))}
+      {loading && <span className="text-gray-400 ml-1">Saving…</span>}
+      {!loading && value === 'public' && <span className="text-green-600 ml-1">✓ Live</span>}
       {error && <span className="text-red-600 ml-2">{error}</span>}
     </div>
   )
