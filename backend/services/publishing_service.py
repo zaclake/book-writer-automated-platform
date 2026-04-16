@@ -121,7 +121,7 @@ class PublishingService:
                             image = background
                         elif image.mode != "RGB":
                             image = image.convert("RGB")
-                        image.save(target_file, format="JPEG", quality=92, optimize=True)
+                        image.save(target_file, format="JPEG", quality=92, optimize=True, dpi=(300, 300))
                         self.logger.info(f"Normalized cover art to JPEG at {target_file} (source {content_type})")
                         return target_file
                     except Exception as pil_err:
@@ -863,7 +863,6 @@ class PublishingService:
             "--output", str(output_file),
             "--metadata-file", str(metadata_file),
             "--pdf-engine", "xelatex",
-            "--number-sections",
             "--top-level-division", "chapter",
             "--standalone",
             "--variable", "fontsize=11pt",
@@ -875,7 +874,7 @@ class PublishingService:
             "--variable", "colorlinks=false",
             "--variable", "links-as-notes=true",
             "--variable", "indent=true",
-            "--variable", "header-includes=\\usepackage{graphicx}",
+            "--variable", "header-includes=\\usepackage{graphicx}\\usepackage{emptypage}",
         ]
         
         if config.include_toc:
@@ -970,11 +969,13 @@ class PublishingService:
             "--output", str(output_file),
             "--pdf-engine", "xelatex",
             "--standalone",
+            "--listings",
             "--variable", "fontsize=11pt",
             "--variable", "linestretch=1.2",
             "--variable", "documentclass=article",
             "--variable", "colorlinks=false",
             "--variable", "links-as-notes=true",
+            "--variable", "header-includes=\\usepackage{listings}\\lstset{breaklines=true,breakatwhitespace=true,basicstyle=\\ttfamily\\small,frame=single,columns=fullflexible}",
         ]
 
         result = await asyncio.create_subprocess_exec(
