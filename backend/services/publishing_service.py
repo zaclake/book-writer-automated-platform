@@ -874,7 +874,8 @@ class PublishingService:
             "--variable", "babel-lang=english",
             "--variable", "colorlinks=false",
             "--variable", "links-as-notes=true",
-            "--variable", "indent=true"
+            "--variable", "indent=true",
+            "--variable", "header-includes=\\usepackage{graphicx}",
         ]
         
         if config.include_toc:
