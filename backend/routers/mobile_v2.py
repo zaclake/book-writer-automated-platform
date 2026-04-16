@@ -279,7 +279,10 @@ async def get_mobile_library(current_user: dict = Depends(get_current_user)):
         # Audiobook
         audiobook = await _get_latest_audiobook(project_id)
         has_audiobook = audiobook is not None
-        audiobook_url = audiobook.get('full_book_url') if audiobook else None
+        audiobook_url = None
+        if audiobook:
+            ab_result = audiobook.get('result') or {}
+            audiobook_url = ab_result.get('full_book_url') or audiobook.get('full_book_url')
 
         # Progress
         reading, listening = _get_progress(client, user_id, project_id)
@@ -354,7 +357,7 @@ async def get_mobile_library(current_user: dict = Depends(get_current_user)):
                     word_count=pub_word_count,
                     cover_art_url=pub_cover,
                     has_audiobook=pub_audiobook is not None,
-                    audiobook_url=pub_audiobook.get("full_book_url") if pub_audiobook else None,
+                    audiobook_url=(pub_audiobook.get("result") or {}).get("full_book_url") or pub_audiobook.get("full_book_url") if pub_audiobook else None,
                     updated_at=pub_updated,
                     reading_progress=pub_progress_r,
                     listening_progress=pub_progress_l,
@@ -436,7 +439,9 @@ async def get_mobile_audiobook_info(
         logger.warning(f"Mobile audiobook: no completed audiobook job found for project {project_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No audiobook found")
 
-    chapter_urls_raw = audiobook.get('chapter_urls') or {}
+    # chapter_urls and full_book_url may be at top level or nested under "result"
+    result = audiobook.get('result') or {}
+    chapter_urls_raw = result.get('chapter_urls') or audiobook.get('chapter_urls') or {}
     chapter_urls: Dict[int, str] = {}
     for k, v in chapter_urls_raw.items():
         try:
@@ -445,12 +450,15 @@ async def get_mobile_audiobook_info(
             logger.debug(f"Skipping non-numeric chapter_url key: {k}")
             continue
 
+    full_book_url = result.get('full_book_url') or audiobook.get('full_book_url')
+    total_duration = result.get('total_duration_seconds') or audiobook.get('total_duration_seconds')
+
     return AudiobookInfoResponse(
         job_id=audiobook.get('job_id', ''),
         status=audiobook.get('status', 'completed'),
         chapter_urls=chapter_urls,
-        full_book_url=audiobook.get('full_book_url'),
-        total_duration_seconds=audiobook.get('total_duration_seconds'),
+        full_book_url=full_book_url,
+        total_duration_seconds=total_duration,
         chapter_count=len(chapter_urls),
     )
 
