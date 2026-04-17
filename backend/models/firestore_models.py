@@ -532,6 +532,8 @@ class AudiobookConfig(BaseModel):
     elevenlabs_api_key: Optional[str] = Field(
         None, description="User-provided ElevenLabs API key (BYOK); if None, platform key is used"
     )
+    book_title: Optional[str] = Field(None, description="Book title for spoken announcement at start")
+    author_name: Optional[str] = Field(None, description="Author name for spoken announcement at start")
 
 class AudiobookJobStatus(str, Enum):
     """Audiobook generation job status."""

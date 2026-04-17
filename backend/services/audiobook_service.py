@@ -120,7 +120,7 @@ CURATED_VOICES = [
     },
     {
         "id": "EXAVITQu4vr4xnSDxMaL",
-        "name": "Bella",
+        "name": "Sarah",
         "gender": "female",
         "description": "Soft, expressive American female. Great for literary fiction.",
         "accent": "American",
@@ -189,6 +189,199 @@ CURATED_VOICES = [
         "description": "Natural Australian male. Relaxed and approachable.",
         "accent": "Australian",
         "style": "conversational",
+    },
+    # ── Additional voices ───────────────────────────────────────────
+    {
+        "id": "nPczCjzI2devNBz1zQrb",
+        "name": "Brian",
+        "gender": "male",
+        "description": "Deep, resonant American male. Authoritative narrator.",
+        "accent": "American",
+        "style": "narrative",
+    },
+    {
+        "id": "pqHfZKP75CvOlQylNhV4",
+        "name": "Bill",
+        "gender": "male",
+        "description": "Strong, commanding American male. Documentary-style delivery.",
+        "accent": "American",
+        "style": "documentary",
+    },
+    {
+        "id": "JBFqnCBsd6RMkjVDRZzb",
+        "name": "George",
+        "gender": "male",
+        "description": "Raspy, warm British male. Classic storyteller voice.",
+        "accent": "British",
+        "style": "narrative",
+    },
+    {
+        "id": "TX3LPaxmHKxFdv7VOQHJ",
+        "name": "Liam",
+        "gender": "male",
+        "description": "Young, smooth American male. Versatile narrator.",
+        "accent": "American",
+        "style": "narrative",
+    },
+    {
+        "id": "yoZ06aMxZJJ28mfd3POQ",
+        "name": "Sam",
+        "gender": "male",
+        "description": "Raspy, youthful American male. Edgy and distinctive.",
+        "accent": "American",
+        "style": "narrative",
+    },
+    {
+        "id": "bVMeCyTHy58xNoL34h3p",
+        "name": "Jeremy",
+        "gender": "male",
+        "description": "Energetic American-Irish male. Enthusiastic and engaging.",
+        "accent": "American-Irish",
+        "style": "narrative",
+    },
+    {
+        "id": "29vD33N1CtxCmqQRPOHJ",
+        "name": "Drew",
+        "gender": "male",
+        "description": "Well-rounded American male. Polished and professional.",
+        "accent": "American",
+        "style": "narrative",
+    },
+    {
+        "id": "Zlb1dXrM653N07WRdFW3",
+        "name": "Joseph",
+        "gender": "male",
+        "description": "Mature British male. Steady and composed.",
+        "accent": "British",
+        "style": "narrative",
+    },
+    {
+        "id": "ZQe5CZNOzWyzPSCn5a3c",
+        "name": "James",
+        "gender": "male",
+        "description": "Calm, seasoned Australian male. Wise and measured.",
+        "accent": "Australian",
+        "style": "narrative",
+    },
+    {
+        "id": "D38z5RcWu1voky8WS1ja",
+        "name": "Fin",
+        "gender": "male",
+        "description": "Weathered Irish male. Rich character voice for period fiction.",
+        "accent": "Irish",
+        "style": "character",
+    },
+    {
+        "id": "flq6f7yk4E4fJM5XTYuZ",
+        "name": "Michael",
+        "gender": "male",
+        "description": "Mature American male. Steady, reliable audiobook narrator.",
+        "accent": "American",
+        "style": "audiobook",
+    },
+    {
+        "id": "zcAOhNBS3c14rBihAFp1",
+        "name": "Giovanni",
+        "gender": "male",
+        "description": "Italian-accented English male. Distinctive and charming.",
+        "accent": "Italian-English",
+        "style": "audiobook",
+    },
+    {
+        "id": "iP95p4xoKVk53GoZ742B",
+        "name": "Chris",
+        "gender": "male",
+        "description": "Casual, friendly American male. Natural and easy-going.",
+        "accent": "American",
+        "style": "conversational",
+    },
+    {
+        "id": "Xb7hH8MSUJpSbSDYk0k2",
+        "name": "Alice",
+        "gender": "female",
+        "description": "Confident, polished British female. Clear and authoritative.",
+        "accent": "British",
+        "style": "narrative",
+    },
+    {
+        "id": "pFZP5JQG7iQjIQuC4Bku",
+        "name": "Lily",
+        "gender": "female",
+        "description": "Raspy, textured British female. Atmospheric and moody.",
+        "accent": "British",
+        "style": "narrative",
+    },
+    {
+        "id": "XrExE9yKIg1WjnnlVkGX",
+        "name": "Matilda",
+        "gender": "female",
+        "description": "Warm, inviting young American female. Perfect for audiobooks.",
+        "accent": "American",
+        "style": "audiobook",
+    },
+    {
+        "id": "oWAxZDx7w5VEj9dCyTzz",
+        "name": "Grace",
+        "gender": "female",
+        "description": "Young American-Southern female. Gentle and soothing.",
+        "accent": "American-Southern",
+        "style": "audiobook",
+    },
+    {
+        "id": "piTKgcLEGmPE4e6mEKli",
+        "name": "Nicole",
+        "gender": "female",
+        "description": "Soft, whispery American female. Intimate and captivating.",
+        "accent": "American",
+        "style": "audiobook",
+    },
+    {
+        "id": "jsCqWAovK2LkecY7zXl4",
+        "name": "Freya",
+        "gender": "female",
+        "description": "Versatile young American female. Bright and adaptable.",
+        "accent": "American",
+        "style": "narrative",
+    },
+    {
+        "id": "ThT5KcBeYPX3keUQqHPh",
+        "name": "Dorothy",
+        "gender": "female",
+        "description": "Pleasant young British female. Great for children's and YA.",
+        "accent": "British",
+        "style": "narrative",
+    },
+    {
+        "id": "pMsXgVXv3BLzUgSXRplE",
+        "name": "Serena",
+        "gender": "female",
+        "description": "Pleasant, approachable American female. Clear and friendly.",
+        "accent": "American",
+        "style": "conversational",
+    },
+    {
+        "id": "LcfcDJNUP1GQjkzn1xUU",
+        "name": "Emily",
+        "gender": "female",
+        "description": "Calm, serene young American female. Smooth and relaxing.",
+        "accent": "American",
+        "style": "literary",
+    },
+    {
+        "id": "z9fAnlkpzviPz146aGWa",
+        "name": "Glinda",
+        "gender": "female",
+        "description": "Distinctive American female. Bold character voice for fantasy.",
+        "accent": "American",
+        "style": "character",
+    },
+    {
+        "id": "5Q0t7uMcjvnagumLfvZi",
+        "name": "Paul",
+        "gender": "male",
+        "description": "Ground reporter American male. Direct and informative.",
+        "accent": "American",
+        "style": "narrative",
     },
 ]
 
@@ -351,6 +544,8 @@ class AudiobookService:
         voice_id = config.get("voice_id")
         model_id = config.get("model_id", DEFAULT_MODEL)
         glossary = config.get("pronunciation_glossary", [])
+        book_title = config.get("book_title", "")
+        author_name = config.get("author_name", "")
 
         if not voice_id:
             raise ValueError("voice_id is required")
@@ -362,6 +557,21 @@ class AudiobookService:
         total_chars = 0
         job_id = config.get("job_id", project_id)
         completed = completed_chapters or {}
+        title_announcement_audio: Optional[bytes] = None
+
+        # Generate title/author announcement clip for the full book intro
+        if book_title:
+            announcement_parts = [book_title.strip().rstrip('.') + '.']
+            if author_name:
+                announcement_parts.append(f"By {author_name.strip().rstrip('.')}.")
+            announcement_text = ' '.join(announcement_parts) + ' <break time="3s"/>'
+            try:
+                title_announcement_audio = await self._tts_call_with_retry(
+                    announcement_text, voice_id, model_id
+                )
+                logger.info(f"Generated title announcement: {len(title_announcement_audio)} bytes")
+            except Exception as e:
+                logger.warning(f"Failed to generate title announcement, skipping: {e}")
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             for idx, chapter in enumerate(chapters):
@@ -461,6 +671,8 @@ class AudiobookService:
                 await progress_callback("concatenating", total_chapters, total_chapters, 95.0, chapter_urls)
 
             all_chapter_bytes = [audio for _, audio in chapter_audio_segments]
+            if title_announcement_audio:
+                all_chapter_bytes = [title_announcement_audio] + all_chapter_bytes
             full_book_mp3 = self._concatenate_mp3(all_chapter_bytes)
 
             # Upload full book

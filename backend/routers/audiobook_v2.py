@@ -393,6 +393,9 @@ async def resume_audiobook_job(
                 for e in (config.pronunciation_glossary or [])
             ]
             config_dict["pronunciation_glossary"] = glossary_dicts
+            r_metadata = project_data.get("metadata", {})
+            config_dict["book_title"] = config.book_title or r_metadata.get("title", "")
+            config_dict["author_name"] = config.author_name or r_metadata.get("owner_display_name", "")
 
             try:
                 result = await service.generate_audiobook(
@@ -597,6 +600,9 @@ async def start_audiobook_job(
                 for e in (config.pronunciation_glossary or [])
             ]
             config_dict["pronunciation_glossary"] = glossary_dicts
+            metadata = project_data.get("metadata", {})
+            config_dict["book_title"] = config.book_title or metadata.get("title", "")
+            config_dict["author_name"] = config.author_name or metadata.get("owner_display_name", "")
 
             try:
                 result = await service.generate_audiobook(

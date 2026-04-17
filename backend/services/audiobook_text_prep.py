@@ -96,54 +96,96 @@ def convert_scene_breaks(text: str) -> str:
     return result
 
 
-def _strip_redundant_chapter_heading(text: str, chapter_number: int) -> str:
-    """Remove the first line if it's a chapter heading that duplicates the announcement.
+_NUMBER_WORDS = {
+    1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five',
+    6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten',
+    11: 'eleven', 12: 'twelve', 13: 'thirteen', 14: 'fourteen',
+    15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen',
+    19: 'nineteen', 20: 'twenty',
+    21: 'twenty-one', 22: 'twenty-two', 23: 'twenty-three',
+    24: 'twenty-four', 25: 'twenty-five', 26: 'twenty-six',
+    27: 'twenty-seven', 28: 'twenty-eight', 29: 'twenty-nine', 30: 'thirty',
+}
 
-    Matches patterns like:
-      "Chapter 1: Title", "Chapter 1 - Title", "Chapter 1. Title",
-      "Chapter One", "CHAPTER 1", "1. Title", "1 - Title", bare "Chapter 1"
+
+def _clean_chapter_title(title: str, chapter_number: int) -> str:
+    """Strip redundant 'Chapter N:' prefix from a title string.
+
+    Examples:
+      "Chapter 1: The Beginning" -> "The Beginning"
+      "Chapter One - Dawn"       -> "Dawn"
+      "1. The Beginning"         -> "The Beginning"
+      "The Beginning"            -> "The Beginning"  (no change)
     """
-    lines = text.lstrip('\n').split('\n', 1)
-    if not lines:
+    if not title or not title.strip():
+        return ""
+    cleaned = title.strip()
+    cleaned_lower = cleaned.lower()
+
+    # "Chapter N: ...", "Chapter N - ...", "Chapter N. ..."
+    for prefix in [f"chapter {chapter_number}", f"chapter {_NUMBER_WORDS.get(chapter_number, '')}".rstrip()]:
+        if not prefix or not cleaned_lower.startswith(prefix):
+            continue
+        after = cleaned_lower[len(prefix):].lstrip()
+        if not after:
+            return ""
+        if after[0] in (':', '-', '.', ',', '—', '\u2014'):
+            return cleaned[len(prefix):].lstrip().lstrip(':-.,%s\u2014' % ' ').strip()
+
+    # "N: ...", "N. ...", "N - ..."
+    num_match = re.match(r'^' + str(chapter_number) + r'\s*[.\-:—]\s*', cleaned)
+    if num_match:
+        return cleaned[num_match.end():].strip()
+
+    return cleaned
+
+
+def _is_chapter_heading_line(line: str, chapter_number: int, cleaned_title: str) -> bool:
+    """Return True if the line looks like a chapter heading that would duplicate the announcement."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    lower = stripped.lower()
+
+    # "Chapter N" with optional separator + title
+    for prefix in [f"chapter {chapter_number}", f"chapter {_NUMBER_WORDS.get(chapter_number, '')}".rstrip()]:
+        if not prefix:
+            continue
+        if lower.startswith(prefix):
+            after = lower[len(prefix):].lstrip()
+            if not after or after[0] in (':', '-', '.', ',', '—', '\u2014'):
+                return True
+
+    # "N. Title", "N: Title", "N - Title"
+    if re.match(r'^' + str(chapter_number) + r'\s*[.\-:—]', stripped):
+        return True
+
+    # Exact match with the cleaned title (e.g. "The Beginning")
+    if cleaned_title and lower == cleaned_title.lower():
+        return True
+
+    return False
+
+
+def _strip_redundant_chapter_heading(text: str, chapter_number: int, cleaned_title: str = "") -> str:
+    """Remove the first non-blank line if it's a chapter heading that duplicates the announcement."""
+    if not text:
         return text
 
-    first_line = lines[0].strip()
-    if not first_line:
+    # Find the first non-blank line
+    all_lines = text.split('\n')
+    first_content_idx = -1
+    for i, line in enumerate(all_lines):
+        if line.strip():
+            first_content_idx = i
+            break
+
+    if first_content_idx < 0:
         return text
 
-    first_lower = first_line.lower()
-
-    # "Chapter N" or "Chapter N: ...", "Chapter N - ...", "CHAPTER N"
-    ch_prefix = f"chapter {chapter_number}"
-    if first_lower.startswith(ch_prefix):
-        rest_of_first = first_lower[len(ch_prefix):].lstrip()
-        if not rest_of_first or rest_of_first[0] in (':', '-', '.', ',', '—'):
-            return lines[1].lstrip('\n') if len(lines) > 1 else ''
-
-    # Written-out numbers for chapters 1-20
-    number_words = {
-        1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five',
-        6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten',
-        11: 'eleven', 12: 'twelve', 13: 'thirteen', 14: 'fourteen',
-        15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen',
-        19: 'nineteen', 20: 'twenty',
-    }
-    word = number_words.get(chapter_number)
-    if word:
-        word_prefix = f"chapter {word}"
-        if first_lower.startswith(word_prefix):
-            rest = first_lower[len(word_prefix):].lstrip()
-            if not rest or rest[0] in (':', '-', '.', ',', '—'):
-                return lines[1].lstrip('\n') if len(lines) > 1 else ''
-
-    # "1. Title" or "1 - Title" (bare number at start)
-    num_pattern = re.match(r'^' + str(chapter_number) + r'\s*[.\-:—]\s*', first_line)
-    if num_pattern:
-        remainder = first_line[num_pattern.end():].strip()
-        body = lines[1].lstrip('\n') if len(lines) > 1 else ''
-        if not remainder:
-            return body
-        return body
+    if _is_chapter_heading_line(all_lines[first_content_idx], chapter_number, cleaned_title):
+        remaining = all_lines[:first_content_idx] + all_lines[first_content_idx + 1:]
+        return '\n'.join(remaining).lstrip('\n')
 
     return text
 
@@ -151,13 +193,15 @@ def _strip_redundant_chapter_heading(text: str, chapter_number: int) -> str:
 def add_chapter_announcement(text: str, chapter_number: int, chapter_title: Optional[str] = None) -> str:
     """Prepend a spoken chapter announcement with a pause.
 
-    Also strips any redundant chapter heading from the body to avoid
-    the TTS reading "Chapter 1" twice.
+    Cleans the title to remove "Chapter N:" prefixes and strips any
+    redundant chapter heading from the body to avoid the TTS reading
+    "Chapter 1" twice.
     """
-    text = _strip_redundant_chapter_heading(text, chapter_number)
+    cleaned_title = _clean_chapter_title(chapter_title or "", chapter_number)
+    text = _strip_redundant_chapter_heading(text, chapter_number, cleaned_title)
 
-    if chapter_title and chapter_title.strip():
-        announcement = f"Chapter {chapter_number}. {chapter_title.strip()}."
+    if cleaned_title:
+        announcement = f"Chapter {chapter_number}. {cleaned_title}."
     else:
         announcement = f"Chapter {chapter_number}."
 
