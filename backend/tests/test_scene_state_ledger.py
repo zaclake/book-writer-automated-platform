@@ -180,6 +180,125 @@ def test_validate_handles_animal_sound_verbs_silently():
     assert warnings == [], warnings
 
 
+def test_validate_ignores_narration_without_quotes():
+    """Naked narration like 'Air hissed' must NOT be flagged as fabricated speaker.
+
+    Regression: prior regex made the quoted span optional and used IGNORECASE,
+    which caused noun-phrase + speech-verb constructions in pure narration
+    ('Air hissed', 'the wind answered', 'cooling fans whined') to fire as
+    ghost-speaker warnings. The validator now requires a real quoted span in
+    the same paragraph before considering any attribution.
+    """
+    plan = {"focal_characters": ["Maya"], "pov_character": "Maya"}
+    ledger = SceneStateLedger.from_chapter_plan(plan)
+    ledger.update_from_beat({"beat_number": 1, "characters_present": ["Maya"]}, "")
+
+    beat = {"beat_number": 2, "characters_present": ["Maya"]}
+    text = (
+        "Air hissed into the hush of Galileo Station. "
+        "The wind answered with its own thin music, and Maya kept walking. "
+        "Cooling fans whined behind the bulkhead, then settled. "
+        "Steam drifted off the clarifier."
+    )
+    warnings = ledger.validate_beat_speakers(text, beat)
+    assert warnings == [], warnings
+
+
+def test_validate_still_flags_real_fabricated_speaker():
+    """Even with the false-positive fix, a quoted line attributed to an unknown
+    character name must still produce a warning."""
+    plan = {"focal_characters": ["Ruth"], "pov_character": "Ruth"}
+    ledger = SceneStateLedger.from_chapter_plan(plan)
+    ledger.update_from_beat({"beat_number": 1, "characters_present": ["Ruth"]}, "")
+
+    beat = {"beat_number": 2, "characters_present": ["Ruth"]}
+    # 'Vernon' is not in the ledger and not in beat_chars — should warn.
+    text = '"Stop where you are," Vernon said from the doorway.'
+    warnings = ledger.validate_beat_speakers(text, beat)
+    assert any("Vernon" in w and "fabricated" in w.lower() for w in warnings), warnings
+
+
+def test_validate_handles_reverse_attribution_with_quote():
+    """`"Stop," said Maya.` must still be parseable when Maya is on stage
+    (no warning), and `"Stop," said Vernon.` (Vernon unknown) must warn."""
+    plan = {"focal_characters": ["Maya"], "pov_character": "Maya"}
+    ledger = SceneStateLedger.from_chapter_plan(plan)
+    ledger.update_from_beat({"beat_number": 1, "characters_present": ["Maya"]}, "")
+
+    beat = {"beat_number": 2, "characters_present": ["Maya"]}
+    clean = '"I will check the logs," said Maya, hands steady on the console.'
+    assert ledger.validate_beat_speakers(clean, beat) == []
+
+    dirty = '"You should not be here," said Vernon, voice flat.'
+    warnings = ledger.validate_beat_speakers(dirty, beat)
+    assert any("Vernon" in w for w in warnings), warnings
+
+
+def test_validate_skips_determiner_led_noun_phrases():
+    """`"Hello?" No one answered.` and `"Cut it," The fryer hissed.` must not
+    flag 'No one' or 'The fryer' as speakers — these are narration with the
+    speech verb attached to a determiner-led noun phrase, not real attributions.
+    """
+    plan = {"focal_characters": ["Nero"], "pov_character": "Nero"}
+    ledger = SceneStateLedger.from_chapter_plan(plan)
+    ledger.update_from_beat({"beat_number": 1, "characters_present": ["Nero"]}, "")
+
+    beat = {"beat_number": 2, "characters_present": ["Nero"]}
+    text = (
+        '"Hello?" Nero called into the dark of the plant. No one answered. '
+        '"Cut it," he muttered. The fryer hissed back from the corner kitchen, '
+        'angry and indifferent, before the breaker tripped and the room went dim.'
+    )
+    warnings = ledger.validate_beat_speakers(text, beat)
+    # "Nero called" is fine (Nero on stage). "No one answered" and "The fryer
+    # hissed" must NOT be flagged.
+    assert not any("No one" in w for w in warnings), warnings
+    assert not any("fryer" in w.lower() for w in warnings), warnings
+
+
+def test_validate_skips_adverb_second_word_misparses():
+    """`"X," Lou always said` and `"X," Mary suddenly added` must not flag
+    'Lou always' / 'Mary suddenly' as fabricated speakers — these are real
+    speakers (Lou / Mary) where the regex captured an adverb continuation."""
+    plan = {"focal_characters": ["Lou", "Mary"], "pov_character": "Lou"}
+    ledger = SceneStateLedger.from_chapter_plan(plan)
+    ledger.update_from_beat({"beat_number": 1, "characters_present": ["Lou", "Mary"]}, "")
+
+    beat = {"beat_number": 2, "characters_present": ["Lou", "Mary"]}
+    text = (
+        '"You stay close to the truck," Lou always said when the headlights came on. '
+        '"Not tonight," Mary suddenly answered, the words sharp.'
+    )
+    warnings = ledger.validate_beat_speakers(text, beat)
+    assert not any("Lou always" in w for w in warnings), warnings
+    assert not any("Mary suddenly" in w for w in warnings), warnings
+
+
+def test_validate_skips_calendar_personification():
+    """Months, weekdays, seasons, and similar capitalized-but-not-name common
+    nouns ('"X," October said' as personification) must NOT be flagged as
+    fabricated speakers. Real defect: literary-cycle1 ch2 beat 4 flagged
+    'October' because the model wrote `"...the harvest is late," October
+    said in its quiet, dry voice.`"""
+    plan = {"focal_characters": ["Ruth", "Mitch"], "pov_character": "Ruth"}
+    ledger = SceneStateLedger.from_chapter_plan(plan)
+    ledger.update_from_beat(
+        {"beat_number": 1, "characters_present": ["Ruth"]}, ""
+    )
+
+    beat = {"beat_number": 2, "characters_present": ["Ruth"]}
+    text = (
+        '"That\u2019s how it is," October said, in its quiet, dry voice.\n\n'
+        '"Slower than usual," Tuesday murmured, the wind agreeing.\n\n'
+        '"Wait for the rain," Autumn answered.\n\n'
+    )
+    warnings = ledger.validate_beat_speakers(text, beat)
+    for nope in ("October", "Tuesday", "Autumn"):
+        assert not any(nope in w for w in warnings), (
+            f"calendar/season name {nope} must not be flagged: {warnings}"
+        )
+
+
 # ───── expand_beat plumbing ─────
 
 

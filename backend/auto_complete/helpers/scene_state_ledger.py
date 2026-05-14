@@ -336,6 +336,11 @@ class SceneStateLedger:
         """Inspect the generated beat for animal-speak and ghost-speaker violations.
 
         Returns a list of human-readable warnings. Empty list = clean beat.
+
+        Detection rule: only flag a token as a "speaker" when it is the
+        attribution for an actual quoted dialogue span in the same paragraph.
+        Naked narration like ``Air hissed into the hush`` or ``the wind
+        answered`` does NOT count as dialogue and never triggers the warning.
         """
         if not beat_text:
             return []
@@ -347,57 +352,161 @@ class SceneStateLedger:
             if isinstance(c, str)
         }
 
-        # Find dialogue attributions: 'X said' / 'said X' / 'X asked' / etc.
-        # Single-letter character names (e.g., 'B') must match too — pronouns
-        # are filtered downstream by length checks and ledger membership.
-        attribution_re = re.compile(
-            r'(?:[\"\u201c][^\"\u201d]{2,}[\"\u201d]\s*[,.]?\s*)?'  # optional quoted span
-            r'\b([A-Z][a-zA-Z\-\']{0,30}(?:\s+[A-Z][a-zA-Z\-\']{0,30})?)\b'
-            r'\s+(said|asked|answered|replied|murmured|whispered|shouted|growled|barked|hissed|snarled|whined|meowed|purred|yelped|whinnied|neighed)\b',
+        # Speech verbs that legitimately tag a quoted line. Animal-coded
+        # verbs ('barked', 'hissed', etc.) are kept here because we still
+        # want to flag them when paired with an actual quote, but they're
+        # NEVER triggered by narration like "Air hissed".
+        _SPEECH_VERBS = (
+            "said|asked|answered|replied|murmured|whispered|shouted|"
+            "growled|barked|hissed|snarled|whined|meowed|purred|yelped|"
+            "whinnied|neighed"
+        )
+
+        # CASE-SENSITIVE speaker pattern: must start with a capital letter.
+        # The speaker token itself is matched without IGNORECASE so that
+        # "the wind answered" is rejected at parse time. Verb list is then
+        # matched separately so its alternatives still match in any case.
+        speaker_token_re = re.compile(
+            r"\b([A-Z][a-zA-Z\-']{0,30}(?:\s+[A-Z][a-zA-Z\-']{0,30})?)\s+"
+            r"(" + _SPEECH_VERBS + r")\b",
+            re.IGNORECASE,  # kept for the verb half; speaker still requires
+                            # an explicit capital due to the literal [A-Z].
+        )
+        # Reverse form: said + Speaker (e.g. `"Stop," said Maya.`)
+        reverse_speaker_re = re.compile(
+            r"\b(" + _SPEECH_VERBS + r")\s+([A-Z][a-zA-Z\-']{0,30}(?:\s+[A-Z][a-zA-Z\-']{0,30})?)\b",
             re.IGNORECASE,
         )
-        # Pronoun-shaped tokens that accidentally satisfy the [A-Z]... pattern.
-        # We can't catch case via regex alone (we use IGNORECASE for verbs), so
-        # filter explicitly by lowercased value.
-        _PRONOUN_TOKENS = {"i", "he", "she", "they", "we", "you", "it"}
+
+        # Pronoun-shaped tokens that accidentally satisfy the [A-Z]...
+        # pattern when they appear at sentence start (e.g. "She said").
+        # Common stop words that the model sometimes leads paragraphs with
+        # (and which would be capitalized after a period).
+        _PRONOUN_TOKENS = {
+            "i", "he", "she", "they", "we", "you", "it",
+            "his", "her", "him", "them", "their", "our", "my", "your",
+            "the", "a", "an", "this", "that", "these", "those",
+            "and", "but", "or", "if", "then", "when", "where", "why",
+            "what", "which", "who", "whom", "whose",
+            # Multi-word determiner-led noun phrases caught by the two-word
+            # speaker pattern (e.g., "No one answered", "The fryer hissed",
+            # "Lou always said" where the second token is an adverb, not a
+            # proper continuation of the speaker name).
+            "no one", "no body", "anyone", "someone", "everyone",
+            "nobody", "somebody", "everybody",
+        }
+        # First-word stop set — when the speaker phrase's FIRST token is one
+        # of these, the whole phrase is determiner-led (a noun phrase like
+        # "The fryer", "No one", "Some kid") rather than a proper name. We
+        # skip the speaker check rather than try to match the full phrase
+        # against _PRONOUN_TOKENS (the second word can be anything).
+        _DETERMINER_FIRST_WORDS = {
+            "the", "a", "an", "no", "any", "some", "every",
+            "this", "that", "these", "those",
+        }
+        # Second-word stop set — when the speaker phrase's SECOND token is
+        # an adverb/pronoun, the model has misattributed dialogue to "Lou
+        # always" / "Lou I" / "Mary suddenly" rather than to the speaker.
+        _ADVERB_SECOND_WORDS = {
+            "i", "he", "she", "they", "we", "you", "it",
+            "always", "never", "sometimes", "often", "just", "only",
+            "still", "already", "finally", "suddenly", "almost",
+            "barely", "nearly", "quickly", "slowly", "quietly",
+        }
+        # Common nouns that are capitalized in English but never speakers —
+        # months, weekdays, seasons, holidays. The regex finds patterns like
+        # `October said` where the model wrote "October said its quiet, dry
+        # word" as personification narration. These are not speakers.
+        _COMMON_NOUN_NAMES = {
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+            "monday", "tuesday", "wednesday", "thursday", "friday",
+            "saturday", "sunday",
+            "spring", "summer", "fall", "autumn", "winter",
+            "christmas", "easter", "thanksgiving", "halloween",
+            "god", "heaven", "hell", "earth", "moon", "sun",
+            "north", "south", "east", "west",
+        }
+        # Quoted-dialogue detector — straight or curly quotes, ≥2 chars.
+        _QUOTE_RE = re.compile(r"[\"\u201c][^\"\u201d\u201c]{2,}[\"\u201d]")
         seen: Set[str] = set()
-        for m in attribution_re.finditer(beat_text):
-            speaker_raw = m.group(1).strip()
-            verb = m.group(2).lower()
-            speaker_key = speaker_raw.lower()
-            if speaker_key in _PRONOUN_TOKENS:
-                continue
-            if speaker_key in seen:
-                continue
-            seen.add(speaker_key)
 
-            state = self._states.get(speaker_key)
-            if state and state.species in ("animal", "object"):
-                # Animal-coded verbs (barked, meowed, purred, growled when
-                # paired with 'said' is fine for humans; but pure speech verbs
-                # for an animal/object character are a problem).
-                if verb in {"said", "asked", "answered", "replied", "murmured", "whispered", "shouted"}:
-                    warnings.append(
-                        f"animal/object character '{state.name}' spoke human dialogue ('{verb}') — "
-                        f"render through sound or physical reaction instead."
-                    )
-                continue
+        # Split into paragraphs so each attribution is bounded by a real
+        # dialogue span in its own paragraph. This is the core fix for
+        # false positives like `Steam hissed.` (no quote → no flag).
+        paragraphs = re.split(r"\n\s*\n", beat_text)
+        for para in paragraphs:
+            if not _QUOTE_RE.search(para):
+                continue  # no quoted dialogue here → no attribution to check
 
-            # Ghost speaker: someone speaks who isn't in this beat's planned cast
-            # AND isn't a known character at all (likely a fabricated name).
-            if not state and speaker_key not in beat_chars:
-                # Skip very short capitalized words and pronoun-shaped tokens.
-                if len(speaker_raw) < 3:
+            # Collect (speaker_raw, verb) candidates from both directions.
+            candidates: List[tuple] = []
+            for m in speaker_token_re.finditer(para):
+                candidates.append((m.group(1).strip(), m.group(2).lower()))
+            for m in reverse_speaker_re.finditer(para):
+                candidates.append((m.group(2).strip(), m.group(1).lower()))
+
+            for speaker_raw, verb in candidates:
+                speaker_key = speaker_raw.lower()
+                if speaker_key in _PRONOUN_TOKENS:
                     continue
-                warnings.append(
-                    f"unknown speaker '{speaker_raw}' attributed dialogue ('{verb}') — "
-                    f"this name doesn't match any chapter character. Possible fabricated character."
-                )
-            elif state and not state.on_stage and speaker_key not in beat_chars:
-                warnings.append(
-                    f"off-stage character '{state.name}' produced dialogue without entering the scene — "
-                    f"add an entrance line or move dialogue to a character actually on stage."
-                )
+                # First word of the speaker phrase must literally start with
+                # a capital — protects against lowercased noun phrases that
+                # snuck through because IGNORECASE applies to the verb half.
+                tokens = speaker_raw.split()
+                first_word = tokens[0]
+                if not first_word or not first_word[0].isupper():
+                    continue
+                # Determiner-led noun phrases ("The fryer", "No one", "Some kid")
+                # are not speakers — they're narrative subjects that happen to
+                # precede a speech verb. Skip the whole phrase.
+                if first_word.lower() in _DETERMINER_FIRST_WORDS:
+                    continue
+                # Two-word speaker where the SECOND token is an adverb or
+                # pronoun ("Lou always", "Lou I", "Mary suddenly") is the
+                # model misparsing — the actual speaker is just "Lou" / "Mary"
+                # and the regex caught a continuation. Skip.
+                if len(tokens) >= 2 and tokens[1].lower() in _ADVERB_SECOND_WORDS:
+                    continue
+                # Single-word speakers that are actually months/weekdays/
+                # seasons/holidays — these are common-noun calendar terms
+                # the model uses in personification ("October said") rather
+                # than dialogue attributions. Skip.
+                if (
+                    len(tokens) == 1
+                    and first_word.lower() in _COMMON_NOUN_NAMES
+                ):
+                    continue
+                if speaker_key in seen:
+                    continue
+                seen.add(speaker_key)
+
+                state = self._states.get(speaker_key)
+                if state and state.species in ("animal", "object"):
+                    # Animal-coded verbs (barked, meowed, purred, growled when
+                    # paired with 'said' is fine for humans; but pure speech
+                    # verbs for an animal/object character are a problem).
+                    if verb in {"said", "asked", "answered", "replied", "murmured", "whispered", "shouted"}:
+                        warnings.append(
+                            f"animal/object character '{state.name}' spoke human dialogue ('{verb}') — "
+                            f"render through sound or physical reaction instead."
+                        )
+                    continue
+
+                # Ghost speaker: someone speaks who isn't in this beat's
+                # planned cast AND isn't a known character at all.
+                if not state and speaker_key not in beat_chars:
+                    if len(speaker_raw) < 3:
+                        continue
+                    warnings.append(
+                        f"unknown speaker '{speaker_raw}' attributed dialogue ('{verb}') — "
+                        f"this name doesn't match any chapter character. Possible fabricated character."
+                    )
+                elif state and not state.on_stage and speaker_key not in beat_chars:
+                    warnings.append(
+                        f"off-stage character '{state.name}' produced dialogue without entering the scene — "
+                        f"add an entrance line or move dialogue to a character actually on stage."
+                    )
 
         return warnings
 

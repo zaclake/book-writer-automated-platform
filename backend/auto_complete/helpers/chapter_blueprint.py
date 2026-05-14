@@ -282,7 +282,10 @@ def _extract_verb_stem_families(text: str) -> List[Dict[str, Any]]:
         # otherwise we'd flag "kept his job" / "kept his promise" which are
         # legitimate.
         partners = [p for p in partners if p in _FRAMING_PARTNER_NOUNS]
-        if len(partners) < 3:
+        # Lowered from 3→2: small patterns also get tracked so the planner
+        # can ban them by chapter 2 instead of waiting for the family to
+        # crystallize across multiple chapters first.
+        if len(partners) < 2:
             continue
         distinct = len(set(partners))
         if distinct < 2:
@@ -315,7 +318,8 @@ def _extract_verb_stem_families(text: str) -> List[Dict[str, Any]]:
             if v in {"and", "or", "but", "the", "a", "an", "to", "of", "in", "on", "for", "with"}:
                 continue
             verbs.append(v)
-        if len(verbs) < 3:
+        # Lowered from 3→2 to surface families before they crystallize.
+        if len(verbs) < 2:
             continue
         if len(set(verbs)) < 2:
             continue
@@ -489,14 +493,19 @@ class ChapterPatternTracker:
                 and p.get("chapter_number", 0) < current_chapter]
 
     def build_anti_pattern_context(self, current_chapter: int) -> str:
-        """Build anti-pattern context using ALL chapters for cumulative tracking."""
+        """Build anti-pattern context using ALL chapters for cumulative tracking.
+
+        Even on chapter 1 (no prior history) we emit the STANDING ANTI-COLLAPSE
+        BUDGET so that body-part collocation discipline applies from the very
+        first chapter. Without this, ch1 of any book gets a free pass on the
+        gesture-collapse pattern and we have to clean up after the model in
+        ch2's anti-pattern context — which is too late for the reader.
+        """
         all_patterns = self.load_patterns()
         all_before = [p for p in all_patterns if p.get("chapter_number", 0) < current_chapter]
         recent = self.get_recent_patterns(current_chapter)
-        if not all_before and not recent:
-            return ""
 
-        lines = ["PATTERNS ALREADY USED (do NOT repeat these):"]
+        lines = ["PATTERNS ALREADY USED (do NOT repeat these):"] if (all_before or recent) else []
         total_chapters = len(all_before)
 
         # Cumulative opening type counts with hard constraints
@@ -578,8 +587,15 @@ class ChapterPatternTracker:
                 (p.get("opening_template") or "unknown") for p in tail
                 if (p.get("opening_template") or "unknown") not in {"unknown", "other"}
             )
+            # When we only have 1-2 chapters of history, count>=2 can never
+            # fire and a back-to-back template repeat slips through (the
+            # thriller "Steam... / Steam..." regression). Drop the threshold
+            # to count>=1 in that case so the planner is told NOT to repeat
+            # the previous chapter's template at all.
+            short_history = len(tail) <= 2
+            template_threshold = 1 if short_history else 2
             for template, count in template_counts.most_common():
-                if count >= 2:
+                if count >= template_threshold:
                     alternatives = [
                         t for t in OPENING_TEMPLATES
                         if t not in {template, "unknown", "other"}
@@ -657,6 +673,34 @@ class ChapterPatternTracker:
                 )
         except Exception:
             pass
+
+        # P2.3 — STANDING ANTI-COLLAPSE BUDGET. Emitted on every chapter
+        # (including chapter 1, where the reactive history-based bans can't
+        # fire). The reactive verb-stem ban above only catches families the
+        # model has ALREADY used; this catches the failure mode where the
+        # drafter spawns a fresh family in any chapter because the planner
+        # had no prior data on it. Confirmed in thriller-round-1 ch1 where
+        # `kept his` appeared 6 times unblocked.
+        if current_chapter >= 1:
+            if not lines:  # ch1 case: open the section header
+                lines.append("WRITING CONSTRAINTS:")
+            lines.append(
+                "- STANDING ANTI-COLLAPSE BUDGET (applies to every chapter): "
+                "across the whole chapter, do NOT exceed 6 total instances of "
+                "the pattern (his|her|their) <body-part> <verb> — counting "
+                "hands, eyes, jaw, jaws, shoulders, fingers, throat, mouth, "
+                "knuckles combined. Additionally, no single anchor verb in "
+                "{kept, held, let, gave, took, kept, pressed, traced, "
+                "studied, watched, scanned} may appear in more than 2 such "
+                "constructions. If you find yourself reaching for one, vary "
+                "the gesture vocabulary instead — concrete physical action "
+                "with the world (knocked the latch, swept dust off the "
+                "mantle, set the cup down too hard), an environmental beat "
+                "(the kettle whistled and stopped, a door closed somewhere), "
+                "or interior thought. The body-part collocation is the "
+                "single strongest tell of mechanical AI prose; treat any "
+                "instance as a debt the chapter has to pay back."
+            )
 
         return "\n".join(lines)
 

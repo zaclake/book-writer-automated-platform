@@ -5026,7 +5026,10 @@ class AutoCompleteBookOrchestrator:
 
         avg_per_word = total_words / max(len(word_counts), 1)
         freq_threshold = max(10, int(avg_per_word * 2.5))
-        spread_threshold = max(3, int(chapters_read * 0.6))
+        # Lowered min spread from 3→2 so a word appearing in both chapters of
+        # 2-chapter history can be flagged for the 3rd chapter. The 60%
+        # ratio still applies as the dominant trigger once history grows.
+        spread_threshold = max(2, int(chapters_read * 0.6))
 
         overused = []
         seen = set()
@@ -5073,6 +5076,20 @@ class AutoCompleteBookOrchestrator:
                 continue
 
             words = re.findall(r"[a-z]+", text)
+            # P2.4 — also count CONTENT-ONLY BIGRAMS (e.g. "well now",
+            # "let silence"). Without these we miss true catchphrases that
+            # are 2 words long. We require both words to be content (no
+            # stopwords) so we don't flood the list with "the door" /
+            # "her hand" style noise.
+            for j in range(len(words) - 1):
+                bigram = (words[j], words[j + 1])
+                if any(t in stopwords for t in bigram):
+                    continue
+                if any(t in allowlist_lower for t in bigram):
+                    continue
+                phrase = " ".join(bigram)
+                phrase_chapter_sets[phrase].add(i)
+                phrase_totals[phrase] += 1
             for n in (3, 4):
                 for j in range(len(words) - n + 1):
                     tokens = words[j : j + n]
@@ -5089,7 +5106,15 @@ class AutoCompleteBookOrchestrator:
         for phrase, ch_set in phrase_chapter_sets.items():
             ch_count = len(ch_set)
             total = phrase_totals[phrase]
-            if ch_count < 3:
+            # Lowered from 3→2 so the planner can ban a phrase that has
+            # already appeared in the only two chapters of history (the
+            # prior threshold meant cross-chapter ticks could never be
+            # caught for chapter 3 of any book — too late). To keep the
+            # signal high, require >= 3 total occurrences when we only
+            # have 2 chapters of history (e.g. 2-of-2 + 1, or 1-of-1 + 2).
+            if ch_count < 2:
+                continue
+            if ch_count == 2 and total < 3:
                 continue
             avg_per_chapter = total / ch_count
             spread_ratio = ch_count / total_chapters_written
@@ -5104,6 +5129,11 @@ class AutoCompleteBookOrchestrator:
                 is_widespread = spread_ratio >= 0.4
             elif phrase_len == 3:
                 is_widespread = spread_ratio >= 0.5
+            elif phrase_len == 2:
+                # Content-only bigrams: every stopword has been filtered
+                # already. A 60% chapter-spread (3-of-5, 2-of-3) is a
+                # genuine catchphrase signal even at 1× per chapter.
+                is_widespread = spread_ratio >= 0.6
             else:
                 is_widespread = spread_ratio >= 0.6
             if not is_heavy and not is_widespread:

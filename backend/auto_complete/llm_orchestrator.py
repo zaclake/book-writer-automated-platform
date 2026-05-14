@@ -186,8 +186,11 @@ class LLMOrchestrator:
         #   - planner (self.model_planner) → skeleton, voice profiles, director brief
         #   - editor  (self.model_editor)  → stitch pass, sniff-test critique, targeted rewrite
         # Defaults assume OpenAI-only. All three are env-overridable.
-        self.model_planner = os.getenv("MODEL_PLANNER") or "gpt-5.2-pro"
-        self.model_editor = os.getenv("MODEL_EDITOR") or "gpt-5.2-pro"
+        # gpt-5.5 is the chat-completions-compatible reasoning tier; the *-pro
+        # snapshot only exposes the Responses API and would need orchestrator
+        # rewiring to use here.
+        self.model_planner = os.getenv("MODEL_PLANNER") or "gpt-5.5"
+        self.model_editor = os.getenv("MODEL_EDITOR") or "gpt-5.5"
         # Alias for clarity at call sites that explicitly want the drafter tier.
         self.model_drafter = self.model
 
@@ -402,8 +405,10 @@ class LLMOrchestrator:
                 pass
 
         model_name = (model or self.model or "").lower()
-        # Order matters: most specific keys first (gpt-5.2-pro before gpt-5).
+        # Order matters: most specific keys first (e.g. gpt-5.5-pro before gpt-5.5).
         model_limits = [
+            ("gpt-5.5-pro", 65536),
+            ("gpt-5.5", 32768),
             ("gpt-5.2-pro", 65536),
             ("gpt-5.2", 32768),
             ("gpt-5", 32768),
@@ -419,6 +424,43 @@ class LLMOrchestrator:
 
         # Safe default — modern models support at least 16K output
         return 16384
+
+    @staticmethod
+    def _is_reasoning_model(model: str) -> bool:
+        """True for models that use the chat-completions reasoning contract.
+
+        These models reject `max_tokens` (require `max_completion_tokens`),
+        only accept default `temperature` / `top_p`, and reject
+        `frequency_penalty` / `presence_penalty`.
+        """
+        if not model:
+            return False
+        name = model.lower()
+        return (
+            name.startswith("gpt-5")
+            or name.startswith("o1")
+            or name.startswith("o3")
+            or name.startswith("o4")
+        )
+
+    def _translate_params_for_chat_completions(self, model: str, kwargs: Dict[str, Any]) -> None:
+        """Mutate kwargs in place to match the parameter contract of newer
+        reasoning models on the chat.completions endpoint.
+
+        - Renames ``max_tokens`` → ``max_completion_tokens``.
+        - Drops ``temperature``, ``top_p``, ``frequency_penalty``,
+          ``presence_penalty`` (reasoning models only accept defaults).
+
+        No-op for legacy chat models (gpt-4*, gpt-4o*, etc.).
+        """
+        if not self._is_reasoning_model(model):
+            return
+        if "max_tokens" in kwargs:
+            mt = kwargs.pop("max_tokens")
+            if "max_completion_tokens" not in kwargs and isinstance(mt, int) and mt > 0:
+                kwargs["max_completion_tokens"] = mt
+        for k in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
+            kwargs.pop(k, None)
         
     async def _wait_for_rate_limit(self):
         """Ensure minimum time between requests without blocking the event loop."""
@@ -590,7 +632,13 @@ class LLMOrchestrator:
                         f"Clamping max_tokens from {max_tokens} to model cap {model_cap}"
                     )
                     kwargs["max_tokens"] = model_cap
-        
+
+        # Translate parameter contract for reasoning models (gpt-5*, o*).
+        # Must run AFTER the max_tokens cap clamp above so we operate on the
+        # final value before renaming. No-op for legacy chat models.
+        if not use_file_search:
+            self._translate_params_for_chat_completions(effective_model, kwargs)
+
         file_search_disabled = False
         for attempt in range(self.retry_config.max_retries + 1):
             try:

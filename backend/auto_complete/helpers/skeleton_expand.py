@@ -22,7 +22,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ─── Repetition Detection (generic, no hardcoded phrases) ────────────────────
@@ -73,6 +73,73 @@ def _extract_repeated_ngrams(
 
 
 # ─── Deterministic Cleanup (no LLM) ─────────────────────────────────────────
+
+def _count_quote_pairs(text: str) -> Tuple[int, int, int, int]:
+    """Return (straight, curly_open, curly_close, straight_paired_diff)
+    where straight_paired_diff is the unpaired-straight-quote count
+    (mod 2). Used to evaluate whether a rewrite preserved quote balance."""
+    straight = text.count('"')
+    curly_open = text.count("\u201c")
+    curly_close = text.count("\u201d")
+    return straight, curly_open, curly_close, straight % 2
+
+
+def _close_dangling_chapter_end_quote(text: str) -> str:
+    """Append a closing quote IF the chapter ends mid-dialogue with an
+    unclosed opener. Handles both straight (`"..."`) and curly
+    (`\u201c...\u201d`) quote pairs. Only fires when the offending opener
+    is in the final ~20% of the chapter — outside that window we'd
+    risk closing a quote the model intentionally left open mid-paragraph.
+
+    Real defect: literary-cycle1 ch1 ended with `\u201cRuth? You have a minute?`
+    """
+    if not text:
+        return text
+    # Curly first (it's the model's default).
+    co = text.count("\u201c")
+    cc = text.count("\u201d")
+    if co == cc + 1:
+        last = text.rfind("\u201c")
+        if last > len(text) * 0.8:
+            text = text + "\u201d"
+            co = text.count("\u201c")
+            cc = text.count("\u201d")
+    # Straight quotes — same logic. Skip if curly fix already balanced.
+    sc = text.count('"')
+    if sc % 2 == 1:
+        last = text.rfind('"')
+        if last > len(text) * 0.8:
+            text = text + '"'
+    return text
+
+
+def _quote_balance_preserved(original: str, rewritten: str) -> bool:
+    """Reject rewrites that introduce a quote imbalance the original didn't have.
+
+    Specifically rejects when:
+      - original had even straight-quote count and rewrite has odd
+      - original had matching curly-open/curly-close counts and rewrite
+        introduces a delta of >= 1 between the two
+      - original had no curly imbalance but rewrite has a different one
+
+    This is the guard for the thriller-round-2 ch3 line 143 defect, where
+    the editor lost a quote boundary and corrupted a paragraph.
+    """
+    s_in, co_in, cc_in, s_in_unpaired = _count_quote_pairs(original)
+    s_out, co_out, cc_out, s_out_unpaired = _count_quote_pairs(rewritten)
+    # Straight-quote check.
+    if s_in_unpaired == 0 and s_out_unpaired == 1:
+        return False
+    # Curly-quote check. Allow the rewrite to ADD properly paired quotes
+    # (open+1 / close+1 stays balanced) but reject if it skews the pairing.
+    in_delta = co_in - cc_in
+    out_delta = co_out - cc_out
+    # Reject if the rewrite introduces ANY new imbalance, or makes an
+    # existing one worse.
+    if abs(out_delta) > abs(in_delta):
+        return False
+    return True
+
 
 def fix_paragraph_repetition(text: str) -> str:
     """Fix word repetition WITHIN a single paragraph (same word 4+ times)."""
@@ -468,6 +535,7 @@ async def generate_skeleton(
     research_notes: str = "",
     target_audience_profile: str = "",
     series_bible: str = "",
+    target_words: int = 0,
 ) -> List[Dict[str, Any]]:
     """Generate a beat-level skeleton for a chapter.
     
@@ -484,6 +552,8 @@ async def generate_skeleton(
         research_notes: research-notes.md excerpt — domain-specific facts the author committed to
         target_audience_profile: target-audience-profile.md excerpt — reader expectations / register
         series_bible: series-bible.md excerpt — cross-book continuity (often empty for standalone)
+        target_words: target word count for the whole chapter (drives per-beat sizing
+            so the chapter lands inside ±30% of the target). 0 disables the budget.
     """
     plan_summary = chapter_plan.get("summary", "")
     plan_objectives = chapter_plan.get("objectives", [])
@@ -522,6 +592,28 @@ async def generate_skeleton(
         f"Create a beat-by-beat skeleton for Chapter {chapter_number} of {total_chapters}.\n\n"
         f"NARRATIVE WEIGHT: {weight_guidance.get(narrative_weight, weight_guidance['standard'])}\n\n"
     )
+
+    # P2.4 — chapter word budget. The drafter expands each beat without an
+    # awareness of the chapter total, which is how thriller-round-1 ch3 grew
+    # to 3737 words against a 2500 target. The planner sees the budget so it
+    # can size the beat list and per-beat word ranges, and the post-stitch
+    # length audit (downstream) enforces the upper bound.
+    if target_words and target_words > 0:
+        # Beats per chapter from the weight guidance; rough averages:
+        #   light ~7 beats, standard ~10 beats, heavy ~12 beats.
+        rough_beats = {"light": 7, "standard": 10, "heavy": 12}.get(narrative_weight, 10)
+        per_beat_words = max(150, int(target_words / rough_beats))
+        max_chapter_words = int(target_words * 1.3)
+        user_prompt += (
+            "CHAPTER WORD BUDGET (HARD CEILING):\n"
+            f"  - Target: ~{target_words} words for the whole chapter\n"
+            f"  - Maximum: {max_chapter_words} words (do NOT exceed this)\n"
+            f"  - Per-beat target: ~{per_beat_words} words on average; vary as needed\n"
+            f"  - Each beat's `word_target` field MUST be set so the sum lands "
+            f"inside [{int(target_words * 0.85)}, {max_chapter_words}].\n"
+            f"  - When in doubt, prefer FEWER, denser beats over many short ones; "
+            f"AI prose collapses into mechanical patterns when beats run long.\n\n"
+        )
 
     # Present plan events as NON-NEGOTIABLE requirements, not suggestions
     if mandatory_events:
@@ -1377,8 +1469,14 @@ def format_voice_samples_for_beat(
     if not picked:
         return ""
     header = (
-        "CHARACTER VOICE SAMPLES (these characters are SPEAKING in this beat — "
-        "match the SOUND of the sample, not by repeating its phrases):\n"
+        "CHARACTER VOICE SAMPLES — these are illustrative ONLY. Match each "
+        "character's diction, syntax rhythm, vocabulary register, and "
+        "worldview, but do NOT lift specific phrasing from the sample. "
+        "Catchphrase tics (e.g. \"Well, now\", \"I suppose I\", \"You know how it is\") "
+        "may appear AT MOST ONCE in this chapter, and not at all if the "
+        "character has used the same tic in either of the last two chapters. "
+        "If a character's voice in the sample includes a recurring \"signature\" "
+        "phrase, treat it as a fingerprint to recognize, not a stamp to apply.\n"
     )
     return header + "\n\n".join(picked)
 
@@ -1878,7 +1976,19 @@ async def expand_beat(
     if avoid_phrases:
         user_prompt += f"\nOVERUSED PHRASES TO AVOID: {avoid_phrases}\n"
     if overused_phrases:
-        user_prompt += f"\nPHRASES OVERUSED IN PRIOR CHAPTERS (avoid or rephrase):\n{overused_phrases}\n"
+        # P2.4 — escalate from "avoid or rephrase" to a hard ban for phrases
+        # that have already accumulated cross-chapter recurrence. The earlier
+        # softer language was treated as a suggestion (literary-cycle1: the
+        # phrase "well now she" appeared in 5/5 chapters despite being on
+        # the avoid list since chapter 3). The model needs the rule framed
+        # as a CONSTRAINT, not a preference.
+        user_prompt += (
+            "\nPHRASES BANNED IN THIS CHAPTER (these have already become "
+            "cross-chapter habits — DO NOT USE any of these phrases or their "
+            "obvious paraphrases; if you reach for one, stop and find a "
+            "different verb, a different gesture, a different sentence "
+            f"shape):\n{overused_phrases}\n"
+        )
     if within_chapter_repetition:
         user_prompt += f"\n{within_chapter_repetition}\n"
 
@@ -1914,6 +2024,30 @@ async def expand_beat(
             f"{rewrite_instruction}\n"
         )
 
+    # P2.4 — per-beat word target. The beat's `word_target` field comes from
+    # the planner's chapter-budget plan (when target_words is set). Surfacing
+    # it to the drafter prevents the over-elaboration mode that turned
+    # thriller-round-1 ch3 into 3737 words against a 2500 target.
+    beat_word_target = beat.get("word_target")
+    try:
+        beat_word_target = int(beat_word_target) if beat_word_target else 0
+    except (TypeError, ValueError):
+        beat_word_target = 0
+    if beat_word_target and beat_word_target > 0:
+        # Cap at 600 words; longer than this and the beat usually splits poorly.
+        capped_target = min(600, beat_word_target)
+        user_prompt += (
+            f"\nBEAT WORD TARGET: ~{capped_target} words (do NOT exceed "
+            f"{int(capped_target * 1.3)}). Tighter is better than padded; "
+            f"if the beat completes early, end early. Padding the beat to hit "
+            f"a count is worse than landing short.\n"
+        )
+        # Tokens-to-words is roughly 1.4 for English prose; give a little
+        # slack so the model can finish a sentence without truncation.
+        beat_max_tokens = max(400, int(capped_target * 1.6))
+    else:
+        beat_max_tokens = 1200
+
     user_prompt += "\nWrite the passage now."
 
     try:
@@ -1923,7 +2057,7 @@ async def expand_beat(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.6 if register == "vivid" else 0.45,
-            max_tokens=1200,
+            max_tokens=beat_max_tokens,
         )
     except Exception:
         return ""
@@ -2017,7 +2151,11 @@ async def stitch_beats(
         )
     if cross_chapter_phrases:
         user_prompt += (
-            f"PHRASES OVERUSED ACROSS PRIOR CHAPTERS (replace if found):\n"
+            "PHRASES BANNED THIS CHAPTER (these have become cross-chapter "
+            "verbal habits; if you find ANY of them in the draft below, "
+            "REPLACE that occurrence with a different phrasing — different "
+            "verb, different gesture, different sentence shape. Do NOT keep "
+            "any of these even once.):\n"
             f"{cross_chapter_phrases}\n\n"
         )
     if chapter_events_summary:
@@ -2059,6 +2197,25 @@ async def stitch_beats(
     result = (content or "").strip()
     if not result or len(result.split()) < len(expanded_text.split()) * 0.5:
         return expanded_text
+
+    # P2.4 — quote-balance guard. The editor LLM occasionally drops one of a
+    # paired set of quotes, leaving prose like `... the dial. Saw Tony's truck,
+    # but he was headed out. Rest of 'em stuck to their rounds." Postman's
+    # voice dropped low.` (real defect from thriller-round-2 ch3 line 143).
+    # Reject the rewrite (straight OR curly) if it introduces a quote
+    # imbalance where the input had balanced quotes — that's a sign the
+    # model lost a boundary mid-paragraph and the remainder is corrupted.
+    try:
+        if not _quote_balance_preserved(expanded_text, result):
+            log_module = __import__("logging").getLogger(__name__)
+            log_module.warning(
+                "Chapter %s: stitch pass produced unbalanced quotes; "
+                "discarding stitch and returning raw beat-joined text.",
+                chapter_number,
+            )
+            return expanded_text
+    except Exception:
+        pass
     return result
 
 
@@ -2917,8 +3074,9 @@ async def generate_chapter_skeleton_expand(
         research_notes=research_notes_ref,
         target_audience_profile=target_audience_ref,
         series_bible=series_bible_ref,
+        target_words=target_words,
     )
-    log.info(f"Chapter {chapter_number}: Skeleton has {len(skeleton)} beats (weight: {narrative_weight})")
+    log.info(f"Chapter {chapter_number}: Skeleton has {len(skeleton)} beats (weight: {narrative_weight}, target_words={target_words})")
 
     # P1.2 — variety audit. We log warnings only; even a flat skeleton is
     # better than no skeleton, and the per-shape expand prompts (P2.1) will
@@ -3084,12 +3242,12 @@ async def generate_chapter_skeleton_expand(
     cleaned = fix_generic_ending(cleaned)
     cleaned = ensure_clean_ending(cleaned)
 
-    # Balance straight double quotes (close any dangling open)
-    straight_count = cleaned.count('"')
-    if straight_count % 2 == 1:
-        last_quote_pos = cleaned.rfind('"')
-        if last_quote_pos > len(cleaned) * 0.8:
-            cleaned = cleaned + '"'
+    # Balance dangling quotes — covers both straight and curly. The model
+    # often ends a chapter mid-dialogue ('"Ruth?\u00a0You have a minute?')
+    # and forgets to close. We append a closing mark only when the unmatched
+    # opener is in the final ~20% of the chapter (true cliffhanger), to
+    # avoid mis-closing a quote the model intentionally left mid-paragraph.
+    cleaned = _close_dangling_chapter_end_quote(cleaned)
 
     # Step 5: Path A+ P2.4 — bounded literary sniff test + ONE targeted
     # rewrite pass. No rubric scoring, no iterative loop, no whole-chapter
@@ -3100,11 +3258,28 @@ async def generate_chapter_skeleton_expand(
 
         if is_sniff_test_enabled():
             log.info(f"Chapter {chapter_number}: Running bounded sniff test (P2.4)")
+            # Pass focal character names so the tic detector doesn't flag
+            # legitimate recurring references (e.g. "Nero kept his").
+            char_allow = list(chapter_plan.get("focal_characters") or [])
+            if pov_character and pov_character not in char_allow:
+                char_allow.append(pov_character)
+            # Pass the cross-chapter banned-phrase list. Any phrase already
+            # flagged as recurring across prior chapters that survives the
+            # drafter + stitch passes is forced into a targeted rewrite.
+            banned_for_sniff: List[str] = []
+            if isinstance(overused_phrases_raw, list):
+                for entry in overused_phrases_raw[:20]:
+                    if isinstance(entry, dict):
+                        ph = (entry.get("phrase") or "").strip()
+                        if ph:
+                            banned_for_sniff.append(ph)
             sniff_text, sniff_info = await run_sniff_test_and_rewrite(
                 orchestrator=orchestrator,
                 chapter_text=cleaned,
                 chapter_number=chapter_number,
                 book_bible_excerpt=book_bible[:1500] if book_bible else "",
+                char_name_allowlist=char_allow,
+                banned_phrases=banned_for_sniff,
             )
             critique = sniff_info.get("critique", {}) or {}
             rewrite = sniff_info.get("rewrite", {}) or {}
@@ -3115,9 +3290,13 @@ async def generate_chapter_skeleton_expand(
                 )
             else:
                 rewrite_count = len(critique.get("targeted_rewrites", []) or [])
+                tic_added = critique.get("tic_rewrites_added", 0)
+                banned_added = critique.get("banned_phrase_rewrites_added", 0)
                 log.info(
                     f"Chapter {chapter_number}: Sniff test critique returned "
-                    f"{rewrite_count} targeted rewrites; "
+                    f"{rewrite_count} targeted rewrites "
+                    f"(includes {tic_added} intra-chapter tic + "
+                    f"{banned_added} cross-chapter banned-phrase); "
                     f"applied={rewrite.get('applied')}, "
                     f"matched={rewrite.get('matched')}, "
                     f"unmatched={len(rewrite.get('unmatched_quotes', []))}"
@@ -3129,14 +3308,67 @@ async def generate_chapter_skeleton_expand(
                     # imbalanced quotes.
                     cleaned = strip_meta_narration(cleaned)
                     cleaned = ensure_clean_ending(cleaned)
-                    straight_count = cleaned.count('"')
-                    if straight_count % 2 == 1:
-                        last_quote_pos = cleaned.rfind('"')
-                        if last_quote_pos > len(cleaned) * 0.8:
-                            cleaned = cleaned + '"'
+                    cleaned = _close_dangling_chapter_end_quote(cleaned)
     except Exception as e:
         # Sniff test is opt-out and best-effort — never block the chapter.
         log.warning(f"Chapter {chapter_number}: Sniff test wrapper failed (non-fatal): {e}")
+
+    # P2.4 — post-stitch length audit. If the chapter is more than 40% over
+    # its target word count, run ONE compression pass through the editor.
+    # This catches the over-elaboration mode (thriller-round-1 ch3 hit
+    # 3737 / 2500 = 1.49×) without a second editorial loop.
+    if target_words and target_words > 0:
+        final_words = len(cleaned.split())
+        ceiling = int(target_words * 1.4)
+        if final_words > ceiling:
+            log.info(
+                f"Chapter {chapter_number}: Final {final_words} words exceeds "
+                f"ceiling {ceiling} (target {target_words}); running compression pass."
+            )
+            try:
+                compressed = await stitch_beats(
+                    orchestrator=orchestrator,
+                    expanded_text=cleaned,
+                    chapter_number=chapter_number,
+                    book_bible_excerpt=book_bible[:2000],
+                    repetition_report="",
+                    cross_chapter_phrases="",
+                    chapter_events_summary=final_events_summary,
+                    rewrite_instruction=(
+                        f"COMPRESSION PASS: this chapter is {final_words} words "
+                        f"against a target of {target_words}. Cut to ~{target_words} "
+                        f"words by removing dead-weight paragraphs (pure reflection, "
+                        f"redundant gestures, atmospheric padding) and tightening "
+                        f"sentences. Preserve all dialogue events, all plot beats, "
+                        f"and the chapter's structural arc. Do NOT cut character "
+                        f"interiority that drives a decision. Do NOT cut sensory "
+                        f"detail that anchors the chapter's strongest scene. The "
+                        f"goal is the same chapter, denser."
+                    ),
+                )
+                comp_words = len(compressed.split())
+                # Only accept the compression if it actually moved us closer
+                # to target AND didn't drop below 50% of the original (which
+                # would indicate the model hallucinated a summary).
+                if (
+                    comp_words < final_words
+                    and comp_words >= int(final_words * 0.5)
+                ):
+                    log.info(
+                        f"Chapter {chapter_number}: Compression {final_words}"
+                        f"→{comp_words} words accepted."
+                    )
+                    cleaned = compressed
+                else:
+                    log.warning(
+                        f"Chapter {chapter_number}: Compression rejected "
+                        f"({final_words}→{comp_words}); keeping original."
+                    )
+            except Exception as e:
+                log.warning(
+                    f"Chapter {chapter_number}: Compression pass failed "
+                    f"(non-fatal): {e}"
+                )
 
     log.info(f"Chapter {chapter_number}: Final = {len(cleaned.split())} words")
     return cleaned
