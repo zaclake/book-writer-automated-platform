@@ -8,11 +8,146 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Token-budget helpers for reasoning-class planner models (gpt-5*, o1/o3/o4*).
+#
+# Reasoning models charge their hidden chain-of-thought against
+# `max_completion_tokens`, but the SDK only exposes the visible output via
+# `output_text` / `choices[0].message.content`. If the budget is sized for
+# legacy chat models (where every token is visible), the planner can spend the
+# entire allowance on internal reasoning and return an empty content string —
+# which is exactly how the production book-plan call started failing once the
+# planner was upgraded to gpt-5.5. These helpers inflate the budget for
+# reasoning planners (clamped to the model's actual output cap) and surface
+# diagnostics when an empty response slips through anyway.
+# ---------------------------------------------------------------------------
+
+_REASONING_MODEL_PREFIXES: tuple[str, ...] = ("gpt-5", "o1", "o3", "o4")
+
+
+def _is_reasoning_planner(orchestrator) -> bool:
+    """True if the planner tier resolves to a reasoning-class model.
+
+    Reasoning models (gpt-5*, o-series) burn invisible reasoning tokens
+    against the same ``max_completion_tokens`` budget as the visible output.
+    """
+    try:
+        model = orchestrator._resolve_model("planner")
+    except Exception:
+        model = (
+            getattr(orchestrator, "model_planner", None)
+            or getattr(orchestrator, "model", None)
+            or ""
+        )
+    name = (model or "").lower()
+    return any(name.startswith(prefix) for prefix in _REASONING_MODEL_PREFIXES)
+
+
+def _planner_budget(
+    orchestrator,
+    *,
+    base: int,
+    legacy_ceiling: int,
+    reasoning_multiplier: float = 2.5,
+) -> int:
+    """Compute ``max_tokens`` for a planner LLM call.
+
+    For legacy chat models (e.g. gpt-4.1) the budget is just
+    ``min(legacy_ceiling, base)``. For reasoning planners we inflate the
+    budget by ``reasoning_multiplier`` (and bump the ceiling by 2x) so that
+    visible output still fits after the model's hidden reasoning is paid for,
+    then clamp to the model's actual max output cap.
+    """
+    base = max(int(base), 0)
+    legacy_ceiling = max(int(legacy_ceiling), 1)
+    if not _is_reasoning_planner(orchestrator):
+        return min(legacy_ceiling, base) if base > 0 else legacy_ceiling
+    try:
+        model_cap = orchestrator._get_model_max_output_tokens(
+            orchestrator._resolve_model("planner")
+        )
+    except Exception:
+        model_cap = 32000
+    inflated_base = int(base * reasoning_multiplier)
+    inflated_ceiling = int(legacy_ceiling * 2)
+    return max(1, min(max(inflated_base, inflated_ceiling), model_cap))
+
+
+def _extract_response_diagnostics(response) -> Dict[str, Any]:
+    """Normalize content + finish_reason + usage from chat / responses APIs.
+
+    Returns a dict with keys ``content`` (str), ``finish_reason``
+    (``Optional[str]``), and ``usage`` (``Dict[str, Any]`` containing any of
+    ``prompt_tokens``, ``completion_tokens``, ``total_tokens``,
+    ``input_tokens``, ``output_tokens``, ``reasoning_tokens``).
+    """
+    if response is None:
+        return {"content": "", "finish_reason": None, "usage": {}}
+
+    content = ""
+    if hasattr(response, "output_text"):
+        content = getattr(response, "output_text", "") or ""
+    elif hasattr(response, "choices"):
+        try:
+            content = response.choices[0].message.content or ""
+        except Exception:
+            content = ""
+
+    finish_reason: Optional[str] = None
+    try:
+        choices = getattr(response, "choices", None)
+        if choices:
+            fr = getattr(choices[0], "finish_reason", None)
+            if fr:
+                finish_reason = str(fr)
+    except Exception:
+        pass
+    if finish_reason is None:
+        fr = getattr(response, "finish_reason", None)
+        if fr:
+            finish_reason = str(fr)
+
+    usage: Dict[str, Any] = {}
+    usage_obj = getattr(response, "usage", None)
+    if usage_obj is not None:
+        for attr in (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+        ):
+            try:
+                v = getattr(usage_obj, attr, None)
+                if v is not None:
+                    usage[attr] = v
+            except Exception:
+                pass
+        try:
+            details = getattr(usage_obj, "completion_tokens_details", None)
+            if details is not None:
+                rt = getattr(details, "reasoning_tokens", None)
+                if rt is not None:
+                    usage["reasoning_tokens"] = rt
+        except Exception:
+            pass
+
+    return {
+        "content": content,
+        "finish_reason": finish_reason,
+        "usage": usage,
+    }
 
 
 @dataclass
@@ -199,22 +334,27 @@ class BookPlanGenerator:
             "PLAN TO FIX:\n"
             f"{json.dumps(compact_plan, ensure_ascii=False)}\n"
         )
+        budget = _planner_budget(orchestrator, base=2500, legacy_ceiling=2500)
         try:
             response = await orchestrator._make_api_call(
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.1,
-                max_tokens=2500,
+                max_tokens=budget,
                 response_format={"type": "json_object"},
                 model_role="planner",
             )
         except Exception:
             return None
-        content = ""
-        if hasattr(response, "output_text"):
-            content = response.output_text
-        elif response and hasattr(response, "choices"):
-            content = response.choices[0].message.content
+        diag = _extract_response_diagnostics(response)
+        content = diag["content"]
         if not content:
+            logger.warning(
+                "_fix_plan_chapter_count returned empty content. "
+                "budget=%s finish_reason=%s usage=%s",
+                budget,
+                diag["finish_reason"],
+                diag["usage"],
+            )
             return None
         try:
             return json.loads(content)
@@ -247,6 +387,10 @@ class BookPlanGenerator:
             "BROKEN JSON:\n"
             f"{raw_payload}\n"
         )
+        # Needs enough budget to output a full corrected plan, plus reasoning
+        # headroom when the planner is gpt-5*/o-series.
+        base_budget = max(2500, 900 + int(target_chapters) * 260)
+        budget = _planner_budget(orchestrator, base=base_budget, legacy_ceiling=9000)
         try:
             response = await orchestrator._make_api_call(
                 messages=[
@@ -254,19 +398,22 @@ class BookPlanGenerator:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
-                # Needs enough budget to output a full corrected plan.
-                max_tokens=min(9000, max(2500, 900 + int(target_chapters) * 260)),
+                max_tokens=budget,
                 response_format={"type": "json_object"},
                 model_role="planner",
             )
         except Exception:
             return None
-        content = ""
-        if hasattr(response, "output_text"):
-            content = response.output_text
-        elif response and hasattr(response, "choices"):
-            content = response.choices[0].message.content
+        diag = _extract_response_diagnostics(response)
+        content = diag["content"]
         if not content:
+            logger.warning(
+                "_repair_json_with_llm returned empty content. "
+                "budget=%s finish_reason=%s usage=%s",
+                budget,
+                diag["finish_reason"],
+                diag["usage"],
+            )
             return None
         try:
             return json.loads(content)
@@ -380,22 +527,28 @@ class BookPlanGenerator:
             "- Required plot points: max 3 items, each <= 120 characters.\n"
             "- Continuity requirements: max 3 items.\n"
         )
+        base_budget = max(2800, 1100 + int(target_chapters) * 260)
+        budget = _planner_budget(orchestrator, base=base_budget, legacy_ceiling=9000)
         try:
             response = await orchestrator._make_api_call(
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.1,
-                max_tokens=min(9000, max(2800, 1100 + int(target_chapters) * 260)),
+                max_tokens=budget,
                 response_format={"type": "json_object"},
                 model_role="planner",
             )
         except Exception:
             return None
-        content = ""
-        if hasattr(response, "output_text"):
-            content = response.output_text
-        elif response and hasattr(response, "choices"):
-            content = response.choices[0].message.content
+        diag = _extract_response_diagnostics(response)
+        content = diag["content"]
         if not content:
+            logger.warning(
+                "_retry_generate_plan_strict returned empty content. "
+                "budget=%s finish_reason=%s usage=%s",
+                budget,
+                diag["finish_reason"],
+                diag["usage"],
+            )
             return None
         try:
             return json.loads(content)
@@ -566,25 +719,74 @@ class BookPlanGenerator:
             {"role": "user", "content": user_prompt}
         ]
 
+        # Plan size grows ~linearly with target chapters. Reasoning planners
+        # (gpt-5*) eat into the same budget for invisible reasoning tokens, so
+        # _planner_budget inflates the cap when the planner is reasoning-class.
+        base_budget = max(5000, 2000 + int(target_chapters) * 400)
+        budget = _planner_budget(orchestrator, base=base_budget, legacy_ceiling=16000)
         try:
             response = await orchestrator._make_api_call(
                 messages=messages,
                 temperature=0.2,
-                # Plan size grows ~linearly with target chapters.
-                max_tokens=min(16000, max(5000, 2000 + int(target_chapters) * 400)),
+                max_tokens=budget,
                 response_format={"type": "json_object"},
                 model_role="planner",
             )
         except Exception as e:
             return BookPlanResult(success=False, error=f"Book plan generation failed: {e}")
 
-        content = ""
-        if hasattr(response, "output_text"):
-            content = response.output_text
-        elif response and hasattr(response, "choices"):
-            content = response.choices[0].message.content
+        diag = _extract_response_diagnostics(response)
+        content = diag["content"]
+        retry_budget: Optional[int] = None
         if not content:
-            return BookPlanResult(success=False, error="Book plan generation returned empty content.")
+            try:
+                planner_model = orchestrator._resolve_model("planner")
+                model_cap = orchestrator._get_model_max_output_tokens(planner_model)
+            except Exception:
+                planner_model = "<unknown>"
+                model_cap = 32000
+            logger.warning(
+                "Book plan call returned empty content; retrying once with "
+                "doubled budget. model=%s budget=%s finish_reason=%s usage=%s",
+                planner_model,
+                budget,
+                diag["finish_reason"],
+                diag["usage"],
+            )
+            retry_budget = min(budget * 2, model_cap)
+            if retry_budget > budget:
+                try:
+                    response = await orchestrator._make_api_call(
+                        messages=messages,
+                        temperature=0.2,
+                        max_tokens=retry_budget,
+                        response_format={"type": "json_object"},
+                        model_role="planner",
+                    )
+                    diag = _extract_response_diagnostics(response)
+                    content = diag["content"]
+                    if content:
+                        logger.info(
+                            "Book plan retry succeeded with budget=%s "
+                            "(usage=%s).",
+                            retry_budget,
+                            diag["usage"],
+                        )
+                except Exception as e:
+                    return BookPlanResult(
+                        success=False,
+                        error=f"Book plan generation retry failed: {e}",
+                    )
+        if not content:
+            return BookPlanResult(
+                success=False,
+                error=(
+                    "Book plan generation returned empty content "
+                    f"(model={planner_model if 'planner_model' in locals() else '<unknown>'}, "
+                    f"finish_reason={diag['finish_reason']}, usage={diag['usage']}, "
+                    f"budget={budget}, retry_budget={retry_budget})."
+                ),
+            )
 
         try:
             plan = json.loads(content)
