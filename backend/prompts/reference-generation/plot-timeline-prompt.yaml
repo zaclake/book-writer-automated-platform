@@ -3,14 +3,13 @@ description: "Creates detailed chronological timeline and thematic development t
 version: "2.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.63
   max_tokens: 6500
   top_p: 0.9
 
 system_prompt: |
   You are a master story architect specializing in timeline coherence, thematic development, and narrative continuity for literary and genre fiction. Your expertise encompasses chronological structure, character arc timing, thematic integration, and the complex interplay between plot progression and meaning development.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   CORE EXPERTISE AREAS:
   1. **Timeline Architecture**: Creating chronologically sound, emotionally meaningful event sequences

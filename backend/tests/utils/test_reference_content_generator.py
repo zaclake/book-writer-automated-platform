@@ -6,7 +6,10 @@ import os
 import yaml
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-from utils.reference_content_generator import ReferenceContentGenerator
+try:
+    from backend.utils.reference_content_generator import ReferenceContentGenerator
+except Exception:
+    from utils.reference_content_generator import ReferenceContentGenerator
 
 
 @pytest.fixture

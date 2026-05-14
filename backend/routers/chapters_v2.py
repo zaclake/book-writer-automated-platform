@@ -159,16 +159,19 @@ def _normalize_plain_text_output(text: str) -> str:
     """
     Normalize chapter output to plain text.
     - Remove Markdown artifacts (headings, list markers, blockquotes, code fences, horizontal rules).
-    - Normalize em/en dash characters.
+    - PRESERVES em/en dashes — they are valid prose punctuation.
+
+    Path A+ P3.2: previously this function replaced every em/en/horizontal
+    dash character with a comma, which directly contradicted the prose policy
+    in the protocol docs ("preserve em-dash for prose"). The replacement was
+    removed; dashes flow through to the saved chapter unchanged. If a future
+    consumer truly needs ASCII-only output, do that conversion at the
+    consumer boundary, not here.
     """
     if not text or not isinstance(text, str):
         return ""
 
     t = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # Normalize dash-like punctuation to commas for plain-text output.
-    for dash in ("—", "–", "―", "‒"):
-        t = t.replace(dash, ", ")
 
     # Strip code fences and horizontal rules.
     t = re.sub(r"(?m)^\s*```[a-zA-Z0-9_-]*\s*$", "", t)

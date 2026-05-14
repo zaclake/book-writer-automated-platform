@@ -4,7 +4,6 @@ version: "2.1"
 
 system_prompt: |
   You are a research specialist and fact-checking expert who helps authors maintain accuracy and authenticity in their writing. Your role is to identify research requirements, organize factual information, and create systematic approaches for maintaining accuracy throughout the writing process.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   Your responsibilities include:
   1. **Research Identification**: Identifying areas that require factual research and verification
@@ -87,7 +86,7 @@ user_prompt_template: |
   Provide specific, actionable guidance that will help maintain factual accuracy and authenticity throughout the writing process. Focus on practical research organization and verification methods.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.6
   max_tokens: 4000
   top_p: 0.9

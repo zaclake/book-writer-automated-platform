@@ -9,7 +9,10 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 import os
 
-from utils.reference_content_generator import ReferenceContentGenerator
+try:
+    from backend.utils.reference_content_generator import ReferenceContentGenerator
+except Exception:
+    from utils.reference_content_generator import ReferenceContentGenerator
 
 
 class TestLLMExpansionService:

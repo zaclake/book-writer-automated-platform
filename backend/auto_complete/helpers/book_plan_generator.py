@@ -204,7 +204,8 @@ class BookPlanGenerator:
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.1,
                 max_tokens=2500,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                model_role="planner",
             )
         except Exception:
             return None
@@ -255,7 +256,8 @@ class BookPlanGenerator:
                 temperature=0.1,
                 # Needs enough budget to output a full corrected plan.
                 max_tokens=min(9000, max(2500, 900 + int(target_chapters) * 260)),
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                model_role="planner",
             )
         except Exception:
             return None
@@ -383,7 +385,8 @@ class BookPlanGenerator:
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 temperature=0.1,
                 max_tokens=min(9000, max(2800, 1100 + int(target_chapters) * 260)),
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                model_role="planner",
             )
         except Exception:
             return None
@@ -569,7 +572,8 @@ class BookPlanGenerator:
                 temperature=0.2,
                 # Plan size grows ~linearly with target chapters.
                 max_tokens=min(16000, max(5000, 2000 + int(target_chapters) * 400)),
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                model_role="planner",
             )
         except Exception as e:
             return BookPlanResult(success=False, error=f"Book plan generation failed: {e}")

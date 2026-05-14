@@ -18,10 +18,11 @@ Design principles:
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 # ─── Repetition Detection (generic, no hardcoded phrases) ────────────────────
@@ -248,6 +249,96 @@ def fix_generic_ending(text: str) -> str:
 
 # ─── Skeleton Generator ──────────────────────────────────────────────────────
 
+# P1.2 — Scene-shape vocabulary. Each beat must declare ONE scene_shape so
+# the chapter has dramatic variety (not just "8 dialogue beats in a row").
+# These are the dramatic LENS the beat uses, distinct from info_type (the
+# event-content of the beat). A "decision" beat (info_type) can be rendered
+# as kinetic_action OR interior_pressure OR dialogue_pressure depending on
+# scene_shape.
+SCENE_SHAPES = [
+    "dialogue_pressure",     # 2+ characters, escalating verbal tension / push-pull
+    "kinetic_action",        # physical movement, urgency, fight/chase/work-under-stress
+    "interior_pressure",     # POV alone (or effectively alone), weighing/suffering/deciding
+    "observed_setpiece",     # POV witnesses something important; absorbs but does not control
+    "decision_crystallizes", # the moment a choice is made, with cost on the page
+    "revelation_exchange",   # information given/received that re-frames the picture
+    "transitional",          # bridge between scenes — movement, time-skip framed by action
+]
+
+# Map chapter_shape (book-plan level) → suggested scene_shape mix. Used as a
+# soft hint to the planner; the planner is still free to mix shapes.
+CHAPTER_SHAPE_TO_SCENE_MIX: Dict[str, List[str]] = {
+    "quiet_character_focus":   ["interior_pressure", "dialogue_pressure", "observed_setpiece"],
+    "confrontation_dialogue":  ["dialogue_pressure", "revelation_exchange", "decision_crystallizes", "interior_pressure"],
+    "investigation_procedural":["dialogue_pressure", "observed_setpiece", "revelation_exchange", "interior_pressure"],
+    "aftermath_processing":    ["interior_pressure", "dialogue_pressure", "observed_setpiece"],
+    "relationship_deepening":  ["dialogue_pressure", "interior_pressure", "decision_crystallizes"],
+    "world_building_routine":  ["observed_setpiece", "kinetic_action", "dialogue_pressure", "interior_pressure"],
+    "tension_escalation":      ["kinetic_action", "dialogue_pressure", "decision_crystallizes", "interior_pressure"],
+    "revelation_and_fallout":  ["revelation_exchange", "interior_pressure", "decision_crystallizes", "dialogue_pressure"],
+    "journey_transition":      ["transitional", "observed_setpiece", "interior_pressure", "dialogue_pressure"],
+}
+
+
+def validate_skeleton_variety(beats: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Inspect a generated skeleton for shape/interiority variety.
+
+    Returns a report dict with `ok` flag and `issues` list. Callers may use
+    this to log warnings or trigger a single regeneration nudge. We do NOT
+    raise — a flat skeleton is still better than no skeleton.
+    """
+    issues: List[str] = []
+    if not beats:
+        return {"ok": False, "issues": ["empty skeleton"]}
+
+    scene_shapes = [(b.get("scene_shape") or "").strip().lower() for b in beats]
+    interiority = [(b.get("interiority_mode") or "").strip().lower() for b in beats]
+
+    # Distinct scene_shapes across the chapter.
+    distinct_shapes = {s for s in scene_shapes if s}
+    if len(beats) >= 6 and len(distinct_shapes) < 3:
+        issues.append(
+            f"scene_shape variety low: only {len(distinct_shapes)} distinct shapes "
+            f"across {len(beats)} beats ({sorted(distinct_shapes)})"
+        )
+
+    # No more than 2 consecutive beats with the same scene_shape.
+    run = 1
+    for prev, curr in zip(scene_shapes, scene_shapes[1:]):
+        if prev and curr and prev == curr:
+            run += 1
+            if run >= 3:
+                issues.append(
+                    f"scene_shape '{curr}' repeats for {run}+ consecutive beats — chapter will feel monotone"
+                )
+                break
+        else:
+            run = 1
+
+    # Distinct interiority modes (P1.1).
+    distinct_int = {m for m in interiority if m}
+    if len(beats) >= 6 and len(distinct_int) < 3:
+        issues.append(
+            f"interiority_mode variety low: only {len(distinct_int)} distinct modes "
+            f"across {len(beats)} beats ({sorted(distinct_int)})"
+        )
+
+    # No more than 3 consecutive beats with the same interiority_mode.
+    run = 1
+    for prev, curr in zip(interiority, interiority[1:]):
+        if prev and curr and prev == curr:
+            run += 1
+            if run >= 4:
+                issues.append(
+                    f"interiority_mode '{curr}' repeats for {run}+ consecutive beats"
+                )
+                break
+        else:
+            run = 1
+
+    return {"ok": not issues, "issues": issues, "distinct_shapes": sorted(distinct_shapes), "distinct_interiority": sorted(distinct_int)}
+
+
 SKELETON_SYSTEM = (
     "You are a novel architect planning a single chapter beat by beat.\n"
     "Output STRICT JSON only. No commentary, no code fences.\n\n"
@@ -259,6 +350,13 @@ SKELETON_SYSTEM = (
     "a relationship, a piece of knowledge, a decision, a threat level, a commitment.\n"
     "If you cannot articulate what changed between beat 1 and the final beat, the chapter\n"
     "does not justify its existence.\n\n"
+    "DEPTH OVER ACTION:\n"
+    "Plot-action beats alone produce competent but flat prose. Every beat must also carry\n"
+    "INTERIOR architecture: what the POV character is trying to GET, what's in their WAY,\n"
+    "what they GIVE UP to make progress, and what they're NOT saying out loud.\n"
+    "A beat with strong action but no interior arc reads like a synopsis.\n"
+    "A beat with interior arc but no action reads like a confession.\n"
+    "Every beat needs BOTH.\n\n"
     "BEAT COUNT: A chapter should have 8-12 beats. Each beat becomes 3-6 paragraphs of prose.\n"
     "Each beat should do real work. If a beat is just 'character walks to location and\n"
     "notices the atmosphere,' CUT IT. Atmosphere belongs inside action beats, not as\n"
@@ -278,6 +376,50 @@ SKELETON_SYSTEM = (
     "- DECISION BEAT: At least one beat must show the protagonist CHOOSING — not just\n"
     "  thinking, but committing to an action with consequences. 'She decided to confront him'\n"
     "  is a decision. 'She wondered what to do' is NOT.\n"
+    "- POV INTENT (pov_want): For every beat, name what the POV character is trying to GET\n"
+    "  from the moment. Use an INTERNAL verb (be heard, be forgiven, be left alone, get\n"
+    "  the truth without asking, regain control, hide the lie, stop feeling, win the argument\n"
+    "  without saying so). NOT an external action ('go to the store') — the EMOTIONAL move.\n"
+    "  If the POV character has no want in a beat, they are a camera and the beat is dead.\n"
+    "- POV OBSTACLE (pov_obstacle): Name what is in the way of the want. May be EXTERNAL\n"
+    "  (another character, a situation, a deadline) or INTERNAL (their own pride, fear,\n"
+    "  loyalty, exhaustion). Be specific — 'their pride' is bland; 'the fact that admitting\n"
+    "  this means admitting last year' is specific.\n"
+    "- POV CONCESSION (pov_concession): What does the POV character TRADE OR SURRENDER in\n"
+    "  this beat to get even partway to the want? A small confession, a piece of pride,\n"
+    "  a held boundary, a long-held belief, an alibi. Not every beat needs one — but at\n"
+    "  least 2 beats per chapter MUST have a concrete concession (not 'nothing').\n"
+    "  Tidy chapters where nobody surrenders anything read as saccharine.\n"
+    "- SUBTEXT (subtext): What is being NOT said in this beat? What is the character\n"
+    "  actively avoiding? What does another character know that the POV is dancing around?\n"
+    "  At least 1 dialogue or confrontation beat per chapter MUST have substantial subtext.\n"
+    "  Empty subtext (\"\") is fine for pure-action beats but suspicious for dialogue beats.\n"
+    "- INTERIORITY MODE (interiority_mode): How CLOSE is narration to the POV's mind for\n"
+    "  this beat? Choose ONE of:\n"
+    "    * observed_external — narrate from outside; show what they DO and SAY, no thought\n"
+    "    * free_indirect    — narration carries POV diction and judgment without quoted thought\n"
+    "    * direct_thought   — include 1-2 sentences of explicit unspoken thought\n"
+    "    * suppressed       — POV is actively NOT thinking about something; render the avoidance\n"
+    "  VARY this across the chapter. No more than 3 consecutive beats may share an\n"
+    "  interiority_mode. A chapter where every beat is 'free_indirect' reads with one tone.\n"
+    "- SCENE SHAPE (scene_shape): The dramatic LENS the beat uses. This is distinct from\n"
+    "  info_type — info_type names the EVENT, scene_shape names the FEEL. Choose ONE of:\n"
+    "    * dialogue_pressure     — 2+ characters in escalating verbal push-pull\n"
+    "    * kinetic_action        — physical movement, urgency, fight/chase/work-under-stress\n"
+    "    * interior_pressure     — POV alone (or effectively alone), weighing/suffering/deciding\n"
+    "    * observed_setpiece     — POV witnesses something important; absorbs but does not control\n"
+    "    * decision_crystallizes — the moment a choice is made, with cost on the page\n"
+    "    * revelation_exchange   — information given/received that re-frames the picture\n"
+    "    * transitional          — bridge between scenes; movement or time-skip framed by action\n"
+    "  RULES:\n"
+    "    * Every beat must declare a scene_shape.\n"
+    "    * A chapter of 8+ beats MUST use at least 3 distinct scene_shapes.\n"
+    "    * No more than 2 consecutive beats may share the same scene_shape.\n"
+    "    * A chapter that is all dialogue_pressure feels like a transcript. A chapter\n"
+    "      that is all interior_pressure feels like a journal. Mix lenses.\n"
+    "    * Use the chapter_shape (if provided in the plan) as your primary palette for\n"
+    "      which scene_shapes dominate, but always include at least one beat from a\n"
+    "      DIFFERENT family for contrast.\n"
     "- NOT every chapter needs a 'routine inspection' beat. Skip it unless the routine\n"
     "  reveals something unexpected.\n"
     "- If evidence or findings have been established in prior chapters, do NOT plan beats that\n"
@@ -315,6 +457,17 @@ async def generate_skeleton(
     entity_registry: str = "",
     chapter_blueprint: str = "",
     plot_timeline: str = "",
+    recent_chapter_shapes: Optional[List[str]] = None,
+    recent_scene_shape_distribution: Optional[Dict[str, int]] = None,
+    # Path A+ P3.3 — supplemental craft context. These four references used to
+    # be generated and silently dropped on the floor. They're now consumed at
+    # plan time so the planner can match the book's stated themes, audience,
+    # and (when present) series bible. Each is truncated tightly to keep the
+    # prompt cost bounded.
+    themes_and_motifs: str = "",
+    research_notes: str = "",
+    target_audience_profile: str = "",
+    series_bible: str = "",
 ) -> List[Dict[str, Any]]:
     """Generate a beat-level skeleton for a chapter.
     
@@ -327,6 +480,10 @@ async def generate_skeleton(
         plot_timeline: Plot timeline excerpt for continuity
         relationship_context: Relationship dynamics relevant to this chapter's characters
         entity_registry: Proper noun registry for name consistency
+        themes_and_motifs: themes-and-motifs.md excerpt — image system, motif vocabulary
+        research_notes: research-notes.md excerpt — domain-specific facts the author committed to
+        target_audience_profile: target-audience-profile.md excerpt — reader expectations / register
+        series_bible: series-bible.md excerpt — cross-book continuity (often empty for standalone)
     """
     plan_summary = chapter_plan.get("summary", "")
     plan_objectives = chapter_plan.get("objectives", [])
@@ -403,6 +560,46 @@ async def generate_skeleton(
             user_prompt += f"  - Transition from previous chapter: {plan_transition}\n"
         user_prompt += "\n"
 
+    # P1.2 — Scene-shape variety: tell the planner what palette to favor for this
+    # chapter (based on chapter_shape) and which scene_shapes have been overused
+    # in adjacent chapters so we don't fall into a one-shape rut.
+    plan_chapter_shape = (chapter_plan.get("chapter_shape") or "").strip().lower()
+    if plan_chapter_shape:
+        suggested_mix = CHAPTER_SHAPE_TO_SCENE_MIX.get(plan_chapter_shape)
+        user_prompt += "SCENE-SHAPE PALETTE FOR THIS CHAPTER:\n"
+        user_prompt += f"  - Chapter shape: {plan_chapter_shape}\n"
+        if suggested_mix:
+            user_prompt += (
+                f"  - Suggested dominant scene_shapes (use these for ~70% of beats): "
+                f"{', '.join(suggested_mix)}\n"
+            )
+        user_prompt += (
+            "  - Always include at least one beat from a DIFFERENT scene_shape family "
+            "for tonal contrast. A chapter that uses only one shape feels like one note.\n\n"
+        )
+
+    if recent_chapter_shapes:
+        user_prompt += (
+            f"RECENT CHAPTER SHAPES (last {len(recent_chapter_shapes)}): "
+            f"{', '.join(s for s in recent_chapter_shapes if s) or 'none'}\n"
+            "Avoid letting THIS chapter feel structurally identical to its neighbors.\n\n"
+        )
+
+    if recent_scene_shape_distribution:
+        # Surface the top 2-3 over-used scene_shapes as a soft warning.
+        sorted_shapes = sorted(
+            recent_scene_shape_distribution.items(),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+        if sorted_shapes:
+            top = ", ".join(f"{s}({c})" for s, c in sorted_shapes[:3] if c >= 2)
+            if top:
+                user_prompt += (
+                    f"OVERUSED SCENE_SHAPES IN RECENT CHAPTERS: {top}\n"
+                    "Use these SPARINGLY in this chapter; lean on shapes that have appeared less.\n\n"
+                )
+
     user_prompt += f"BOOK BIBLE (excerpt):\n{book_bible[:4000]}\n\n"
     if style_guide:
         user_prompt += f"STYLE GUIDE:\n{style_guide[:2000]}\n\n"
@@ -422,6 +619,48 @@ async def generate_skeleton(
         user_prompt += f"CHAPTER BLUEPRINT (use as structural guidance):\n{chapter_blueprint[:2000]}\n\n"
     if plot_timeline:
         user_prompt += f"PLOT TIMELINE (for continuity — what has happened and what comes next):\n{plot_timeline[:2000]}\n\n"
+
+    # Path A+ P3.3 — Supplemental craft context. Previously generated then
+    # never consumed. Each block is intentionally tight (themes 1500c,
+    # research 1500c, audience 800c, series bible 1500c) so the planner sees
+    # the highest-value craft notes without blowing up token cost.
+    supplemental_blocks: List[str] = []
+    if themes_and_motifs and themes_and_motifs.strip():
+        supplemental_blocks.append(
+            "THEMES & MOTIFS (the imagery, motif vocabulary, and thematic "
+            "questions this book is *about*; let beats nod to these naturally — "
+            "do NOT lecture them):\n"
+            f"{themes_and_motifs[:1500]}"
+        )
+    if research_notes and research_notes.strip():
+        supplemental_blocks.append(
+            "RESEARCH NOTES (domain-specific facts and details the author has "
+            "committed to; if a beat touches one of these domains, the beat "
+            "must respect the facts here):\n"
+            f"{research_notes[:1500]}"
+        )
+    if target_audience_profile and target_audience_profile.strip():
+        supplemental_blocks.append(
+            "TARGET AUDIENCE (reader expectations and register the planner "
+            "should hit; calibrate intensity, vocabulary, and pacing to this "
+            "audience):\n"
+            f"{target_audience_profile[:800]}"
+        )
+    if series_bible and series_bible.strip():
+        supplemental_blocks.append(
+            "SERIES BIBLE (cross-book continuity — characters, events, and "
+            "rules that survive between books; do NOT contradict):\n"
+            f"{series_bible[:1500]}"
+        )
+    if supplemental_blocks:
+        user_prompt += (
+            "═══════════════════════════════════════════\n"
+            "  SUPPLEMENTAL CRAFT CONTEXT\n"
+            "═══════════════════════════════════════════\n"
+            + "\n\n".join(supplemental_blocks)
+            + "\n\n"
+        )
+
     if anti_pattern_context:
         user_prompt += f"{anti_pattern_context}\n\n"
     if established_facts:
@@ -445,7 +684,13 @@ async def generate_skeleton(
         '{"beats": [\n'
         "  {\n"
         '    "beat_number": 1,\n'
-        '    "action": "What happens — be SPECIFIC. Name the action, the discovery, the decision.",\n'
+        '    "action": "What happens externally — be SPECIFIC. Name the action, the discovery, the decision.",\n'
+        '    "pov_want": "What the POV character is trying to GET in this beat (internal verb: be heard, regain control, hide the lie, win without saying so).",\n'
+        '    "pov_obstacle": "What is in the way of that want — specific external situation OR specific internal block.",\n'
+        '    "pov_concession": "What the POV gives up / trades / surrenders to make progress (or \\"nothing\\" if pure setup).",\n'
+        '    "subtext": "What is being avoided, lied about, or left unsaid in this beat. Empty string OK only for pure-action beats.",\n'
+        '    "interiority_mode": "observed_external | free_indirect | direct_thought | suppressed",\n'
+        '    "scene_shape": "dialogue_pressure | kinetic_action | interior_pressure | observed_setpiece | decision_crystallizes | revelation_exchange | transitional",\n'
         '    "what_changes": "What is different after this beat? What does the reader now know/feel?",\n'
         '    "prose_register": "plain | moderate | vivid",\n'
         '    "emotional_temperature": "low | medium | high",\n'
@@ -463,6 +708,15 @@ async def generate_skeleton(
         "- At least 1 beat must be 'decision' (protagonist commits to an action).\n"
         "- At least 1 beat must be 'new_development' with a genuine surprise.\n"
         "- Maximum 2 consecutive beats of the same info_type.\n"
+        "- EVERY beat must have a non-empty 'pov_want' and 'pov_obstacle'. If you cannot\n"
+        "  fill these for a beat, the beat is decoration — cut it or merge it.\n"
+        "- At least 2 beats must have a CONCRETE 'pov_concession' (not 'nothing'). The\n"
+        "  POV character must give up something real at least twice per chapter.\n"
+        "- At least 1 dialogue_scene or confrontation beat must have substantial 'subtext'.\n"
+        "- The 'interiority_mode' must vary. No more than 3 consecutive beats may share\n"
+        "  the same interiority_mode. The chapter should use at least 3 different modes.\n"
+        "- The 'scene_shape' must vary. No more than 2 consecutive beats may share the\n"
+        "  same scene_shape. A chapter of 8+ beats must use at least 3 distinct shapes.\n"
         "- The 'what_changes' field must be DIFFERENT for every beat. If two beats\n"
         "  have the same answer for what_changes, one of them is dead weight — cut it.\n"
         "- TIME OF DAY must be consistent. Pick ONE time window and stay in it.\n"
@@ -479,6 +733,7 @@ async def generate_skeleton(
             temperature=0.3,
             max_tokens=3000,
             response_format={"type": "json_object"},
+            model_role="planner",
         )
     except Exception:
         return _default_skeleton(narrative_weight, chapter_plan=chapter_plan)
@@ -530,6 +785,21 @@ def _default_skeleton(
                   "confrontation", "decision", "dialogue_scene",
                   "deepening", "action", "new_development", "dialogue_scene"]
 
+    # Rotate interiority modes so the fallback skeleton isn't tonally flat.
+    interiority_cycle = ["free_indirect", "observed_external", "direct_thought",
+                         "free_indirect", "suppressed", "observed_external",
+                         "direct_thought", "free_indirect"]
+
+    # Pick a scene_shape rotation based on the plan's chapter_shape, falling
+    # back to a balanced default. Always rotate so no two consecutive beats
+    # share a shape and at least 3 distinct shapes appear.
+    plan_chapter_shape = (plan.get("chapter_shape") or "").strip().lower()
+    scene_shape_pool = CHAPTER_SHAPE_TO_SCENE_MIX.get(
+        plan_chapter_shape,
+        ["dialogue_pressure", "interior_pressure", "kinetic_action",
+         "observed_setpiece", "decision_crystallizes", "revelation_exchange"],
+    )
+
     beats = []
     for i in range(count):
         register = "plain"
@@ -543,9 +813,23 @@ def _default_skeleton(
         if others and i % 2 == 1:
             beat_chars.append(others[i % len(others)] if others else "Companion")
 
+        # Default interior fields — generic but at least non-empty so expand_beat
+        # has something to work with when the LLM skeleton call fails entirely.
+        is_dialogue = info_types[i % len(info_types)] in ("dialogue_scene", "confrontation")
+        # Rotate scene_shape from the chapter_shape's palette. Skip when the
+        # next pick equals the previous one (avoids 2 consecutive same).
+        scene_shape = scene_shape_pool[i % len(scene_shape_pool)]
+        if beats and scene_shape == beats[-1].get("scene_shape"):
+            scene_shape = scene_shape_pool[(i + 1) % len(scene_shape_pool)]
         beats.append({
             "beat_number": i + 1,
             "action": action,
+            "pov_want": "stay in control of the moment" if i == 0 else "make sense of what just happened",
+            "pov_obstacle": "what's actually going on isn't what they expected",
+            "pov_concession": "a small admission they didn't plan to make" if i in (count // 3, 2 * count // 3) else "nothing",
+            "subtext": "what they really want to know but won't ask directly" if is_dialogue else "",
+            "interiority_mode": interiority_cycle[i % len(interiority_cycle)],
+            "scene_shape": scene_shape,
             "what_changes": "Story advances",
             "prose_register": register,
             "emotional_temperature": "medium",
@@ -911,10 +1195,38 @@ async def build_voice_profiles(
     character_reference: str,
     project_path: str = ".",
 ) -> str:
-    """Generate per-character voice rules from character reference via LLM.
+    """DEPRECATED — kept for backwards compatibility.
 
-    Caches the result to .project-state/voice-profiles.json and returns
-    a formatted string ready for beat expansion prompt injection.
+    Old callers expect a single text block of voice RULES. The new
+    voice-sample system (P2.2 — `build_character_voice_samples`) replaces
+    rule-listing with actual sample paragraphs of each character's voice.
+    Routes to the new sample builder and returns a formatted text block.
+    """
+    samples = await build_character_voice_samples(
+        orchestrator,
+        character_reference,
+        project_path=project_path,
+    )
+    if not samples:
+        return extract_voice_profiles(character_reference)
+    return format_voice_samples_for_beat(samples, list(samples.keys()))
+
+
+async def build_character_voice_samples(
+    orchestrator,
+    character_reference: str,
+    project_path: str = ".",
+) -> Dict[str, str]:
+    """Generate 1-2 paragraph voice SAMPLES per character (P2.2).
+
+    The samples show HOW the character talks — sentence length, contractions,
+    vocabulary, posture — by demonstration rather than by listing rules. This
+    replaces the verbal-habit / catchphrase rule system that turned characters
+    into formula.
+
+    Returns a dict {character_name: sample_paragraph}. Result is cached at
+    `.project-state/voice-profiles.json` keyed by reference hash; cache is
+    versioned so old rule-format caches are rebuilt automatically.
     """
     import hashlib
 
@@ -923,41 +1235,50 @@ async def build_voice_profiles(
     cache_path = state_dir / "voice-profiles.json"
 
     ref_hash = hashlib.sha256((character_reference or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+    CACHE_VERSION = 2
 
     if cache_path.exists():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if cached.get("ref_hash") == ref_hash and cached.get("profiles"):
-                return cached["profiles"]
+            if (
+                cached.get("ref_hash") == ref_hash
+                and cached.get("version") == CACHE_VERSION
+                and isinstance(cached.get("samples"), dict)
+                and cached["samples"]
+            ):
+                return cached["samples"]
         except Exception:
             pass
 
     if not character_reference or len(character_reference.strip()) < 100:
-        return extract_voice_profiles(character_reference)
+        return {}
 
     system_prompt = (
-        "You are a dialogue coach. Given character descriptions, define each "
-        "character's UNIQUE speech pattern so they never sound alike.\n"
-        "Output a plain-text block (NOT JSON) with one section per character.\n"
-        "For each character provide:\n"
-        "- Avg sentence length (short/medium/long)\n"
-        "- Contraction frequency (high/low/none)\n"
-        "- Vocabulary tier (blue-collar slang / professional jargon / academic)\n"
-        "- ONE subtle verbal habit used SPARINGLY (max 1 time per chapter). "
-        "Voice distinction should come primarily from sentence structure, vocabulary "
-        "level, and what the character notices — not from catchphrases.\n"
-        "- What REPLACES the habit when the budget is spent (action, silence, or alternate phrasing)\n"
-        "- What they NEVER say or do in dialogue\n"
-        "CRITICAL CONSTRAINT: Each verbal habit you define must be used "
-        "MAXIMUM 1 time per chapter. Differentiate characters through HOW they "
-        "speak (sentence length, directness, vocabulary) not WHAT phrases they repeat.\n"
-        "Keep each character's section to 3-5 lines.\n"
+        "You are a novelist demonstrating how each named character SOUNDS. "
+        "Output STRICT JSON only. No commentary, no code fences.\n"
+        "For every named, speaking character in the reference, write ONE short "
+        "voice sample (1-2 paragraphs, 60-150 words) that DEMONSTRATES how they "
+        "speak — sentence length, contractions, vocabulary, posture, what they "
+        "notice and what they avoid.\n"
+        "RULES:\n"
+        "- The sample must be the character TALKING in dialogue, with one beat of "
+        "  action or thought to show what they're like in motion.\n"
+        "- Do NOT list rules ('uses contractions', 'short sentences'). DEMONSTRATE.\n"
+        "- Do NOT give them catchphrases or repeated tics. Voice comes from\n"
+        "  HOW they say things and WHAT they notice, not WHICH phrases they repeat.\n"
+        "- Two characters in the same book must NOT sound alike — their samples\n"
+        "  must be distinguishable in 2 sentences.\n"
+        "- Skip animals/objects/inanimate characters — they don't get voice samples.\n"
     )
 
     user_prompt = (
-        "Define speech patterns for every named character below.\n\n"
-        f"CHARACTER REFERENCE:\n{character_reference[:4000]}\n\n"
-        "Return one block of text with CHARACTER VOICE RULES as the header."
+        "Generate voice samples for every named human character in the reference below.\n\n"
+        f"CHARACTER REFERENCE:\n{character_reference[:6000]}\n\n"
+        "Return JSON in this shape (no other keys):\n"
+        '{"samples": {\n'
+        '  "Detective Reyes": "Reyes leaned back, hands behind his head. \\"Let me ask you something simpler...\\"",\n'
+        '  "Halsey": "\\"You\'re going to need a warrant for that,\\" Halsey said. He didn\'t look up..."\n'
+        "}}\n"
     )
 
     try:
@@ -966,11 +1287,13 @@ async def build_voice_profiles(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.1,
-            max_tokens=800,
+            temperature=0.4,
+            max_tokens=2000,
+            response_format={"type": "json_object"},
+            model_role="planner",
         )
     except Exception:
-        return extract_voice_profiles(character_reference)
+        return {}
 
     content = ""
     if hasattr(response, "output_text"):
@@ -978,19 +1301,86 @@ async def build_voice_profiles(
     elif response and hasattr(response, "choices") and response.choices:
         content = response.choices[0].message.content
 
-    profiles = (content or "").strip()
-    if not profiles or len(profiles) < 50:
-        return extract_voice_profiles(character_reference)
+    samples: Dict[str, str] = {}
+    try:
+        parsed = json.loads(content or "")
+        raw = parsed.get("samples", {}) if isinstance(parsed, dict) else {}
+        if isinstance(raw, dict):
+            for name, sample in raw.items():
+                if isinstance(name, str) and isinstance(sample, str) and len(sample.strip()) >= 30:
+                    samples[name.strip()] = sample.strip()
+    except Exception:
+        return {}
+
+    if not samples:
+        return {}
 
     try:
         cache_path.write_text(
-            json.dumps({"ref_hash": ref_hash, "profiles": profiles}, ensure_ascii=False),
+            json.dumps(
+                {"ref_hash": ref_hash, "version": CACHE_VERSION, "samples": samples},
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
     except Exception:
         pass
 
-    return profiles
+    return samples
+
+
+def format_voice_samples_for_beat(
+    samples: Dict[str, str],
+    characters_in_beat: List[str],
+    max_chars: int = 1500,
+) -> str:
+    """Pull only the relevant character voice samples for this beat.
+
+    Reduces context bloat: a chapter with 6 named characters but a 2-character
+    beat injects only those 2 voices. Matching is case-insensitive on the
+    character name and tolerates "Detective Reyes" vs "Reyes" by checking
+    substring overlap.
+    """
+    if not samples or not characters_in_beat:
+        return ""
+
+    wanted_lower = [(c or "").strip().lower() for c in characters_in_beat if isinstance(c, str) and c.strip()]
+    if not wanted_lower:
+        return ""
+
+    picked: List[str] = []
+    used = 0
+    for name, sample in samples.items():
+        name_lower = name.lower()
+        # Match if either the wanted name appears in the sample's name, or vice versa.
+        # Catches "Reyes" vs "Detective Reyes" without needing exact equality.
+        match = False
+        for wanted in wanted_lower:
+            if wanted == name_lower:
+                match = True
+                break
+            # Token overlap: require at least one common token of length >= 3.
+            wanted_tokens = {t for t in re.split(r"\s+", wanted) if len(t) >= 3}
+            name_tokens = {t for t in re.split(r"\s+", name_lower) if len(t) >= 3}
+            if wanted_tokens & name_tokens:
+                match = True
+                break
+        if not match:
+            continue
+        block = f"### {name} — voice sample\n{sample}"
+        if used + len(block) > max_chars:
+            break
+        picked.append(block)
+        used += len(block)
+
+    if not picked:
+        return ""
+    header = (
+        "CHARACTER VOICE SAMPLES (these characters are SPEAKING in this beat — "
+        "match the SOUND of the sample, not by repeating its phrases):\n"
+    )
+    return header + "\n\n".join(picked)
 
 
 # ─── Beat Expander ────────────────────────────────────────────────────────────
@@ -1041,6 +1431,141 @@ REGISTER_INSTRUCTIONS = {
     ),
 }
 
+# P2.1 — Per-shape system-prompt PRELUDES. Each scene_shape produces a
+# distinctly framed beat: dialogue beats lean on talk, kinetic beats lean
+# on verbs, interior beats lean on thought. These preludes are PREPENDED to
+# the universal craft rules so they set the dominant frame for the beat.
+#
+# Crucially, each prelude also LIFTS one or two universal defaults that are
+# wrong for that shape (e.g., the "open with sensory anchor" default is
+# inappropriate for a confrontation beat — it should open mid-line).
+SHAPE_SYSTEM_PRELUDES: Dict[str, str] = {
+    "dialogue_pressure": (
+        "BEAT FRAME — DIALOGUE PRESSURE.\n"
+        "This beat lives in TALK. The dramatic engine is what is said and what is\n"
+        "deflected — not movement, not setting, not gesture inventory.\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- OPEN inside a line of dialogue or 1-line action that triggers speech. NO\n"
+        "  atmospheric anchor, NO setting paragraph, NO 'they sat down at the table.'\n"
+        "- DIALOGUE > narration in this beat. Speech should be 50%+ of the word count.\n"
+        "- ESCALATE: each exchange must shift power, information, or the topic. If A\n"
+        "  asks and B deflects twice in a row, A must change angle on the third.\n"
+        "- Subtext lives in WHAT IS NOT SAID. Use silences, deflections, sudden\n"
+        "  topic shifts, half-finished sentences. Do NOT explain the subtext in\n"
+        "  narration — let it land between the lines.\n"
+        "- Body language is RARE. Maximum 1 short gesture in this beat unless the\n"
+        "  STYLE GUIDE expressly says otherwise. Do not stack gestures.\n"
+        "- ATTRIBUTION: 'said' is the default; vary 1-2 lines via action beats\n"
+        "  (\"He set the cup down. 'I don't know.'\"). Avoid 'kept his voice\n"
+        "  X' and other narrator-told tone.\n"
+    ),
+    "kinetic_action": (
+        "BEAT FRAME — KINETIC ACTION.\n"
+        "This beat is BODIES MOVING under pressure. Verbs do the work. Interior\n"
+        "monologue is compressed. Setting comes through what hands and breath touch.\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- OPEN with a physical action verb. The first word should NOT be a name,\n"
+        "  pronoun, or atmospheric noun. If the prior beat ended in stillness, this\n"
+        "  beat must open with motion.\n"
+        "- Sentences run SHORT. Most sentences 4-12 words. A long sentence is\n"
+        "  permitted only as a release after a string of short ones.\n"
+        "- Internal thought is at most ONE sentence per paragraph. The character\n"
+        "  notices and reacts in compressed phrases — they don't analyze in motion.\n"
+        "- Sensory detail enters through ACTION: what they grip, smell at the same\n"
+        "  moment they move, hear in the moment they turn. No standalone\n"
+        "  observations.\n"
+        "- Dialogue, if any, is 1-3 word fragments — yells, names, commands.\n"
+        "- Avoid summary verbs (made his way, headed toward, proceeded to). Use\n"
+        "  the specific verb (climbed, ducked, hurled, slammed).\n"
+    ),
+    "interior_pressure": (
+        "BEAT FRAME — INTERIOR PRESSURE.\n"
+        "This beat is the POV character ALONE (or effectively alone), under weight.\n"
+        "Thought, memory, sensory anchor. Almost no dialogue.\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- OPEN inside a sensory-anchored thought OR a small physical act that\n"
+        "  triggers thought (turning a coin, watching rain). Do NOT open with a\n"
+        "  bare description of the room.\n"
+        "- Thought is rendered cleanly — direct or free-indirect per the\n"
+        "  interiority_mode given for this beat. Do NOT stack 'she felt' / 'she\n"
+        "  thought' tags. One per beat at most.\n"
+        "- Sensory detail anchors thought: a specific texture, sound, or smell\n"
+        "  prompts the next interior turn. Two senses across the whole beat is\n"
+        "  enough; never inventory a room.\n"
+        "- Dialogue is rare to absent. If the character speaks aloud to no one,\n"
+        "  it is a single line, not a monologue.\n"
+        "- Avoid theme-statement sentences. Do not have the character name the\n"
+        "  meaning of the moment. Show the weight, don't title it.\n"
+    ),
+    "observed_setpiece": (
+        "BEAT FRAME — OBSERVED SETPIECE.\n"
+        "The POV witnesses something they don't fully control. Render it precisely.\n"
+        "Their reaction is delayed, inward, or off-rhythm.\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- OPEN on the thing being witnessed, not on the POV's reaction. Lead with\n"
+        "  the SEEN/HEARD object or moment.\n"
+        "- Visual rendering is CONCRETE and economical: 2-3 specific details that\n"
+        "  do work, not 5-6 atmospheric flourishes.\n"
+        "- POV reaction lands ONCE, late in the beat — a held breath, a small\n"
+        "  physical involuntary, or a single line of thought. Not paragraph after\n"
+        "  paragraph of internal commentary.\n"
+        "- Other on-stage characters may speak, but the beat is about WHAT IS SEEN,\n"
+        "  not about a conversation. Speech is in service of the spectacle.\n"
+        "- Avoid camera-tour structure (then she saw X, then she saw Y, then she\n"
+        "  saw Z). Compress observation into action.\n"
+    ),
+    "decision_crystallizes": (
+        "BEAT FRAME — DECISION CRYSTALLIZES.\n"
+        "This beat builds to ONE concrete moment of choice. The decision must show\n"
+        "on the page, not be narrated as 'she decided to.'\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- OPEN at the EDGE of the decision. Either pressure is already on the POV\n"
+        "  (someone waiting for an answer, time running out) or the POV is in the\n"
+        "  posture of weighing.\n"
+        "- The decision must be rendered as ACTION or DIALOGUE, not as narration.\n"
+        "  GOOD: 'She picked up the phone and dialed.' BAD: 'She decided to call.'\n"
+        "  GOOD: \"'Fine. Do it.'\" BAD: 'She made up her mind to agree.'\n"
+        "- If the decision is internal (e.g., to stop trying), render the moment of\n"
+        "  the held breath/the put-down/the turning away — the body says yes before\n"
+        "  the narration does.\n"
+        "- Cost must be visible. The character LOSES something in this beat — comfort,\n"
+        "  pride, an alibi, a person's regard. Show the cost on the page.\n"
+        "- After the decision lands, the beat ends quickly. ONE line of consequence\n"
+        "  or stillness, then stop.\n"
+    ),
+    "revelation_exchange": (
+        "BEAT FRAME — REVELATION EXCHANGE.\n"
+        "Information moves between characters. The beat is about WHO KNOWS WHAT\n"
+        "BEFORE and WHO KNOWS WHAT AFTER.\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- The reveal lands MID-BEAT, not at the very end. Save the last paragraph\n"
+        "  for reaction or for the next pressure to start.\n"
+        "- The teller does NOT speech-give the information. Use indirection,\n"
+        "  reluctance, deflection — let the receiver work for it where possible.\n"
+        "- Reaction must be rendered. Show the receiver register the new fact —\n"
+        "  through silence, a question they suddenly can't ask, a re-organization\n"
+        "  of their body. Do NOT skip past the reaction to the next plot beat.\n"
+        "- The reveal must CHANGE something concrete: a relationship, a plan, a\n"
+        "  power dynamic. If it doesn't change anything, it isn't a reveal.\n"
+        "- Avoid the 'monologue confession' shape. Truth comes out in fragments.\n"
+    ),
+    "transitional": (
+        "BEAT FRAME — TRANSITIONAL.\n"
+        "Move time or place economically. Anchor in ONE specific physical detail.\n"
+        "FRAME RULES (override universal defaults below):\n"
+        "- 1-2 short paragraphs is enough for most transitions. Do NOT fill the\n"
+        "  beat to a target word count — let it be brief.\n"
+        "- Anchor the move in ONE specific physical detail (not a list of three).\n"
+        "  That single detail does the work of the transition.\n"
+        "- Avoid summary mode ('over the next hour, they...'). Render a small\n"
+        "  concrete moment that implies the time/place change.\n"
+        "- Internal thought is permitted as connective tissue but should be brief.\n"
+        "- The beat ends pointing toward the next scene's pressure — a sound, a\n"
+        "  door, an arrival. Not a quiet thematic note.\n"
+    ),
+}
+
+
 TEMP_INSTRUCTIONS = {
     "low": "Calm, quiet moment. Let the character breathe. No urgency. Slower rhythm.",
     "medium": "Normal tension. Things are in motion but not at crisis point.",
@@ -1065,12 +1590,14 @@ async def expand_beat(
     director_scene_card: str = "",
     style_guide: str = "",
     character_voice_profiles: str = "",
+    voice_samples_by_character: Optional[Dict[str, str]] = None,
     avoid_phrases: str = "",
     overused_phrases: str = "",
     previous_beat_emotional_point: str = "",
     within_chapter_repetition: str = "",
     chapter_events_summary: str = "",
     rewrite_instruction: str = "",
+    scene_state_guard: str = "",
 ) -> str:
     """Expand a single beat into prose. No word target — write until the beat is complete."""
 
@@ -1082,15 +1609,63 @@ async def expand_beat(
     info_type = beat.get("info_type", "deepening")
     time_of_day = beat.get("time_of_day", "")
 
+    # P1.1 deeper-skeleton fields. These may be missing on legacy beats from
+    # cached state or fallback skeletons; treat them as optional context.
+    pov_want = (beat.get("pov_want") or "").strip()
+    pov_obstacle = (beat.get("pov_obstacle") or "").strip()
+    pov_concession = (beat.get("pov_concession") or "").strip()
+    subtext = (beat.get("subtext") or "").strip()
+    interiority_mode = (beat.get("interiority_mode") or "").strip().lower()
+    # P1.2 scene_shape — surfaces in the user prompt as a brief LENS hint.
+    # P2.1 will replace the universal expand prompt with shape-specific system
+    # prompts; for now we just expose the lens to the drafter so it begins
+    # shaping prose accordingly.
+    scene_shape = (beat.get("scene_shape") or "").strip().lower()
+
     register_instruction = REGISTER_INSTRUCTIONS.get(register, REGISTER_INSTRUCTIONS["plain"])
     temp_instruction = TEMP_INSTRUCTIONS.get(temperature, TEMP_INSTRUCTIONS["medium"])
 
+    interiority_instructions = {
+        "observed_external": (
+            "INTERIORITY MODE — OBSERVED_EXTERNAL: Stay OUTSIDE the POV character's mind in this beat. "
+            "Render only what they DO and SAY and what is visible/audible. NO direct thought. "
+            "NO 'she felt' or 'he wondered'. Internal state must be inferred by the reader from action."
+        ),
+        "free_indirect": (
+            "INTERIORITY MODE — FREE_INDIRECT: Narration carries the POV character's diction and judgment "
+            "without quoted thought. Sentences may slip into the character's voice (their slang, biases, "
+            "shorthand) while remaining third person. Avoid 'she thought' tags. Don't go full direct thought."
+        ),
+        "direct_thought": (
+            "INTERIORITY MODE — DIRECT_THOUGHT: Include 1-2 sentences of explicit unspoken thought from "
+            "the POV character at the moment of decision or recognition. Italicize internal lines if the "
+            "style guide allows; otherwise integrate cleanly with narration. Use sparingly — one or two "
+            "lines, not a paragraph."
+        ),
+        "suppressed": (
+            "INTERIORITY MODE — SUPPRESSED: The POV character is actively NOT thinking about something "
+            "specific. Render the avoidance — they busy their hands, change subject, fix on a detail. "
+            "The reader should feel the pressure of the unsaid thing without being told what it is."
+        ),
+    }
+    interiority_instruction = interiority_instructions.get(interiority_mode, "")
+
+    interiority_block = f"\n{interiority_instruction}\n" if interiority_instruction else ""
+
+    # P2.1 — shape-specific prelude lands FIRST so it frames the beat before
+    # the universal craft rules. The prelude explicitly overrides the
+    # 'open with sensory anchor' default for shapes where that's wrong.
+    shape_prelude = SHAPE_SYSTEM_PRELUDES.get(scene_shape, "")
+    shape_prelude_block = f"{shape_prelude}\n" if shape_prelude else ""
+
     system_prompt = (
+        f"{shape_prelude_block}"
         "You are a novelist writing a passage (3-6 paragraphs) that is part of a larger chapter.\n"
         "Output ONLY the prose. No headings, no meta-commentary, no beat numbers.\n"
         "Write in third person past tense unless the book context specifies otherwise.\n"
         f"\n{register_instruction}\n"
         f"\n{temp_instruction}\n"
+        f"{interiority_block}"
         "\nCRITICAL RULES:\n"
         "- Write until this beat's action is COMPLETE, then stop. Don't pad, don't rush.\n"
         "- SENTENCE RHYTHM: At least 1 in 4 sentences must be 8 words or fewer. "
@@ -1223,12 +1798,49 @@ async def expand_beat(
         )
 
     user_prompt = f"BEAT TO WRITE:\n{action}\n\n"
+
+    # P1.4 — scene-state guard goes first because continuity errors (animal
+    # speaks, character teleports) are the most jarring to readers and the
+    # cheapest to prevent.
+    if scene_state_guard:
+        user_prompt += f"{scene_state_guard}\n\n"
+
     if characters:
         user_prompt += f"CHARACTERS: {', '.join(characters)}\n"
     if pov_character:
         user_prompt += f"POV: {pov_character}\n"
     if info_type:
         user_prompt += f"BEAT TYPE: {info_type}\n"
+
+    # Inject the deeper-skeleton interior architecture so the drafter has more
+    # to chew on than just an external action. Each field is rendered only when
+    # present so legacy beats (without these keys) degrade gracefully.
+    interior_lines = []
+    if pov_want:
+        interior_lines.append(f"POV WANT (what {pov_character or 'the POV character'} is trying to get from this beat — internal): {pov_want}")
+    if pov_obstacle:
+        interior_lines.append(f"POV OBSTACLE (what's in the way): {pov_obstacle}")
+    if pov_concession and pov_concession.lower() not in {"nothing", "none", "n/a", ""}:
+        interior_lines.append(
+            f"POV CONCESSION (what {pov_character or 'they'} surrender or trade in this beat): {pov_concession}. "
+            "This concession must be rendered concretely on the page — through a line of dialogue, a held back action that finally gives, or an explicit small admission."
+        )
+    if subtext:
+        interior_lines.append(
+            f"SUBTEXT (what is being avoided / not said / lied about): {subtext}. "
+            "The reader should feel this in what is NOT said — silences, deflections, sudden topic shifts. Do NOT have the character explain the subtext."
+        )
+    if interior_lines:
+        user_prompt += "\nINTERIOR ARCHITECTURE FOR THIS BEAT:\n"
+        for line in interior_lines:
+            user_prompt += f"- {line}\n"
+
+    # P2.1 — the shape-specific frame now lives in the system prompt prelude
+    # (SHAPE_SYSTEM_PRELUDES). We add only a one-line marker here so the user
+    # prompt explicitly names the lens this beat is being written under.
+    if scene_shape:
+        user_prompt += f"\nSCENE SHAPE: {scene_shape}\n"
+
     if time_of_day:
         user_prompt += (
             f"TIME OF DAY: {time_of_day}\n"
@@ -1272,8 +1884,21 @@ async def expand_beat(
 
     if style_guide:
         user_prompt += f"\nSTYLE GUIDE (follow these prose guidelines):\n{style_guide[:1500]}\n"
-    if character_voice_profiles:
-        user_prompt += f"\nCHARACTER VOICE PROFILES (match each character's speech patterns):\n{character_voice_profiles[:2000]}\n"
+
+    # P2.2 — voice samples scoped to this beat's speakers. Prefer the sample
+    # dict (per-character demonstrations); fall back to the legacy rule-text
+    # block if no samples were provided. NEVER inject both — the samples are
+    # a strict superset of the rule-text intent and stacking them just bloats.
+    voice_block = ""
+    if voice_samples_by_character:
+        voice_block = format_voice_samples_for_beat(voice_samples_by_character, characters)
+    if not voice_block and character_voice_profiles:
+        voice_block = (
+            f"CHARACTER VOICE PROFILES (match each character's speech patterns):\n"
+            f"{character_voice_profiles[:2000]}"
+        )
+    if voice_block:
+        user_prompt += f"\n{voice_block}\n"
 
     user_prompt += f"\nBOOK CONTEXT:\n{book_bible_excerpt[:1500]}\n"
     if character_reference:
@@ -1420,6 +2045,7 @@ async def stitch_beats(
             ],
             temperature=0.2,
             max_tokens=max(2000, int(len(expanded_text.split()) * 1.5)),
+            model_role="editor",
         )
     except Exception:
         return expanded_text
@@ -2163,6 +2789,13 @@ async def generate_chapter_skeleton_expand(
 
     plot_timeline_ref = _ref("plot-timeline", "plot_timeline")
     themes_ref = _ref("themes-and-motifs", "themes_and_motifs")
+    # Path A+ P3.3 — also load the previously-orphaned references so they
+    # actually inform planning instead of being silent waste.
+    research_notes_ref = _ref("research-notes", "research_notes")
+    target_audience_ref = _ref(
+        "target-audience-profile", "target_audience_profile", "target_audience"
+    )
+    series_bible_ref = _ref("series-bible", "series_bible")
     chapter_blueprint = context.get("chapter_blueprint", "")
 
     overused = context.get("overused_words", [])
@@ -2191,14 +2824,24 @@ async def generate_chapter_skeleton_expand(
 
     pov_character = context.get("pov_character", "")
 
-    # Extract character voice profiles — try LLM-based profiles first, fall back to text extraction
+    # P2.2 — voice samples (per-character demonstration paragraphs) replace
+    # the legacy "voice profile rules" text block. Samples are filtered per
+    # beat by characters_present so the prompt only ever carries the voices
+    # that are SPEAKING in this beat — not all voices for every beat.
+    voice_samples_by_character: Dict[str, str] = {}
     try:
-        character_voice_profiles = await build_voice_profiles(
+        voice_samples_by_character = await build_character_voice_samples(
             orchestrator=orchestrator,
             character_reference=character_ref,
             project_path=str(Path(context.get("project_path", ".")).resolve()) if context.get("project_path") else ".",
         )
-    except Exception:
+    except Exception as e:
+        log.warning(f"Chapter {chapter_number}: voice sample build failed: {e}")
+        voice_samples_by_character = {}
+
+    # Backward-compat fallback: only used if sample build returned nothing.
+    character_voice_profiles = ""
+    if not voice_samples_by_character:
         character_voice_profiles = extract_voice_profiles(character_ref)
 
     # Extract chapter-specific outline excerpt
@@ -2238,6 +2881,15 @@ async def generate_chapter_skeleton_expand(
     log.info(f"Chapter {chapter_number}: narrative_weight={narrative_weight}")
 
     log.info(f"Chapter {chapter_number}: Generating skeleton...")
+    # P1.2 — pass recent chapter_shape sequence so the planner can vary
+    # this chapter's shape mix relative to its neighbors. The orchestrator
+    # populates these from ChapterPatternTracker; if absent we fall back to
+    # an empty list and the planner just relies on chapter_shape alone.
+    recent_chapter_shapes = context.get("recent_chapter_shapes") or []
+    if isinstance(recent_chapter_shapes, str):
+        recent_chapter_shapes = [recent_chapter_shapes]
+    recent_scene_shape_distribution = context.get("recent_scene_shape_distribution") or {}
+
     skeleton = await generate_skeleton(
         orchestrator=orchestrator,
         chapter_number=chapter_number,
@@ -2256,8 +2908,40 @@ async def generate_chapter_skeleton_expand(
         entity_registry=entity_registry_ref,
         chapter_blueprint=chapter_blueprint,
         plot_timeline=plot_timeline_ref[:3000] if plot_timeline_ref else "",
+        recent_chapter_shapes=recent_chapter_shapes if recent_chapter_shapes else None,
+        recent_scene_shape_distribution=recent_scene_shape_distribution if recent_scene_shape_distribution else None,
+        # P3.3 — supplemental craft context (themes, research, audience, series
+        # bible). Each is truncated inside generate_skeleton to keep the
+        # prompt cost bounded.
+        themes_and_motifs=themes_ref,
+        research_notes=research_notes_ref,
+        target_audience_profile=target_audience_ref,
+        series_bible=series_bible_ref,
     )
     log.info(f"Chapter {chapter_number}: Skeleton has {len(skeleton)} beats (weight: {narrative_weight})")
+
+    # P1.2 — variety audit. We log warnings only; even a flat skeleton is
+    # better than no skeleton, and the per-shape expand prompts (P2.1) will
+    # do additional variety work at the prose level.
+    try:
+        variety_report = validate_skeleton_variety(skeleton)
+        if not variety_report.get("ok"):
+            log.warning(
+                "Chapter %s skeleton variety issues: %s | distinct_shapes=%s distinct_interiority=%s",
+                chapter_number,
+                "; ".join(variety_report.get("issues", [])),
+                variety_report.get("distinct_shapes", []),
+                variety_report.get("distinct_interiority", []),
+            )
+        else:
+            log.info(
+                "Chapter %s skeleton variety OK | distinct_shapes=%s distinct_interiority=%s",
+                chapter_number,
+                variety_report.get("distinct_shapes", []),
+                variety_report.get("distinct_interiority", []),
+            )
+    except Exception:
+        pass
 
     # Validate and fix structural issues in the skeleton before expanding
     focal_chars = chapter_plan.get("focal_characters", []) or context.get("focal_characters", []) or []
@@ -2274,6 +2958,33 @@ async def generate_chapter_skeleton_expand(
     accumulated_text = ""
     emotional_summary = ""
     events_log: List[str] = []
+
+    # P1.4 — initialize the per-chapter scene-state ledger. Toggleable via
+    # ENABLE_SCENE_STATE_GUARD (default true). The guard adds a small prompt
+    # block per beat and runs cheap regex validators on output; no extra LLM
+    # calls. Disable only if it produces too many false-positive warnings on
+    # a particular project.
+    scene_ledger = None
+    enable_guard = os.getenv("ENABLE_SCENE_STATE_GUARD", "true").lower() != "false"
+    if enable_guard:
+        try:
+            from .scene_state_ledger import SceneStateLedger
+            scene_ledger = SceneStateLedger.from_chapter_plan(
+                chapter_plan,
+                character_reference=character_ref or "",
+                previous_chapter_ending=previous_ending or "",
+            )
+            log.info(
+                "Chapter %s: scene-state ledger active | seeded %d characters (animals/objects: %s)",
+                chapter_number,
+                len(scene_ledger.known_names()),
+                scene_ledger.animal_or_object_names() or "none",
+            )
+        except Exception as e:
+            log.warning(f"Chapter {chapter_number}: scene-state ledger init failed: {e}")
+            scene_ledger = None
+
+    continuity_warnings_log: List[str] = []
     for i, beat in enumerate(skeleton):
         register = beat.get("prose_register", "plain")
         is_final = (i == len(skeleton) - 1)
@@ -2282,6 +2993,13 @@ async def generate_chapter_skeleton_expand(
 
         within_chapter_warnings = _scan_within_chapter_repetition(accumulated_text)
         events_summary = "\n".join(events_log) if events_log else ""
+
+        scene_state_guard = ""
+        if scene_ledger is not None:
+            try:
+                scene_state_guard = scene_ledger.build_state_guard(beat)
+            except Exception as e:
+                log.warning(f"Chapter {chapter_number} beat {i+1}: state guard build failed: {e}")
 
         beat_text = await expand_beat(
             orchestrator=orchestrator,
@@ -2299,12 +3017,14 @@ async def generate_chapter_skeleton_expand(
             entity_registry=entity_registry_ref[:800] if entity_registry_ref else "",
             style_guide=style_guide[:1500] if style_guide else "",
             character_voice_profiles=character_voice_profiles,
+            voice_samples_by_character=voice_samples_by_character or None,
             avoid_phrases=avoid_phrases_str,
             overused_phrases=overused_phrases_str,
             previous_beat_emotional_point=emotional_summary,
             within_chapter_repetition=within_chapter_warnings,
             chapter_events_summary=events_summary,
             rewrite_instruction=user_rewrite_instruction,
+            scene_state_guard=scene_state_guard,
         )
 
         if beat_text:
@@ -2314,6 +3034,23 @@ async def generate_chapter_skeleton_expand(
             beat_event = _extract_beat_events(beat_text, i + 1, beat.get("action", ""))
             if beat_event:
                 events_log.append(beat_event)
+
+            # Update + validate the ledger AFTER prose exists.
+            if scene_ledger is not None:
+                try:
+                    scene_ledger.update_from_beat(beat, beat_text)
+                    warnings = scene_ledger.validate_beat_speakers(beat_text, beat)
+                    if warnings:
+                        for w in warnings:
+                            log.warning(
+                                "Chapter %s beat %s continuity: %s",
+                                chapter_number,
+                                i + 1,
+                                w,
+                            )
+                            continuity_warnings_log.append(f"Beat {i+1}: {w}")
+                except Exception as e:
+                    log.warning(f"Chapter {chapter_number} beat {i+1}: state guard validate failed: {e}")
 
     if not expanded_parts:
         log.error(f"Chapter {chapter_number}: No beats expanded")
@@ -2353,6 +3090,53 @@ async def generate_chapter_skeleton_expand(
         last_quote_pos = cleaned.rfind('"')
         if last_quote_pos > len(cleaned) * 0.8:
             cleaned = cleaned + '"'
+
+    # Step 5: Path A+ P2.4 — bounded literary sniff test + ONE targeted
+    # rewrite pass. No rubric scoring, no iterative loop, no whole-chapter
+    # rewrite. The pass is opt-out via ENABLE_SNIFF_TEST=false; it returns
+    # the input unchanged on any failure.
+    try:
+        from .sniff_test import is_sniff_test_enabled, run_sniff_test_and_rewrite
+
+        if is_sniff_test_enabled():
+            log.info(f"Chapter {chapter_number}: Running bounded sniff test (P2.4)")
+            sniff_text, sniff_info = await run_sniff_test_and_rewrite(
+                orchestrator=orchestrator,
+                chapter_text=cleaned,
+                chapter_number=chapter_number,
+                book_bible_excerpt=book_bible[:1500] if book_bible else "",
+            )
+            critique = sniff_info.get("critique", {}) or {}
+            rewrite = sniff_info.get("rewrite", {}) or {}
+            if critique.get("skipped"):
+                log.info(
+                    f"Chapter {chapter_number}: Sniff test skipped "
+                    f"({critique.get('reason')})"
+                )
+            else:
+                rewrite_count = len(critique.get("targeted_rewrites", []) or [])
+                log.info(
+                    f"Chapter {chapter_number}: Sniff test critique returned "
+                    f"{rewrite_count} targeted rewrites; "
+                    f"applied={rewrite.get('applied')}, "
+                    f"matched={rewrite.get('matched')}, "
+                    f"unmatched={len(rewrite.get('unmatched_quotes', []))}"
+                )
+                if rewrite.get("applied"):
+                    cleaned = sniff_text
+                    # Re-run the cheap deterministic cleanups in case the
+                    # rewrite reintroduced trailing meta narration or
+                    # imbalanced quotes.
+                    cleaned = strip_meta_narration(cleaned)
+                    cleaned = ensure_clean_ending(cleaned)
+                    straight_count = cleaned.count('"')
+                    if straight_count % 2 == 1:
+                        last_quote_pos = cleaned.rfind('"')
+                        if last_quote_pos > len(cleaned) * 0.8:
+                            cleaned = cleaned + '"'
+    except Exception as e:
+        # Sniff test is opt-out and best-effort — never block the chapter.
+        log.warning(f"Chapter {chapter_number}: Sniff test wrapper failed (non-fatal): {e}")
 
     log.info(f"Chapter {chapter_number}: Final = {len(cleaned.split())} words")
     return cleaned

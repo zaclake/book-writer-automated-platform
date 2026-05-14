@@ -3,14 +3,13 @@ description: "Extracts and consolidates all proper nouns, named entities, and wo
 version: "1.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.3
   max_tokens: 5000
   top_p: 0.9
 
 system_prompt: |
   You are a meticulous editorial continuity specialist. Your job is to extract and consolidate every named entity from the provided source materials into a single, authoritative registry.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   CRITICAL RULES:
   1. **Extract, do not invent.** Every entry must come from the book bible or prior reference files. Do not create new characters, places, or terms.

@@ -799,6 +799,21 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 if not generated_content or len(generated_content.strip()) < 100:
                     raise Exception("Generated content is too short or empty")
 
+                # Path A+ P3.1 — Fail-closed on continuation-placeholder strings.
+                # The model has a habit of writing one chapter block for "outline"
+                # and then handwaving the rest with "[Continue with detailed chapter
+                # breakdown for each subsequent chapter...]" as literal output. We
+                # detect that family and force a regenerate.
+                placeholders = self._detect_continuation_placeholders(
+                    generated_content, reference_type
+                )
+                if placeholders:
+                    sample = "; ".join(placeholders[:3])
+                    raise Exception(
+                        f"placeholder_detected: {reference_type} output contains "
+                        f"continuation placeholder(s) ({sample}). Regenerating."
+                    )
+
                 if 'expected_sections' in prompt_config:
                     missing_sections = self._validate_content_sections(
                         generated_content,
@@ -816,11 +831,14 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                     or "httpstatuserror" in error_str or "gateway" in error_str
                 is_timeout = "timeout" in error_str
                 is_rate = ("rate_limit" in error_str or "429" in error_str or "insufficient_quota" in error_str)
+                # Path A+ P3.1 — placeholder detection is a regenerate-worthy
+                # quality failure, not a transport error.
+                is_placeholder = "placeholder_detected" in error_str
 
                 # Retry transient (5xx) and rate limit errors with backoff
-                if attempt < max_attempts and (is_transient or is_rate or is_timeout):
+                if attempt < max_attempts and (is_transient or is_rate or is_timeout or is_placeholder):
                     delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0, 1)
-                    logger.warning(f"Transient error for {reference_type} on attempt {attempt}: {e}. Retrying in {delay:.1f}s")
+                    logger.warning(f"{'Quality' if is_placeholder else 'Transient'} error for {reference_type} on attempt {attempt}: {e}. Retrying in {delay:.1f}s")
                     time.sleep(delay)
                     continue
 
@@ -832,6 +850,14 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                     raise Exception("OpenAI API rate limit exceeded. Please wait and try again.")
                 if "authentication" in error_str:
                     raise Exception("OpenAI API authentication failed. Please check your API key.")
+                if is_placeholder:
+                    raise Exception(
+                        f"Reference '{reference_type}' generation failed quality check after "
+                        f"{max_attempts} attempts: continuation placeholders persisted. "
+                        f"This usually indicates the model couldn't fit per-chapter detail "
+                        f"into the output budget. Increase max_tokens for this prompt or "
+                        f"break the reference into smaller passes."
+                    )
                 raise Exception(f"Content generation failed: {e}")
     
     def _validate_content_sections(self, content: str, expected_sections: List[str]) -> List[str]:
@@ -860,6 +886,57 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 missing_sections.append(section)
         
         return missing_sections
+
+    # Path A+ P3.1 — fail-closed continuation-placeholder detector.
+    #
+    # The model's habit, especially for the outline reference, is to write one
+    # filled-in chapter block and then emit a literal bracketed "continue with
+    # remaining chapters" string instead of doing the work. Trigram detection
+    # doesn't catch this because the placeholder appears once. We catch it
+    # with explicit phrase matches.
+    #
+    # The list is intentionally targeted at meta-narration about "the rest of
+    # the work being skipped" — not at filled-in user content. We keep this
+    # outline-aware so other references (where bracketed examples are common)
+    # don't false-positive.
+    _CONTINUATION_PLACEHOLDER_PATTERNS = [
+        r"\[\s*continue\s+(?:with|the)\s+(?:detailed\s+)?(?:chapter|chapters)\s+breakdown",
+        r"\[\s*continue\s+(?:similarly|in\s+the\s+same\s+pattern)",
+        r"\[\s*continue\s+with\s+(?:each|the)\s+(?:subsequent|remaining|following)\s+chapter",
+        r"\[\s*repeat\s+(?:the\s+above\s+)?(?:format|template|structure|block|pattern)\s+for\s+(?:each|the\s+remaining|chapters?)",
+        r"\[\s*(?:each|the)\s+remaining\s+chapter[s]?\s+(?:follow[s]?|will\s+follow)\s+(?:this|the\s+same)\s+pattern",
+        r"\[\s*see\s+(?:above|template|structure)\s+(?:for|template)",
+        r"\[\s*for\s+brevity[, ]+remaining\s+chapter[s]?\s+(?:are\s+)?omitted",
+        r"\[\s*(?:remaining|subsequent|other)\s+chapter[s]?\s+(?:are\s+)?(?:omitted|abbreviated|truncated|elided)",
+        r"\[\s*(?:additional|further|other|remaining|subsequent)\s+chapter[s]?\s+(?:follow[s]?|will\s+follow|to\s+be)\s+(?:in\s+)?(?:the\s+)?(?:same|similar)\s+(?:pattern|format|structure|fashion)",
+        r"\[\s*\.\.\.\s+chapter[s]?\s+\d+\s*[-–]\s*\d+",
+        r"\[\s*chapter[s]?\s+\d+\s*[-–]\s*\d+\s+(?:omitted|abbreviated|continue)",
+        # Catch-all for the literal phrase observed in production:
+        r"continue\s+with\s+detailed\s+chapter\s+breakdown\s+for\s+each\s+subsequent\s+chapter",
+        # Sometimes wrapped in parentheses or em-dashes instead of brackets.
+        r"\(\s*continue\s+(?:with|the)\s+(?:detailed\s+)?chapter\s+breakdown",
+    ]
+
+    def _detect_continuation_placeholders(self, content: str, reference_type: str) -> List[str]:
+        """Return a list of placeholder substrings detected in the content.
+
+        Empty list = clean. The caller raises (and the retry loop reruns the
+        generation) when this returns anything. Currently scoped to the
+        outline reference, since other references (style guides etc.) often
+        contain legitimate bracketed examples that would false-positive.
+        """
+        if not content or reference_type != 'outline':
+            return []
+
+        import re as _re
+        hits: List[str] = []
+        for pattern in self._CONTINUATION_PLACEHOLDER_PATTERNS:
+            for match in _re.finditer(pattern, content, _re.IGNORECASE):
+                snippet = match.group(0)[:120]
+                hits.append(snippet)
+                if len(hits) >= 5:
+                    return hits
+        return hits
     
     CHAINED_GENERATION_ORDER: List[str] = [
         'characters',

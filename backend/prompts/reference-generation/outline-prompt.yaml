@@ -3,14 +3,13 @@ description: "Creates detailed plot structure with scene-level chapter breakdown
 version: "3.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.65
   max_tokens: 10000
   top_p: 0.9
 
 system_prompt: |
   You are an elite story architect and narrative consultant specializing in plot construction for literary and genre fiction. Your expertise includes story beats, pacing dynamics, character arc integration, and thematic development across all major genres.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   CORE EXPERTISE AREAS:
   1. **Genre-Specific Structure**: Understanding how different genres (thriller, literary fiction, mystery, etc.) require different pacing and structural approaches
@@ -147,7 +146,14 @@ user_prompt_template: |
 
   ## Detailed Chapter Architecture
 
-  For EVERY chapter in the book, provide scene-level detail. This is the primary structural input for the chapter generation system.
+  CRITICAL: Provide ONE complete block (using the schema below) for EVERY SINGLE CHAPTER from Chapter 1 through the final chapter. The block below is a TEMPLATE, not a one-off example. The book bible specifies the chapter count — render that many full blocks, in order.
+
+  ABSOLUTE RULES — ZERO TOLERANCE:
+  - Do NOT emit placeholder text like "[Continue with detailed chapter breakdown for each subsequent chapter...]", "[Repeat for chapters X-Y]", "[Each remaining chapter follows this pattern...]", "[See above template]", "[Continue similarly]", "[For brevity, remaining chapters omitted]", or any equivalent.
+  - Do NOT skip chapters. Do NOT collapse multiple chapters into a summary line.
+  - Do NOT add a meta note about "this template repeats". The template is the structure; you produce one filled-in instance per chapter.
+  - If the chapter count is high (20+), keep each block tight (4-8 sentences total) but EVERY chapter still gets its own block.
+  - The post-process layer fails the entire outline if it detects continuation placeholders. So write the actual chapter blocks.
 
   ### Chapter [Number]: [Chapter Title/Theme]
   - **Act Position:** [Act I/II/III and percentage through the story]
@@ -167,6 +173,8 @@ user_prompt_template: |
   - **Payoff Elements Resolved:** [What earlier setups pay off here]
   - **Chapter Hook:** [Specific ending beat — question, reversal, cliffhanger, or promise]
   - **Bridge to Next:** [How this chapter's ending connects to the next chapter's opening]
+
+  (Repeat the entire block above for Chapter 2, Chapter 3, ... through the final chapter. Every chapter gets its own complete block.)
 
   ## Information Reveals Schedule
 

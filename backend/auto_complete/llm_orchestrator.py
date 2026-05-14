@@ -180,6 +180,17 @@ class LLMOrchestrator:
         
         # Allow env override while keeping a strong default for chapter drafts.
         self.model = (model or os.getenv("DEFAULT_AI_MODEL") or "gpt-4.1")
+
+        # Model tiering (Path A+ P1.3):
+        #   - drafter (self.model)   → bulk per-beat prose generation, cheap fast model
+        #   - planner (self.model_planner) → skeleton, voice profiles, director brief
+        #   - editor  (self.model_editor)  → stitch pass, sniff-test critique, targeted rewrite
+        # Defaults assume OpenAI-only. All three are env-overridable.
+        self.model_planner = os.getenv("MODEL_PLANNER") or "gpt-5.2-pro"
+        self.model_editor = os.getenv("MODEL_EDITOR") or "gpt-5.2-pro"
+        # Alias for clarity at call sites that explicitly want the drafter tier.
+        self.model_drafter = self.model
+
         self.user_id = user_id
         self.retry_config = retry_config or RetryConfig()
         self.prompts_dir = Path(prompts_dir)
@@ -217,6 +228,15 @@ class LLMOrchestrator:
         self._setup_logging()
         try:
             self.logger.info("LLMOrchestrator retry policy: quota_fail_fast=v2")
+        except Exception:
+            pass
+        try:
+            self.logger.info(
+                "LLMOrchestrator model tiers: drafter=%s planner=%s editor=%s",
+                self.model,
+                self.model_planner,
+                self.model_editor,
+            )
         except Exception:
             pass
         
@@ -351,8 +371,29 @@ class LLMOrchestrator:
             pass
         return True
 
-    def _get_model_max_output_tokens(self) -> int:
-        """Return the model's max output token limit (conservative defaults)."""
+    def _resolve_model(self, role: Optional[str] = None) -> str:
+        """Resolve the model name for a given tier role (Path A+ P1.3).
+
+        Roles:
+          - "planner": skeleton, director brief, voice profiles, book plan generation
+          - "editor":  stitch passes, sniff-test critique, targeted rewrites
+          - "drafter" / None / unknown: per-beat prose drafting (default)
+
+        Unknown roles fall back to the drafter model so a typo can't silently
+        spike costs by routing bulk drafts to a premium model.
+        """
+        if role == "planner":
+            return self.model_planner
+        if role == "editor":
+            return self.model_editor
+        return self.model
+
+    def _get_model_max_output_tokens(self, model: Optional[str] = None) -> int:
+        """Return the model's max output token limit (conservative defaults).
+
+        Accepts an optional model override so per-call routing through
+        `_resolve_model` produces the right token cap for each tier.
+        """
         env_limit = os.getenv("OPENAI_MAX_OUTPUT_TOKENS")
         if env_limit:
             try:
@@ -360,16 +401,20 @@ class LLMOrchestrator:
             except Exception:
                 pass
 
-        model = (self.model or "").lower()
-        model_limits = {
-            "gpt-4o": 16384,
-            "gpt-4o-mini": 16384,
-            "gpt-4.1": 32768,
-            "gpt-4.1-mini": 16384,
-            "gpt-4.1-nano": 16384,
-        }
-        for key, limit in model_limits.items():
-            if key in model:
+        model_name = (model or self.model or "").lower()
+        # Order matters: most specific keys first (gpt-5.2-pro before gpt-5).
+        model_limits = [
+            ("gpt-5.2-pro", 65536),
+            ("gpt-5.2", 32768),
+            ("gpt-5", 32768),
+            ("gpt-4.1-mini", 16384),
+            ("gpt-4.1-nano", 16384),
+            ("gpt-4.1", 32768),
+            ("gpt-4o-mini", 16384),
+            ("gpt-4o", 16384),
+        ]
+        for key, limit in model_limits:
+            if key in model_name:
                 return limit
 
         # Safe default — modern models support at least 16K output
@@ -515,7 +560,12 @@ class LLMOrchestrator:
         return False
     
     async def _make_api_call(self, messages: List[Dict[str, str]], **kwargs) -> dict:
-        """Make API call with retry logic. Returns (response, credits_charged)."""
+        """Make API call with retry logic. Returns (response, credits_charged).
+
+        Path A+ P1.3: callers may pass `model_role` ("planner" | "editor" |
+        "drafter") or `model_override` (explicit model name) to route this one
+        call through a different tier without mutating `self.model`.
+        """
         last_error = None
         vector_store_ids = kwargs.pop("vector_store_ids", None) or []
         use_file_search_flag = kwargs.pop("use_file_search", True)
@@ -525,11 +575,16 @@ class LLMOrchestrator:
             # Force chat completions for strict JSON mode requests.
             use_file_search_flag = False
 
+        # Tier routing: resolve effective model for this single call.
+        model_role = kwargs.pop("model_role", None)
+        model_override = kwargs.pop("model_override", None)
+        effective_model = model_override or self._resolve_model(model_role)
+
         use_file_search = bool(vector_store_ids) and use_file_search_flag and os.getenv("ENABLE_OPENAI_FILE_SEARCH", "true").lower() == "true"
         if "max_tokens" in kwargs:
             max_tokens = kwargs.get("max_tokens")
             if isinstance(max_tokens, int) and max_tokens > 0:
-                model_cap = self._get_model_max_output_tokens()
+                model_cap = self._get_model_max_output_tokens(effective_model)
                 if max_tokens > model_cap:
                     self.logger.warning(
                         f"Clamping max_tokens from {max_tokens} to model cap {model_cap}"
@@ -560,13 +615,18 @@ class LLMOrchestrator:
                 
                 attempt_started = time.perf_counter()
                 if use_file_search:
-                    response = await self._make_responses_call(messages, vector_store_ids, **kwargs)
+                    response = await self._make_responses_call(
+                        messages,
+                        vector_store_ids,
+                        model_override=effective_model,
+                        **kwargs,
+                    )
                 else:
                     if self.billable_client:
                         # Use billable client - this automatically handles credit billing
                         async with semaphore(get_llm_semaphore()):
                             billable_response = await self.client.chat_completions_create(
-                                model=self.model,
+                                model=effective_model,
                                 messages=messages,
                                 timeout=300,
                                 **kwargs
@@ -586,7 +646,7 @@ class LLMOrchestrator:
                             response = await asyncio.to_thread(
                                 functools.partial(
                                     self.client.chat.completions.create,
-                                    model=self.model,
+                                    model=effective_model,
                                     messages=messages,
                                     timeout=300,
                                     **kwargs
@@ -665,16 +725,26 @@ class LLMOrchestrator:
         raise last_error
 
     async def _make_responses_call(self, messages: List[Dict[str, str]], vector_store_ids: List[str], **kwargs):
-        """Call OpenAI Responses API with file_search tool."""
+        """Call OpenAI Responses API with file_search tool.
+
+        Path A+ P1.3: accepts `model_override` to route through a tier other
+        than `self.model`. Falls back to `self.model` for any direct callers.
+        """
         max_tokens = kwargs.pop("max_tokens", None)
         timeout = kwargs.pop("timeout", 300)
+        # Tier-aware model selection. _make_api_call passes this through; direct
+        # callers default to self.model (the drafter tier).
+        model_override = kwargs.pop("model_override", None)
+        effective_model = model_override or self.model
         kwargs.pop("model", None)
+        # Some tier overrides come in via model_role from upstream callers.
+        kwargs.pop("model_role", None)
         for key in ("frequency_penalty", "presence_penalty", "temperature", "top_p"):
             kwargs.pop(key, None)
         if self.billable_client:
             async with semaphore(get_llm_semaphore()):
                 billable_response = await self.client.responses_create(
-                    model=self.model,
+                    model=effective_model,
                     input=messages,
                     tools=[{"type": "file_search", "vector_store_ids": vector_store_ids}],
                     timeout=timeout,
@@ -698,7 +768,7 @@ class LLMOrchestrator:
                 response = await asyncio.to_thread(
                     functools.partial(
                         self.client.chat.completions.create,
-                        model=self.model,
+                        model=effective_model,
                         messages=messages,
                         timeout=timeout,
                         max_tokens=max_tokens,
@@ -715,7 +785,7 @@ class LLMOrchestrator:
             response = await asyncio.to_thread(
                 functools.partial(
                     self.client.responses.create,
-                    model=self.model,
+                    model=effective_model,
                     input=messages,
                     tools=[{"type": "file_search", "vector_store_ids": vector_store_ids}],
                     timeout=timeout,
@@ -4982,7 +5052,8 @@ class LLMOrchestrator:
             max_tokens=template.get("max_tokens", 1600),
             top_p=1,
             vector_store_ids=context.get("vector_store_ids", []),
-            use_file_search=context.get("use_file_search", True)
+            use_file_search=context.get("use_file_search", True),
+            model_role="planner",
         )
 
         content, _ = self._extract_content_and_usage(response)
@@ -5003,7 +5074,8 @@ class LLMOrchestrator:
                 max_tokens=template.get("max_tokens", 1600),
                 top_p=1,
                 vector_store_ids=context.get("vector_store_ids", []),
-                use_file_search=context.get("use_file_search", True)
+                use_file_search=context.get("use_file_search", True),
+                model_role="planner",
             )
             content, _ = self._extract_content_and_usage(response)
             brief = content.strip()

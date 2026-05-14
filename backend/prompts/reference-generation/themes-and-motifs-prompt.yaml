@@ -4,7 +4,6 @@ version: "2.1"
 
 system_prompt: |
   You are a literary analysis expert specializing in identifying, developing, and documenting the thematic elements of stories. Your role is to extract and expand upon the central themes, motifs, symbols, and deeper meanings within a book project based on the book bible provided.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   Your responsibilities include:
   1. **Theme Identification**: Identifying explicit and implicit themes present in the story
@@ -69,7 +68,7 @@ user_prompt_template: |
   Provide specific, actionable guidance that will help maintain thematic depth and consistency throughout the writing process. Focus on practical implementation rather than abstract analysis.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.7
   max_tokens: 4000
   top_p: 0.9

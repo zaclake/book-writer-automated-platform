@@ -1463,6 +1463,16 @@ class AutoCompleteBookOrchestrator:
             except Exception as e:
                 self.logger.warning(f"Failed to build anti-pattern context: {e}")
 
+            # P1.2 — surface recent chapter_shape sequence so the skeleton planner
+            # can avoid producing yet another structurally identical chapter.
+            try:
+                recent = self.pattern_tracker.get_recent_patterns(chapter_number, lookback=4) or []
+                shapes = [(p.get("chapter_shape") or "").strip() for p in recent if p.get("chapter_shape")]
+                if shapes:
+                    context["recent_chapter_shapes"] = shapes
+            except Exception as e:
+                self.logger.warning(f"Failed to read recent chapter_shapes: {e}")
+
         return context
 
     async def _build_vector_memory_context(self, chapter_number: int, context: Dict[str, Any]) -> Dict[str, Any]:

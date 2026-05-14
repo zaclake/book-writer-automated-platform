@@ -320,12 +320,8 @@ async def generate_references_background(
         logger.info(f"Starting background reference generation for project {project_id}")
         _update_reference_job_progress(job_id, 0, "Initializing", "Starting reference generation...", project_id, user_id)
         
-        try:
-            from backend.utils.reference_content_generator import ReferenceContentGenerator
-            from backend.utils.paths import get_project_workspace
-        except Exception:
-            from utils.reference_content_generator import ReferenceContentGenerator
-            from utils.paths import get_project_workspace
+        from backend.utils.reference_content_generator import ReferenceContentGenerator
+        from backend.utils.paths import get_project_workspace
         
         generator = ReferenceContentGenerator()
         if not generator.is_available():
@@ -682,10 +678,7 @@ async def generate_series_bible(project_id: str, request: CreateProjectRequest, 
             logger.info(f"Skipping series bible generation for project {project_id} - book bible missing")
             return
 
-        try:
-            from backend.utils.reference_content_generator import ReferenceContentGenerator
-        except Exception:
-            from utils.reference_content_generator import ReferenceContentGenerator
+        from backend.utils.reference_content_generator import ReferenceContentGenerator
 
         generator = ReferenceContentGenerator()
         if not generator.is_available():
@@ -947,11 +940,10 @@ async def create_new_project(
                     openai_enabled = os.getenv('ENABLE_OPENAI_EXPANSION', 'true').lower() == 'true'
                     
                     if openai_enabled:
+                        from backend.utils.reference_content_generator import ReferenceContentGenerator
                         try:
-                            from backend.utils.reference_content_generator import ReferenceContentGenerator
                             from backend.models.firestore_models import BookBible
                         except Exception:
-                            from utils.reference_content_generator import ReferenceContentGenerator
                             from models.firestore_models import BookBible
                         
                         generator = ReferenceContentGenerator()
@@ -1081,10 +1073,7 @@ async def create_new_project(
         reference_files = []
         
         try:
-            try:
-                from backend.utils.reference_content_generator import ReferenceContentGenerator
-            except Exception:
-                from utils.reference_content_generator import ReferenceContentGenerator
+            from backend.utils.reference_content_generator import ReferenceContentGenerator
             
             generator = ReferenceContentGenerator()
             if generator.is_available() and request.book_bible_content:
@@ -2554,10 +2543,7 @@ async def ai_edit_reference_file(
                 detail=f"Reference file '{filename}' not found"
             )
 
-        try:
-            from backend.utils.reference_content_generator import ReferenceContentGenerator
-        except Exception:
-            from utils.reference_content_generator import ReferenceContentGenerator
+        from backend.utils.reference_content_generator import ReferenceContentGenerator
 
         generator = ReferenceContentGenerator(user_id=user_id)
         if not generator.is_available():
@@ -2683,10 +2669,7 @@ async def ai_edit_book_bible(
                 detail="Book bible not found"
             )
 
-        try:
-            from backend.utils.reference_content_generator import ReferenceContentGenerator
-        except Exception:
-            from utils.reference_content_generator import ReferenceContentGenerator
+        from backend.utils.reference_content_generator import ReferenceContentGenerator
 
         generator = ReferenceContentGenerator(user_id=user_id)
         if not generator.is_available():
@@ -3161,10 +3144,7 @@ async def expand_book_bible_content(
             )
         
         # Initialize content generator
-        try:
-            from backend.utils.reference_content_generator import ReferenceContentGenerator
-        except Exception:
-            from utils.reference_content_generator import ReferenceContentGenerator
+        from backend.utils.reference_content_generator import ReferenceContentGenerator
         generator = ReferenceContentGenerator()
         
         if not generator.is_available():

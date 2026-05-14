@@ -43,11 +43,12 @@ def _approved_terms_set(orchestrator: LLMOrchestrator, book_bible: str, ref_exce
 
 
 def _sanitize_text(text: str) -> str:
+    """Normalize line endings and trim. Path A+ P3.2: em/en dashes are PRESERVED
+    (this used to convert them to ', ', which contradicted the canonical 'keep
+    em-dash for prose' policy and bled into canon-log entries)."""
     if not text:
         return ""
     t = str(text).replace("\r\n", "\n").replace("\r", "\n")
-    for dash in ("—", "–", "―", "‒", "‑"):
-        t = t.replace(dash, ", ")
     return t.strip()
 
 

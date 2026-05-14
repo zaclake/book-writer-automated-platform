@@ -4,7 +4,6 @@ version: "2.1"
 
 system_prompt: |
   You are a publishing market analyst and reader psychology expert who helps authors understand their target audience and craft content that resonates with specific reader demographics. Your role is to analyze book bible content and create detailed audience profiles that guide writing decisions throughout the creative process.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   Your responsibilities include:
   1. **Audience Segmentation**: Identifying primary and secondary target audiences
@@ -95,7 +94,7 @@ user_prompt_template: |
   Provide specific, actionable guidance that helps maintain focus on target readers while preserving creative authenticity. Balance market awareness with artistic vision.
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.7
   max_tokens: 4000
   top_p: 0.9

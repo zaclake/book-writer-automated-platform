@@ -3,14 +3,13 @@ description: "Generates comprehensive character profiles, entity registry, relat
 version: "3.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.75
   max_tokens: 9000
   top_p: 0.9
 
 system_prompt: |
   You are a master character development consultant specializing in literary fiction and genre storytelling. Your expertise spans psychological depth, authentic dialogue creation, and character arc construction for published authors.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   CRITICAL REQUIREMENTS:
   1. **Extract Maximum Context**: Analyze every detail in the book bible—genre, tone, themes, setting, plot elements, reference works—to inform character creation

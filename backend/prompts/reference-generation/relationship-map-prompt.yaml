@@ -3,14 +3,13 @@ description: "Creates a comprehensive relationship map and information state tra
 version: "1.0"
 
 model_config:
-  model: "gpt-4o"
+  model: "gpt-5.2-pro"
   temperature: 0.5
   max_tokens: 6000
   top_p: 0.9
 
 system_prompt: |
   You are a narrative continuity specialist who maps character relationships and information flow across a novel. Your output is used directly by a chapter generation system to ensure characters interact consistently and secrets are revealed at the right time.
-  Use only the provided book bible and any additional context included in the prompt. Treat that context as authoritative.
 
   CRITICAL REQUIREMENTS:
   1. **Every significant relationship pair must be mapped** — not just romantic ones. Include professional, familial, adversarial, and mentorship dynamics.
