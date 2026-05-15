@@ -1,0 +1,65 @@
+name: "Literary Fiction Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for literary fiction."
+genre: "literary"
+matches:
+  - literary
+  - literary fiction
+  - literary_fiction
+  - upmarket
+  - upmarket fiction
+  - book club
+  - contemporary literary
+
+reader_feeling:
+  generic_examples:
+    - "Hopeful but bittersweet, like life always is."
+    - "Moved and reflective."
+    - "Satisfied and ready to recommend the book to a friend."
+  specific_examples:
+    - "The held breath after a door has closed for good — relief that the long arguing is over, grief that the only peace available was this one. The reader should put the book down and want to call someone they haven't called in a while."
+    - "Embarrassed for having judged the wrong character early. The book should have made the reader complicit in that judgment, then quietly proven them small. Closing image: a woman alone in a kitchen at 4 a.m., not crying, just buttering toast."
+    - "Tender toward the protagonist for the first time in 200 pages. The reader should not have liked her, then realize on page 280 that they had been her in some way they don't want to think about."
+  sharper_instructions:
+    - "Name a specific closing image and a specific delayed feeling. Make the feeling mixed: relief plus grief, tenderness plus shame, recognition plus discomfort."
+
+central_question:
+  generic_examples:
+    - "Can people really change?"
+    - "What does it mean to be a good person?"
+    - "How do we make peace with the past?"
+  specific_examples:
+    - "When the institution that held you and harmed you is the same institution, do you let it die or fight to keep it alive? Ruth's 31 years at the school can't tell her the answer; the vote is in three weeks."
+    - "Is forgiving someone who is not sorry a generosity or a self-betrayal? David's mother is dying without ever using the word, and the funeral is in two days."
+  sharper_instructions:
+    - "Phrase the question so that two specific named characters in this bible would answer it differently and both would have a real case. Reference the concrete deadline, vote, illness, or event that forces the question."
+
+protagonist_lie:
+  generic_examples:
+    - "She believes she's not worthy of love."
+    - "He thinks he has to do everything alone."
+    - "She doesn't trust her own judgment."
+  specific_examples:
+    - "Ruth believes that wanting something for herself is the first move in a life that ends badly — she watched her mother make that move at 41 and lose everything that mattered. So Ruth has built 31 years of a life made entirely of obligations to other people, and she calls that integrity."
+    - "David believes that grief is something you owe people quietly, in private, without making them watch — that public grief is performance and performance is shameful. He is going to discover at his mother's funeral that the people he loves needed to see him cry, and that he refused them that for forty years."
+  sharper_instructions:
+    - "State the belief in the protagonist's own internal voice. Tie it to one biographical fact in the bible (a parent, a job, a loss). Imply what would prove it wrong."
+
+worldview_change:
+  generic_examples:
+    - "She learns to open her heart and let people in."
+    - "He realizes that family is what you make of it."
+    - "She finds her voice and stops apologizing for who she is."
+  specific_examples:
+    - "Ruth begins the book convinced that loyalty to the school is the same as loyalty to her dead mother, and ends it knowing those were always two different obligations and she chose the wrong one for thirty years. The new clarity costs her the friendship of every person who built that life with her — there is no version of this where she stays in town."
+    - "David starts thinking the right way to mourn his mother is to behave well, and ends thinking the right way was to be ugly and visible about it for one weekend in front of his sons. He cannot un-have the funeral he had. The new belief is true and it doesn't help him."
+  sharper_instructions:
+    - "State the old belief and the new belief in the protagonist's voiced language, not clinical labels. Then name the specific, concrete cost of holding the new belief — what it breaks."
+
+clear_scenes:
+  generic_examples:
+    - "1. The opening scene where we meet the protagonist in her ordinary world. 2. The midpoint where everything falls apart. 3. The final scene where she has changed."
+    - "1. A confrontation between mother and daughter. 2. A flashback to the inciting incident. 3. The resolution where she finds peace."
+  specific_examples:
+    - "1. Ruth standing in the school library at 6 a.m. before the building opens, running her hand along the spines of the donated books, knowing that she is the only one who knows the donor of each one and that this knowledge will be lost in three weeks regardless of how the vote goes.\n\n2. The diner argument with her sister Marlene where Marlene says, calm and not unkind, 'You're going to make this whole thing about you, the way you make everything about the school.' Ruth does not answer because Marlene is right.\n\n3. After the vote, Ruth alone in her car in the school parking lot at dusk, looking at the building, eating a sandwich she packed that morning. The lights inside come on automatically at 5:47. They will keep coming on automatically for as long as the bulbs hold."
+  sharper_instructions:
+    - "Write three concrete scenes the reader could see. Name the location, who is present, what is held or said, and the specific time of day or season. No generic plot beats."

@@ -1,0 +1,86 @@
+name: "Subtext Bible Reference Generator"
+description: "Generates a craft-focused document mapping the subtext of every major relationship in the book — what's never said, what's said in code, what each side knows the other knows. This is what gives dialogue scenes weight rather than information."
+version: "1.0"
+
+system_prompt: |
+  You are a senior story editor specializing in dialogue subtext. Your job is to extract from the book bible (and any prior reference documents — characters, character-contradictions, relationship-map) the SUBTEXT MATRIX of every major relationship in this book.
+
+  The reader experiences relationships not through what characters say but through:
+    - what they REFUSE to say
+    - what they say in code (a phrase, a tone, a question they ask in place of the real one)
+    - what each side knows the other knows but neither of them is naming
+    - what they used to be able to say to each other but can't any more
+    - what the relationship's history has made undiscussable
+
+  This document is read by the chapter director, the skeleton planner, and the drafter. When the planner places a dialogue or confrontation beat, it should be able to look up in this document what the real subtext between those two characters is.
+
+  PRINCIPLES:
+  - Subtext is specific to a PAIR. Two characters' subtext is not a function of their individual personalities; it is a function of their shared history, present circumstances, and the asymmetric knowledge between them.
+  - Every load-bearing relationship in the book needs an entry. Drive-by relationships (clerks, single-scene allies) do not.
+  - Subtext entries must include the historical reason for the silence ("they used to talk about her mother and stopped after the holiday in 2019"), not just the silence itself.
+  - Avoid clinical labels (passive-aggressive, codependent, etc.). Use voiced human language.
+
+user_prompt_template: |
+  Based on this book bible and any prior reference documents:
+
+  {book_length_context}
+
+  {prior_references}
+
+  {book_bible_content}
+
+  Generate a Subtext Bible reference document.
+
+  For EACH major relationship pair (typically 4-8 pairs covering the protagonist's most important relationships and any secondary character-to-character pair that carries weight), produce:
+
+  ## [Character A] ↔ [Character B]
+
+  ### Asymmetric Knowledge
+  - What A knows that B doesn't (or doesn't know A knows).
+  - What B knows that A doesn't (or doesn't know B knows).
+  - What they BOTH know but neither says out loud.
+  Each line one sentence, specific to bible facts.
+
+  ### What's Undiscussable
+  2-3 specific topics, events, or feelings this pair cannot directly discuss. For each, name the historical reason ("since the funeral," "since she didn't go to the wedding," "since the parking-lot conversation in October").
+
+  ### How They Talk Around It
+  3-5 specific patterns this pair uses to talk near the undiscussable thing without touching it (e.g., "they argue about whose turn it is to call the lawyer when the real fight is about whether they will see each other for Thanksgiving," "she asks about his work in the same flat tone she used for the years he was drinking," "they only talk about the car"). Be specific.
+
+  ### Changes Across the Book
+  - The arc of this relationship's subtext across the chapters. What gets said for the first time. What stops being undiscussable. What new silence forms. Two to four sentences.
+
+  ### Code Phrases (if any)
+  Any specific words, phrases, or recurring micro-rituals (a particular mug, a way of answering the phone, a sign-off in messages) that for THIS pair carry meaning beyond their surface.
+
+  ### Director Notes for Dialogue Scenes
+  3-5 short, quotable lines the chapter director can paste into scene cards when this pair shares a beat (e.g., "Whatever they're arguing about, the real argument is the one they had in 2019. Do not have either of them name 2019.").
+
+  After all pair entries, add:
+
+  ## Triangulation Notes
+  When three or more of these characters share a scene, the subtexts compose. Note 2-3 specific multi-person scenes (or chapter ranges) where the layered subtexts are doing the heavy lifting and what each character is choosing not to say in front of which other characters.
+
+  ## Anti-Subtext Patterns to Avoid
+  Specific clichés this book risks falling into when handling subtext (e.g., "the awkward pause that lasts a half-page," "the on-the-nose argument that says exactly what the relationship is about"). 2-3 specific anti-patterns with the corrective.
+
+  Be specific to THIS book. Do NOT produce generic dialogue-craft advice.
+
+model_config:
+  model: "gpt-5.5"
+  temperature: 0.6
+  max_tokens: 12000
+  top_p: 0.9
+
+validation_rules:
+  - "Each pair has at least one asymmetric-knowledge entry, at least one undiscussable topic with a historical reason, and at least three director notes."
+  - "Subtext is voiced in human language, not clinical labels."
+  - "Director notes for dialogue scenes are concrete and quotable."
+
+output_format: "markdown"
+expected_sections:
+  - "Asymmetric Knowledge"
+  - "What's Undiscussable"
+  - "How They Talk Around It"
+  - "Director Notes for Dialogue Scenes"
+  - "Triangulation Notes"

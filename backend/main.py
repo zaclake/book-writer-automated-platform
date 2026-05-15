@@ -444,6 +444,9 @@ try:
         logger.info(f"Updated Python path: {sys.path[:3]}...")
     
     chapters_v2_import_error = None
+    # Hoist so the outer except path doesn't leave these undefined when the
+    # downstream `if X: app.include_router(X.router)` blocks run.
+    bible_enrichment_v2 = None
     try:
         # Attempt absolute imports, but guard each to avoid one failure disabling all v2 routers
         projects_v2 = None
@@ -499,6 +502,11 @@ try:
             logger.info("✅ audiobook_v2 imported via backend.* path")
         except Exception as e:
             logger.warning(f"audiobook_v2 import via backend.* failed: {e}")
+        try:
+            bible_enrichment_v2 = importlib.import_module("backend.routers.bible_enrichment_v2")
+            logger.info("✅ bible_enrichment_v2 imported via backend.* path")
+        except Exception as e:
+            logger.warning(f"bible_enrichment_v2 import via backend.* failed: {e}")
 
         # If any core router is still None, fall back to relative imports
         if not (projects_v2 and chapters_v2 and users_v2 and auth_v2):
@@ -809,6 +817,16 @@ try:
         app.include_router(audiobook_v2.router)
         logger.info("✅ audiobook_v2 router included")
 
+    if bible_enrichment_v2 is None:
+        try:
+            bible_enrichment_v2 = importlib.import_module("routers.bible_enrichment_v2")
+            logger.info("✅ bible_enrichment_v2 imported via routers.* path")
+        except Exception as e:
+            logger.warning(f"bible_enrichment_v2 import via routers.* failed: {e}")
+    if bible_enrichment_v2:
+        app.include_router(bible_enrichment_v2.router)
+        logger.info("✅ bible_enrichment_v2 router included")
+
     # Mobile reader/player API
     mobile_v2 = None
     try:
@@ -833,6 +851,7 @@ try:
     if credits_v2: included_routers.append('credits_v2')
     if audiobook_v2: included_routers.append('audiobook_v2')
     if mobile_v2: included_routers.append('mobile_v2')
+    if bible_enrichment_v2: included_routers.append('bible_enrichment_v2')
 
     logger.info(f"✅ Routers included successfully: {', '.join(included_routers)}")
 except Exception as e:

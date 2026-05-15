@@ -1,0 +1,95 @@
+name: "Thematic Spine Reference Generator"
+description: "Generates a craft-focused document that names the book's central question, the values in tension, the per-chapter thematic moves, and the test scenes where the question gets answered. This is what gives the book a felt thematic core rather than decorative themes."
+version: "1.0"
+
+system_prompt: |
+  You are a senior story editor specializing in thematic craft. Your job is to extract from the book bible (and any prior reference documents — including, critically, the Author Intent appendix if one is present, and the existing themes-and-motifs reference if one is present) the THEMATIC SPINE of this book.
+
+  A thematic spine is NOT a list of themes. A list of themes is a marketing copy. A thematic spine is:
+    - One central question the book is dramatizing (a real question, with at least two defensible answers).
+    - The two competing values that question puts at stake.
+    - The position the book is taking by the end (which it earns through events, not lectures).
+    - The per-act and (where possible) per-chapter THEMATIC MOVE — what the chapter is doing TO the question (complicating, inverting, reaffirming, foreclosing, deepening).
+    - The "test scenes" — moments in the book where the central question is dramatized in concrete action.
+
+  This document is read by the planner, the chapter blueprint generator, and the chapter director. The per-chapter thematic moves it produces are the source of truth for the chapter blueprints' `thematic_move` field (Proposal 5).
+
+  PRINCIPLES:
+  - The central question must be SPECIFIC to this book. "What does it mean to be human?" is not a question; it's a t-shirt slogan.
+  - The book's position is allowed to be ambivalent. "It depends" is a defensible position; the book earns it by showing the costs of each option.
+  - Per-chapter thematic moves must be operational ("complicates the central question by showing X cost Y") not abstract ("explores the theme").
+  - Avoid moralizing language. The reader should be able to disagree with the book's position and still feel the book treated them seriously.
+  - If the bible's stated themes are generic ("love conquers all"), name that and propose a sharper version rooted in the book's specific situation.
+
+user_prompt_template: |
+  Based on this book bible and any prior reference documents:
+
+  {book_length_context}
+
+  {prior_references}
+
+  {book_bible_content}
+
+  Generate a Thematic Spine reference document.
+
+  Use these sections:
+
+  ## Central Question
+  - The single question this book is dramatizing, in question form. 1-2 sentences.
+  - The two specific competing values it puts at stake (e.g., loyalty vs. honesty, safety vs. dignity, mercy vs. justice). Name them in language native to this book — not abstract nouns.
+
+  ## The Book's Position by the End
+  - The position the book is staking by the closing pages. 2-3 sentences.
+  - What it costs the protagonist (and the reader) to accept that position.
+  - Where the book is deliberately ambivalent — the parts of the question it refuses to settle.
+
+  ## Per-Act Thematic Movement
+  Use the outline / chapter list to map the book's three acts (or appropriate structural divisions). For each act:
+    - Name what the act is DOING to the central question (introducing, complicating, inverting, reaffirming, foreclosing).
+    - Name the test moment in the act where the question gets pressed.
+
+  ## Per-Chapter Thematic Move (mandatory schema for the planner)
+  For EACH chapter in the outline, produce a single line in the format:
+
+      Chapter N — <thematic_move>: <one-sentence operational description>
+
+  Where `<thematic_move>` is one of:
+    * introduce — first present the question or one of its terms
+    * complicate — add a new constraint or cost that makes the question harder
+    * invert — flip a previously-stated answer
+    * deepen — same answer, sharper case
+    * stake — raise the personal cost for the protagonist
+    * foreclose — remove an option that had been available
+    * reaffirm — restate an earlier position with new weight
+    * answer — the chapter where the book's position lands (only 1-2 chapters in the book)
+    * coda — after-event resonance / what remains of the question
+
+  No two adjacent chapters should have the same thematic_move. Most chapters should NOT be `answer`.
+
+  ## Test Scenes
+  Three to five concrete scenes (with chapter pointers if possible) where the central question is dramatized in action — not a discussion of the question, but a moment where a character does or refuses to do a specific thing and the meaning of that action carries the book's weight.
+
+  ## Anti-Patterns to Avoid
+  - 2-3 specific moralizing or thematic-clichés this book risks falling into, with how to avoid them.
+
+  Be specific to THIS book. Do NOT produce generic theme inventory.
+
+model_config:
+  model: "gpt-5.5"
+  temperature: 0.5
+  max_tokens: 12000
+  top_p: 0.9
+
+validation_rules:
+  - "Central question is phrased as a real question with at least two defensible answers."
+  - "Per-chapter thematic moves are present for every chapter in the outline."
+  - "Per-chapter thematic moves use only the allowed vocabulary."
+  - "No two adjacent chapters share the same thematic_move."
+
+output_format: "markdown"
+expected_sections:
+  - "Central Question"
+  - "The Book's Position by the End"
+  - "Per-Act Thematic Movement"
+  - "Per-Chapter Thematic Move"
+  - "Test Scenes"

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "license_notice": "Seed library is public-domain only. Operators may add contemporary entries with licensing_tier='contemporary_excerpt'; these are surfaced to users only after explicit consent in the bible enrichment intake. Excerpts are capped to 250 words at load time and again at injection time, and every prompt that consumes them includes a non-reproduction guard.",
+  "excerpt_disclaimer": "Excerpts are short characteristic-style samples drawn from the indicated public-domain works. They are used only as planner-side context to convey sensibility (cadence, image grain, what the narrator notices) and are never injected verbatim into generated chapter prose. The drafter is explicitly instructed not to reproduce the wording.",
+  "entries": [
+    {
+      "author": "Joseph Conrad",
+      "book": "Heart of Darkness",
+      "year": 1899,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["literary", "adventure", "psychological"],
+      "sensibility_notes": "A narrator who tells you what he saw and refuses to settle what it meant. Long sentences that double back to qualify themselves. Imagery in the natural world used as a mirror for moral states without ever quite naming the comparison. The horror is in the cadence, not the events. Reserve, fatigue, and a knowing tone that keeps the reader at one remove.",
+      "avoid_notes": "Do not borrow the colonial-era racial vocabulary or the 'inscrutable wilderness' trope. The lesson is the cadence and the doubling-back syntax, not the period content.",
+      "excerpts": [
+        "Going up that river was like travelling back to the earliest beginnings of the world, when vegetation rioted on the earth and the big trees were kings. An empty stream, a great silence, an impenetrable forest. The air was warm, thick, heavy, sluggish. There was no joy in the brilliance of sunshine. The long stretches of the waterway ran on, deserted, into the gloom of overshadowed distances."
+      ]
+    },
+    {
+      "author": "Edith Wharton",
+      "book": "The Age of Innocence",
+      "year": 1920,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["literary", "social", "romance"],
+      "sensibility_notes": "A narrator who lets a society's manners do the violence and lets the reader feel the cut later. Quiet, unsparing observation of small social moves — a glove, a turn of the head, a chair declined — as the carriers of the book's real action. Sentences that move from a concrete domestic detail outward to a quietly devastating generalization. Sympathetic to her characters and never on their side.",
+      "avoid_notes": "Avoid Gilded Age furniture and proper-noun name-dropping. The lesson is the relationship between manners and harm.",
+      "excerpts": [
+        "It was generally agreed in New York that the Countess Olenska had 'lost her looks.' She had appeared there first, in Newland Archer's boyhood, as a brilliantly pretty little girl of nine or ten, of whom people said that she 'ought to be painted.'"
+      ]
+    },
+    {
+      "author": "Arthur Conan Doyle",
+      "book": "The Hound of the Baskervilles",
+      "year": 1902,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["mystery", "detective", "gothic"],
+      "sensibility_notes": "A narrator who treats observation as a moral practice. Concrete detail used as evidence, not as atmosphere. The world is observable; the trick is whether the observer is paying attention. Cool, slightly amused first-person voice that respects the reader enough to let them notice the same things the narrator does. The supernatural is staged as a problem of evidence, not of belief.",
+      "avoid_notes": "Avoid Holmesian deduction monologues unless your protagonist is actually a detective. The lesson is the discipline of the observing eye, not the parlor reveal.",
+      "excerpts": [
+        "Mr. Sherlock Holmes, who was usually very late in the mornings, save upon those not infrequent occasions when he was up all night, was seated at the breakfast table. I stood upon the hearth-rug and picked up the stick which our visitor had left behind him the night before."
+      ]
+    },
+    {
+      "author": "H.G. Wells",
+      "book": "The Time Machine",
+      "year": 1895,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["scifi", "speculative", "literary"],
+      "sensibility_notes": "A narrator who treats a strange premise as a series of small, observable facts and lets the strangeness accumulate. First-person scientific voice — careful, slightly self-deprecating, willing to be wrong. The future is rendered through specific small details (a flower, a meal, the colour of a building) rather than panoramic vista. Big ideas are felt as practical inconveniences before they are felt as philosophical ones.",
+      "avoid_notes": "Avoid late-Victorian race/class anxieties (Eloi/Morlock framing). The lesson is the bedside manner of the speculative narrator: small, factual, slightly tired.",
+      "excerpts": [
+        "The Time Traveller (for so it will be convenient to speak of him) was expounding a recondite matter to us. His grey eyes shone and twinkled, and his usually pale face was flushed and animated. The fire burned brightly, and the soft radiance of the incandescent lights in the lilies of silver caught the bubbles that flashed and passed in our glasses."
+      ]
+    },
+    {
+      "author": "Charlotte Brontë",
+      "book": "Jane Eyre",
+      "year": 1847,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["literary", "gothic", "romance", "coming-of-age"],
+      "sensibility_notes": "A first-person narrator who addresses the reader directly, with a moral seriousness that is never solemn. Self-knowledge held alongside passionate feeling. Concrete domestic details (a window seat, a piece of bread, a letter) carrying the weight of bigger interior states. A narrator who tells you when she is being unfair to herself.",
+      "avoid_notes": "Avoid 19th-century governess/manor-house furniture as default scenery. The lesson is the directness of the address and the moral self-watching.",
+      "excerpts": [
+        "There was no possibility of taking a walk that day. We had been wandering, indeed, in the leafless shrubbery an hour in the morning; but since dinner (Mrs. Reed, when there was no company, dined early) the cold winter wind had brought with it clouds so sombre, and a rain so penetrating, that further out-door exercise was now out of the question."
+      ]
+    },
+    {
+      "author": "M. R. James",
+      "book": "Ghost Stories of an Antiquary",
+      "year": 1904,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["horror", "ghost", "quiet"],
+      "sensibility_notes": "A narrator who tells a frightening story in the voice of an academic at his club — measured, slightly amused, never alarmed. The horror is in the specific, mundane object (a brass whistle, a sketch in a folio, a bedsheet) that turns out to be wrong. Refuses to dramatize. The reader does the work.",
+      "avoid_notes": "Avoid the antiquarian/college-fellow vocabulary as scenery. The lesson is the calm pacing and the ordinary object that becomes wrong.",
+      "excerpts": [
+        "It will not be long before the reader is acquainted with the principal events. The Cathedral of Barchester was the centre, perhaps even the cause, of these uncomfortable circumstances; and it is in the Cathedral itself that the most material part of the story takes place."
+      ]
+    },
+    {
+      "author": "Thomas Hardy",
+      "book": "Tess of the d'Urbervilles",
+      "year": 1891,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["literary", "tragedy", "rural"],
+      "sensibility_notes": "A narrator who lets weather, light, and landscape do moral work without naming what they mean. Long sentences that pace the reader through the protagonist's exposure to forces larger than her. A tone of patient, slightly bleak compassion. The world is not on the protagonist's side and the narrator does not pretend it is.",
+      "avoid_notes": "Avoid late-Victorian moralizing about ruin and consent. The lesson is the use of weather and time as moral atmosphere.",
+      "excerpts": [
+        "On an evening in the latter part of May a middle-aged man was walking homeward from Shaston to the village of Marlott, in the adjoining Vale of Blakemore, or Blackmoor. The pair of legs that carried him were rickety, and there was a bias in his gait which inclined him somewhat to the left of a straight line."
+      ]
+    },
+    {
+      "author": "Anton Chekhov",
+      "book": "Selected Short Stories (Constance Garnett translation)",
+      "year": 1917,
+      "licensing_tier": "public_domain",
+      "genre_tags": ["literary", "short", "psychological"],
+      "sensibility_notes": "A narrator who refuses to underline anything. Uses ordinary social scenes — a tea, a walk, a hotel room — as the entire stage. Lets characters reveal themselves through what they choose to talk about and what they avoid. Never editorializes. Endings that close on a small action or an unanswered question rather than a moral.",
+      "avoid_notes": "Avoid Russian setting names or samovars as flavor. The lesson is the refusal to underline.",
+      "excerpts": [
+        "It was said that a new person had appeared on the sea-front: a lady with a little dog. Dmitri Dmitritch Gurov, who had by then been a fortnight at Yalta, and so was fairly at home there, had begun to take an interest in new arrivals."
+      ]
+    }
+  ]
+}

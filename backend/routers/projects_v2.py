@@ -371,7 +371,26 @@ async def generate_references_background(
             'series-bible': 'series-bible.md',
             'entity-registry': 'entity-registry.md',
             'relationship-map': 'relationship-map.md',
+            # Proposals 3 + 8 — craft references.
+            'character-contradictions': 'character-contradictions.md',
+            'thematic-spine': 'thematic-spine.md',
+            'narrator-sensibility': 'narrator-sensibility.md',
+            'subtext-bible': 'subtext-bible.md',
         }
+
+        # Proposal 10 — load voice exemplars once so the narrator-sensibility
+        # generator can see the full excerpt block (the bible already carries
+        # a short Voice Inspiration preface, but the excerpts themselves are
+        # injected only into the planner-side prompts that need them).
+        voice_exemplars_payload: Optional[Dict[str, Any]] = None
+        try:
+            project_for_voice = await get_project(project_id)
+            if project_for_voice:
+                voice_exemplars_payload = (
+                    project_for_voice.get("book_bible", {}).get("voice_exemplars")
+                )
+        except Exception as _voice_err:
+            logger.debug(f"Could not load voice_exemplars for {project_id}: {_voice_err}")
 
         references_dir.mkdir(parents=True, exist_ok=True)
         total = len(reference_types)
@@ -396,10 +415,28 @@ async def generate_references_background(
             try:
                 loop = asyncio.get_event_loop()
                 prior_refs = dict(generated_content) if generated_content else None
+
+                # Proposal 10 — for narrator-sensibility, append the full
+                # voice-exemplar planning block (with excerpts) to the bible
+                # payload the generator sees. We DO NOT mutate the global
+                # book_bible_content; this is local to the call.
+                bible_payload_for_call = book_bible_content
+                if ref_type == "narrator-sensibility" and voice_exemplars_payload:
+                    try:
+                        from backend.services.voice_exemplars import compose_planning_block
+                        voice_block = compose_planning_block(voice_exemplars_payload)
+                        if voice_block:
+                            bible_payload_for_call = (
+                                f"{book_bible_content}\n\n"
+                                f"{voice_block}\n"
+                            )
+                    except Exception as ve:
+                        logger.warning(f"Failed to attach voice-exemplar block to narrator-sensibility: {ve}")
+
                 content = await loop.run_in_executor(
                     None,
-                    lambda rt=ref_type, pr=prior_refs, blt=book_length_tier, ec=estimated_chapters, twc=target_word_count: generator.generate_content(
-                        rt, book_bible_content,
+                    lambda rt=ref_type, pr=prior_refs, blt=book_length_tier, ec=estimated_chapters, twc=target_word_count, bb=bible_payload_for_call: generator.generate_content(
+                        rt, bb,
                         prior_references=pr,
                         book_length_tier=blt,
                         estimated_chapters=ec,
@@ -990,9 +1027,47 @@ async def create_new_project(
                 except Exception as e:
                     logger.warning(f"Failed to expand book bible content with OpenAI: {e}, using template content")
                     # Continue with original content if expansion fails
-            
+
+            # Bible Enrichment (Proposal 6): if the user submitted enrichment
+            # answers (or had them auto-filled at intake time), append the
+            # rendered "Author Intent" appendix to the bible content. The
+            # appendix-merged content is what downstream reference generation,
+            # the book plan, and the chapter blueprint must see.
+            enrichment_payload = request.bible_enrichment if request.bible_enrichment else None
+            voice_exemplars_payload = request.voice_exemplars if request.voice_exemplars else None
+            content_with_enrichment = final_content
+            if enrichment_payload:
+                try:
+                    from backend.services.bible_enrichment import (
+                        enrichment_result_from_dict,
+                        merge_bible_with_enrichment,
+                    )
+                    enrichment_obj = enrichment_result_from_dict(enrichment_payload)
+                    content_with_enrichment = merge_bible_with_enrichment(final_content, enrichment_obj)
+                except Exception as enrich_err:
+                    logger.warning(
+                        "Failed to merge bible enrichment for project creation: %s",
+                        enrich_err,
+                    )
+
+            # Voice exemplars (Proposal 10): the rendered exemplar block is
+            # injected at director-brief time, but we also hydrate a short
+            # "Voice Inspiration" preface into the bible so reference
+            # generation respects narrator sensibility from the start.
+            if voice_exemplars_payload:
+                try:
+                    from backend.services.voice_exemplars import compose_bible_preface
+                    preface = compose_bible_preface(voice_exemplars_payload)
+                    if preface:
+                        content_with_enrichment = preface + "\n\n" + content_with_enrichment
+                except Exception as voice_err:
+                    logger.warning(
+                        "Failed to merge voice exemplars preface for project creation: %s",
+                        voice_err,
+                    )
+
             project_data['book_bible'] = {
-                'content': final_content,
+                'content': content_with_enrichment,
                 'must_include_sections': request.must_include_sections,
                 'book_length_tier': derived_length["book_length_tier"],
                 'estimated_chapters': request.estimated_chapters or derived_length["target_chapters"],
@@ -1000,10 +1075,12 @@ async def create_new_project(
                 'last_modified': datetime.now(timezone.utc),
                 'modified_by': user_id,
                 'version': 1,
-                'word_count': len(final_content.split()),
+                'word_count': len(content_with_enrichment.split()),
                 'creation_mode': request.creation_mode,
                 'source_data': request.source_data,
-                'ai_expanded': final_content != request.book_bible_content
+                'ai_expanded': final_content != request.book_bible_content,
+                'bible_enrichment': enrichment_payload,
+                'voice_exemplars': voice_exemplars_payload,
             }
         
         # Create the project
@@ -1078,12 +1155,18 @@ async def create_new_project(
             generator = ReferenceContentGenerator()
             if generator.is_available() and request.book_bible_content:
                 logger.info(f"Scheduling background reference generation for project {project_id}")
-                
-                # Start reference generation in background
+
+                # Use the appendix-merged content if we built one (Bible
+                # Enrichment + Voice Inspiration); otherwise fall back to the
+                # OpenAI-expanded content; otherwise the raw request content.
+                bible_for_references = (
+                    project_data.get('book_bible', {}).get('content')
+                    or request.book_bible_content
+                )
                 background_tasks.add_task(
                     generate_references_background,
                     project_id,
-                    request.book_bible_content,
+                    bible_for_references,
                     request.include_series_bible,
                     user_id
                 )

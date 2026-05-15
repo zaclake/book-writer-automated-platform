@@ -3,9 +3,9 @@ description: "Extracts and consolidates all proper nouns, named entities, and wo
 version: "1.0"
 
 model_config:
-  model: "gpt-5.2-pro"
+  model: "gpt-5.5"
   temperature: 0.3
-  max_tokens: 5000
+  max_tokens: 12000
   top_p: 0.9
 
 system_prompt: |

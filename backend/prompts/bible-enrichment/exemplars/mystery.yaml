@@ -1,0 +1,65 @@
+name: "Mystery Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for mystery."
+genre: "mystery"
+matches:
+  - mystery
+  - cozy mystery
+  - cozy
+  - whodunit
+  - amateur sleuth
+  - detective
+  - police procedural
+  - procedural
+
+reader_feeling:
+  generic_examples:
+    - "Satisfied that the puzzle was solved."
+    - "Surprised by who did it."
+    - "Eager to read the next book in the series."
+  specific_examples:
+    - "Sad for the killer in a way that makes the reader uncomfortable. The book should make solving the crime feel less like winning and more like closing a wound that won't quite heal."
+    - "Affection for the small town the book invented, and a faint awareness that they would not actually want to live there. The reader should feel like they have been visiting somewhere real and are leaving."
+  sharper_instructions:
+    - "Name a complicated, ambivalent feeling — not satisfaction. Tie it to a specific character (the victim, the killer, a witness who knew) the book made the reader care about."
+
+central_question:
+  generic_examples:
+    - "Whodunit?"
+    - "Will the truth come out?"
+    - "Can the detective catch the killer in time?"
+  specific_examples:
+    - "If the only person whose testimony will close the case is the victim's eight-year-old daughter, do you put her on the stand? Sergeant Liu has the warrant on her desk and the trial date is three weeks out."
+    - "When the man you've worked beside for nineteen years is the one who lied on the original report, is loyalty to the truth louder than loyalty to him? Kate Mehta has the file in her drawer and the retirement party is Friday."
+  sharper_instructions:
+    - "Phrase the question as a procedural choice the protagonist faces in the next month. Name the artifact (warrant, file, recording), the deadline, and the specific person whose life it will rearrange."
+
+protagonist_lie:
+  generic_examples:
+    - "She thinks justice always wins in the end."
+    - "He believes he's seen it all."
+    - "She doesn't trust her gut anymore."
+  specific_examples:
+    - "Sergeant Liu believes that the rules she was trained on are the protection she owes the kid she was. She has built nineteen years of careful, slow, by-the-book work as a kind of restitution. The book is going to put her in front of a case where the rules will protect the killer."
+    - "Kate Mehta believes that the people she works with are the family her actual family stopped being a long time ago — that the precinct's loyalty is unconditional in a way no other loyalty in her life has been. She is going to find out it was conditional all along and the condition was never asking the question she's about to ask."
+  sharper_instructions:
+    - "Tie the lie to the specific institution the protagonist has staked their identity on (the badge, the parish, the small-town ethic). Name the moment the case is going to test it."
+
+worldview_change:
+  generic_examples:
+    - "She learns that justice and the law aren't always the same thing."
+    - "He realizes that some cases can't be closed."
+    - "She finds her faith in people again."
+  specific_examples:
+    - "Sergeant Liu begins by trusting the rules and ends having broken one of them on purpose for a specific reason she can articulate. She has not become a cop who breaks rules — she has become a cop who knows what the rule was protecting and can decide, case by case, when the rule and the protection have come apart. The cost: she will never tell her partner what she did, and the partnership is never quite the same shape again."
+    - "Kate Mehta starts the book believing the precinct is a family and ends it believing the precinct is a workplace where some people happen to be loved. She has not stopped loving them. She has stopped expecting them to put her over the institution. The cost: Friday's retirement party is the last thing she does with these people, and she is the only one in the room who knows it."
+  sharper_instructions:
+    - "Show the change as a specific procedural decision the protagonist makes (what they now will or will not do on the job). Name the relationship that gets quieter, smaller, or shaped differently as a result."
+
+clear_scenes:
+  generic_examples:
+    - "1. The discovery of the body. 2. The interrogation of the prime suspect. 3. The reveal of the killer."
+    - "1. The detective at the crime scene. 2. A red-herring confrontation. 3. The arrest."
+  specific_examples:
+    - "1. Sergeant Liu sitting on the playground bench at the elementary school at 3:10 p.m., watching the eight-year-old eat a cheese stick her grandmother packed her, knowing she has the warrant for the interview in her bag and that she could leave it there.\n\n2. The kitchen of Daniel Reyes' mother, 7 p.m., spaghetti on the stove, Mrs. Reyes asking Liu — politely, carefully — whether her son is being arrested for the right thing or for the easy thing. Liu has the file on the table between them and the answer is that she does not yet know.\n\n3. The retirement party. Sheet cake. Loud men. Kate Mehta in the corner with a paper plate, watching the partner she has loved for nineteen years tell a story she now knows is a lie. She does not say anything. She finishes the cake."
+  sharper_instructions:
+    - "Stage at least one scene that is not the body, the interrogation, or the arrest — a piece of ordinary procedure or social ritual where the moral weight is happening underneath. Name the food, the artifact, the time."

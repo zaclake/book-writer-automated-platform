@@ -18,11 +18,15 @@ Design principles:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Repetition Detection (generic, no hardcoded phrases) ────────────────────
@@ -403,7 +407,137 @@ def validate_skeleton_variety(beats: List[Dict[str, Any]]) -> Dict[str, Any]:
         else:
             run = 1
 
-    return {"ok": not issues, "issues": issues, "distinct_shapes": sorted(distinct_shapes), "distinct_interiority": sorted(distinct_int)}
+    # Scene-density discipline (Proposal 7).
+    # The density report is always included so callers can log the warnings,
+    # but density issues are only escalated into `issues` (and thus contribute
+    # to ok=False) when the planner has declared scene_id on at least some
+    # beats. Skeletons emitted before the scene-density schema landed must
+    # still be allowed through the umbrella variety check.
+    density_report = validate_scene_density(beats)
+    has_scene_ids = density_report.get("missing_scene_id_count", 0) < len(beats)
+    if has_scene_ids and not density_report.get("ok"):
+        issues.extend(density_report.get("issues", []))
+
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "distinct_shapes": sorted(distinct_shapes),
+        "distinct_interiority": sorted(distinct_int),
+        "scene_density": density_report,
+    }
+
+
+def validate_scene_density(beats: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Inspect a generated skeleton for scene-density anti-patterns.
+
+    Reports (but never raises) on:
+      - Missing scene_id / scene_transition fields.
+      - Too many distinct scenes for the beat count (montage).
+      - The same character entering/leaving a single scene_id more than twice.
+      - Time-of-day inconsistency within a single scene.
+
+    The caller decides whether to log a warning or trigger a planner nudge.
+    """
+    issues: List[str] = []
+    if not beats:
+        return {"ok": False, "issues": ["empty skeleton"]}
+
+    # Pull and normalize scene_ids. If the planner missed the field, fall
+    # back to "1 scene total" so we don't double-count and produce noise; we
+    # still surface the missing-field warning below.
+    scene_ids: List[int] = []
+    missing_scene_id = 0
+    for idx, beat in enumerate(beats, start=1):
+        sid = beat.get("scene_id")
+        if isinstance(sid, int) and sid > 0:
+            scene_ids.append(sid)
+        else:
+            missing_scene_id += 1
+            scene_ids.append(scene_ids[-1] if scene_ids else 1)
+    if missing_scene_id:
+        issues.append(
+            f"scene_id missing on {missing_scene_id} of {len(beats)} beats — "
+            "planner should declare scene_id on every beat"
+        )
+
+    distinct_scenes = sorted({sid for sid in scene_ids})
+
+    # Montage / over-fragmentation guard.
+    if len(beats) >= 8 and len(distinct_scenes) >= max(6, len(beats) // 2):
+        issues.append(
+            f"chapter has {len(distinct_scenes)} distinct scenes across "
+            f"{len(beats)} beats — that is a montage, not a chapter; "
+            "consolidate or cut connective scenes"
+        )
+
+    # First beat must open scene 1.
+    first_transition = (beats[0].get("scene_transition") or "").strip().lower()
+    if first_transition and first_transition not in ("scene_open", "cross_cut"):
+        issues.append(
+            f"first beat scene_transition='{first_transition}' should be 'scene_open'"
+        )
+
+    # Per-scene checks: time-of-day stability, character-entry/exit count.
+    by_scene: Dict[int, List[int]] = {}
+    for i, sid in enumerate(scene_ids):
+        by_scene.setdefault(sid, []).append(i)
+
+    for sid, beat_indices in by_scene.items():
+        if len(beat_indices) < 2:
+            continue
+        scene_beats = [beats[i] for i in beat_indices]
+
+        # Time-of-day stability within the same scene.
+        times = [
+            (b.get("time_of_day") or "").strip().lower()
+            for b in scene_beats
+            if (b.get("time_of_day") or "").strip()
+        ]
+        if times and len({t for t in times}) > 1:
+            issues.append(
+                f"scene {sid}: time_of_day shifts within a single scene_id "
+                f"({sorted(set(times))}) — open a new scene_id when time jumps"
+            )
+
+        # Per-character entry/exit count within the scene.
+        # An "entry" event for a character at beat i means: the character is
+        # present at i but was NOT present at i-1 (within this scene). An
+        # "exit" event means present at i but NOT at i+1 (within this scene).
+        # We count entry+exit pairs per character.
+        prev_present: set[str] = set()
+        entries: Dict[str, int] = {}
+        for i, beat in enumerate(scene_beats):
+            present = {
+                str(name).strip()
+                for name in (beat.get("characters_present") or [])
+                if str(name).strip()
+            }
+            if i == 0:
+                prev_present = present
+                continue
+            new_arrivals = present - prev_present
+            for name in new_arrivals:
+                entries[name] = entries.get(name, 0) + 1
+            prev_present = present
+        for name, count in entries.items():
+            # The first appearance in the scene is the initial cast and does
+            # not count as an "entry/exit" — but if the character disappears
+            # and returns (or is added later and removed and re-added), each
+            # such re-arrival is one entry. More than 1 re-entry inside the
+            # same scene is a planning failure.
+            if count >= 2:
+                issues.append(
+                    f"scene {sid}: '{name}' enters {count}+ times within a "
+                    "single scene_id — restructure to keep them present, "
+                    "consolidate the bouncing, or open a new scene"
+                )
+
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "distinct_scenes": distinct_scenes,
+        "missing_scene_id_count": missing_scene_id,
+    }
 
 
 SKELETON_SYSTEM = (
@@ -503,6 +637,50 @@ SKELETON_SYSTEM = (
     "  genuine doubt, fear, exhaustion, or personal cost — not just competence. Characters\n"
     "  who never crack under pressure feel robotic. One moment of vulnerability per arc\n"
     "  section makes the strength believable.\n"
+    "\n"
+    "SCENE-DENSITY DISCIPLINE (Proposal 7 — prevents the 'characters drift in and out\n"
+    "of the same room three times' anti-pattern that weakens chapter rhythm):\n"
+    "- DEFINITION OF A SCENE: A SCENE is a continuous unit of time AND place AND cast.\n"
+    "  Two consecutive beats are part of the SAME scene if the location is the same,\n"
+    "  the time gap is under ~10 minutes of in-story time, and the on-stage cast has\n"
+    "  not meaningfully changed (a character entering or leaving counts as a change).\n"
+    "  Otherwise the second beat starts a NEW scene.\n"
+    "- SCENE_ID FIELD: Every beat MUST declare a `scene_id` (an integer starting at 1).\n"
+    "  Beats in the same scene share the same id. Beats in a new scene increment.\n"
+    "  This is non-negotiable: a chapter without scene_ids cannot pass the planner.\n"
+    "- SCENE_TRANSITION FIELD: Every beat MUST declare a `scene_transition` field with\n"
+    "  one of these values:\n"
+    "    * scene_open       — first beat of a new scene; introduce setting + cast\n"
+    "    * scene_continue   — middle of a scene; same cast, same place, same window\n"
+    "    * scene_close      — last beat of the scene; landing or hand-off\n"
+    "    * cross_cut        — single-beat scene used for parallel-track cuts (rare)\n"
+    "- CHARACTER ENTRY / EXIT WITHIN A SCENE: A character may enter a scene at most\n"
+    "  TWICE total within the chapter (so: arrives once, optionally leaves and returns\n"
+    "  once for a specific reason). A third entry/exit by the same character within\n"
+    "  the same chapter is a planning failure — restructure the beats so the character\n"
+    "  either stays present or the chapter cuts to a NEW scene with a clear time/space\n"
+    "  jump (a different location, a different hour, a beat boundary that is obviously\n"
+    "  a section break in the rendered prose).\n"
+    "- NO RECURSIVE ENTRIES/EXITS: Do NOT plan a sequence like:\n"
+    "    'Sam enters' → 'Sam leaves to check on the car' → 'Sam returns'\n"
+    "    → 'Sam steps outside again' → 'Sam comes back with coffee'.\n"
+    "  This pads beats with motion and produces flat prose. If the same character\n"
+    "  must repeatedly leave and return, COLLAPSE those into one beat ('Sam handles\n"
+    "  the car and comes back, settling in for the long stretch') OR cut the\n"
+    "  intervening 'leaves' beats and start a NEW scene later in the chapter where\n"
+    "  the consequences land.\n"
+    "- SCENE COUNT GUIDANCE: A chapter of 8-12 beats should typically span 2-4 scenes.\n"
+    "  A chapter that is one continuous scene (12 beats, 1 scene_id) is acceptable for\n"
+    "  a single sustained confrontation or setpiece. A chapter that is 12 beats and 8\n"
+    "  scenes is BROKEN — that's a montage, not a chapter, and it will read as one.\n"
+    "- TIME/PLACE JUMPS BETWEEN SCENES: When you increment scene_id, the new scene\n"
+    "  must declare in its `notes` field (or via an explicit time_of_day shift) the\n"
+    "  jump (e.g., 'Two hours later, in the parking lot.' or 'After dinner, kitchen.').\n"
+    "  No silent scene cuts.\n"
+    "- BEAT BOUNDARIES MATTER: A `scene_transition: scene_close` followed by\n"
+    "  `scene_transition: scene_open` is the planner's contract that the prose\n"
+    "  generator must render an actual section break — a paragraph break with a clear\n"
+    "  time/place reset, not a continuous flow that pretends the scene never ended.\n"
 )
 
 
@@ -776,6 +954,8 @@ async def generate_skeleton(
         '{"beats": [\n'
         "  {\n"
         '    "beat_number": 1,\n'
+        '    "scene_id": 1,\n'
+        '    "scene_transition": "scene_open | scene_continue | scene_close | cross_cut",\n'
         '    "action": "What happens externally — be SPECIFIC. Name the action, the discovery, the decision.",\n'
         '    "pov_want": "What the POV character is trying to GET in this beat (internal verb: be heard, regain control, hide the lie, win without saying so).",\n'
         '    "pov_obstacle": "What is in the way of that want — specific external situation OR specific internal block.",\n'
@@ -789,7 +969,7 @@ async def generate_skeleton(
         '    "info_type": "new_development | deepening | decision | dialogue_scene | confrontation | action",\n'
         '    "time_of_day": "e.g. pre-dawn, early morning, mid-morning, noon, etc.",\n'
         '    "characters_present": ["Name1", "Name2"],\n'
-        '    "notes": "Specific craft notes for this beat"\n'
+        '    "notes": "Specific craft notes for this beat. When scene_transition is scene_open and scene_id > 1, also state the time/place jump (e.g., \\"Two hours later, in the parking lot.\\")."\n'
         "  }\n"
         "]}\n\n"
         "Rules:\n"
@@ -811,9 +991,24 @@ async def generate_skeleton(
         "  same scene_shape. A chapter of 8+ beats must use at least 3 distinct shapes.\n"
         "- The 'what_changes' field must be DIFFERENT for every beat. If two beats\n"
         "  have the same answer for what_changes, one of them is dead weight — cut it.\n"
-        "- TIME OF DAY must be consistent. Pick ONE time window and stay in it.\n"
         "- The opening beat starts mid-action or mid-conversation, never mid-atmosphere.\n"
         "- The final beat ends on a concrete moment, not reflection or ambiance.\n"
+        "\n"
+        "SCENE-DENSITY RULES (Proposal 7):\n"
+        "- Every beat MUST declare scene_id (1, 2, 3, ...) and scene_transition.\n"
+        "- A chapter of 8-12 beats should typically span 2-4 distinct scene_ids.\n"
+        "  A 12-beat chapter with 1 scene_id is acceptable only for a single sustained\n"
+        "  confrontation/setpiece. A 12-beat chapter with 6+ scene_ids is broken — that\n"
+        "  is a montage, not a chapter.\n"
+        "- TIME OF DAY must be consistent WITHIN a scene_id. When scene_id increments,\n"
+        "  the time_of_day may shift; explain the shift in the new scene's `notes`.\n"
+        "- Within a single scene_id, no character may enter and leave more than once.\n"
+        "  If you find yourself planning a third entry/exit for the same character\n"
+        "  inside the same scene, restructure: either keep them present, or close the\n"
+        "  scene and open a new scene (new scene_id) where the consequences land.\n"
+        "- The first beat of a chapter must be scene_open with scene_id 1. The last\n"
+        "  beat of the chapter should be scene_close (or scene_continue ending mid-\n"
+        "  beat for a deliberate cliffhanger).\n"
     )
 
     try:
@@ -823,11 +1018,16 @@ async def generate_skeleton(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=3000,
+            max_tokens=12000,
             response_format={"type": "json_object"},
             model_role="planner",
+            reasoning_effort="medium",
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Skeleton LLM call raised %s: %s — using positional default skeleton.",
+            type(exc).__name__, exc,
+        )
         return _default_skeleton(narrative_weight, chapter_plan=chapter_plan)
 
     content = ""
@@ -836,13 +1036,29 @@ async def generate_skeleton(
     elif response and hasattr(response, "choices") and response.choices:
         content = response.choices[0].message.content
 
+    if not content:
+        logger.warning(
+            "Skeleton LLM returned EMPTY content — using positional default skeleton. "
+            "Likely cause: reasoning model consumed entire token budget on internal "
+            "reasoning. Increase max_tokens or pass reasoning_effort='low'."
+        )
+        return _default_skeleton(narrative_weight, chapter_plan=chapter_plan)
+
     try:
-        parsed = json.loads(content or "")
+        parsed = json.loads(content)
         beats = parsed.get("beats", parsed if isinstance(parsed, list) else [])
         if isinstance(beats, list) and len(beats) >= 3:
             return beats
-    except Exception:
-        pass
+        logger.warning(
+            "Skeleton LLM returned JSON with insufficient beats (%s) — using default.",
+            len(beats) if isinstance(beats, list) else "non-list",
+        )
+    except Exception as exc:
+        snippet = (content or "")[:300].replace("\n", " ")
+        logger.warning(
+            "Skeleton LLM returned non-JSON content (%s: %s) — using default. Snippet: %r",
+            type(exc).__name__, exc, snippet,
+        )
 
     return _default_skeleton(narrative_weight, chapter_plan=chapter_plan)
 
@@ -1380,11 +1596,16 @@ async def build_character_voice_samples(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=2000,
+            max_tokens=8000,
             response_format={"type": "json_object"},
             model_role="planner",
+            reasoning_effort="low",
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Voice samples LLM call raised %s: %s — returning empty sample set.",
+            type(exc).__name__, exc,
+        )
         return {}
 
     content = ""
@@ -1393,18 +1614,34 @@ async def build_character_voice_samples(
     elif response and hasattr(response, "choices") and response.choices:
         content = response.choices[0].message.content
 
+    if not content:
+        logger.warning(
+            "Voice samples LLM returned EMPTY content — returning empty sample set. "
+            "Reasoning model may have consumed entire token budget on internal reasoning."
+        )
+        return {}
+
     samples: Dict[str, str] = {}
     try:
-        parsed = json.loads(content or "")
+        parsed = json.loads(content)
         raw = parsed.get("samples", {}) if isinstance(parsed, dict) else {}
         if isinstance(raw, dict):
             for name, sample in raw.items():
                 if isinstance(name, str) and isinstance(sample, str) and len(sample.strip()) >= 30:
                     samples[name.strip()] = sample.strip()
-    except Exception:
+    except Exception as exc:
+        snippet = (content or "")[:300].replace("\n", " ")
+        logger.warning(
+            "Voice samples LLM returned non-JSON (%s: %s) — returning empty. Snippet: %r",
+            type(exc).__name__, exc, snippet,
+        )
         return {}
 
     if not samples:
+        logger.warning(
+            "Voice samples LLM returned valid JSON but no usable samples "
+            "(samples must be >= 30 chars and properly named). Returning empty set."
+        )
         return {}
 
     try:
@@ -2182,10 +2419,15 @@ async def stitch_beats(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=max(2000, int(len(expanded_text.split()) * 1.5)),
+            max_tokens=max(6000, int(len(expanded_text.split()) * 1.5)),
             model_role="editor",
+            reasoning_effort="low",
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Stitch pass LLM call raised %s: %s — returning unstitched text.",
+            type(exc).__name__, exc,
+        )
         return expanded_text
 
     content = ""
@@ -2195,7 +2437,18 @@ async def stitch_beats(
         content = response.choices[0].message.content
 
     result = (content or "").strip()
-    if not result or len(result.split()) < len(expanded_text.split()) * 0.5:
+    if not result:
+        logger.warning(
+            "Stitch pass returned EMPTY content — keeping unstitched text. "
+            "Likely cause: reasoning model consumed entire token budget on internal reasoning."
+        )
+        return expanded_text
+    if len(result.split()) < len(expanded_text.split()) * 0.5:
+        logger.warning(
+            "Stitch pass returned text shorter than 50%% of input "
+            "(stitched=%d words, original=%d words) — keeping unstitched text.",
+            len(result.split()), len(expanded_text.split()),
+        )
         return expanded_text
 
     # P2.4 — quote-balance guard. The editor LLM occasionally drops one of a

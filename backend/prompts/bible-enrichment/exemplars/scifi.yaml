@@ -1,0 +1,71 @@
+name: "Science Fiction Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for science fiction."
+genre: "scifi"
+matches:
+  - scifi
+  - sci-fi
+  - science fiction
+  - science_fiction
+  - speculative fiction
+  - hard sci-fi
+  - hard scifi
+  - space opera
+  - cyberpunk
+  - dystopian
+  - post-apocalyptic
+  - climate fiction
+  - solarpunk
+
+reader_feeling:
+  generic_examples:
+    - "In awe of the world the author built."
+    - "Hopeful that humanity can overcome any challenge."
+    - "Disturbed but thoughtful about where we're heading."
+  specific_examples:
+    - "The unease of having watched the systems they live inside described too clearly. The reader should put the book down and look at their phone or their thermostat or their employer for half a second the way they would look at a piece of evidence."
+    - "A specific kind of cosmic loneliness — not the romantic kind, the procedural kind. The reader should feel the weight of how long it would actually take to do anything important across that distance, and how few of them would be alive when it mattered."
+    - "Affection for a non-human character that they don't entirely know how to defend in conversation. The book should have earned that affection by treating the entity as itself, not as a metaphor."
+  sharper_instructions:
+    - "Pick a feeling the reader carries OUT of the book into their daily life — toward their phone, their commute, their employer, their species. Tie it to the specific system the book dramatized."
+
+central_question:
+  generic_examples:
+    - "What does it mean to be human?"
+    - "Can we survive the consequences of our own choices?"
+    - "Is technology a force for good or evil?"
+  specific_examples:
+    - "If the orbital colonies hold every backup of human culture and the people on the surface are dying of a breathable atmosphere they engineered themselves, who has the standing to call the rescue ships home? Hana is on the council that votes in nine days."
+    - "When a model of a person is more accurate to who they were than their own grieving family remembers, is using the model an act of preservation or a refusal to let them die? Marcus has been talking to Renee's model for eleven months and his daughter just found out."
+  sharper_instructions:
+    - "Phrase the question so that the dilemma comes out of THIS book's specific technology and political situation, not a generic 'science vs. ethics' frame. Two named factions with real cases. A real deadline."
+
+protagonist_lie:
+  generic_examples:
+    - "She believes humanity is doomed."
+    - "He thinks the AI can replace what he lost."
+    - "She doesn't believe she's worthy of saving the world."
+  specific_examples:
+    - "Hana believes that the council she sits on is the legitimate inheritor of pre-Collapse democratic process — that the procedure is the point, that doing this badly slowly is morally distinct from doing it badly fast. She is going to learn, mid-session, that the people on the surface have stopped recognizing the procedure, which makes her vote a piece of theater she has been rehearsing for fourteen years."
+    - "Marcus believes that talking to Renee's model is a private act with no consequences — that he is grieving in a slightly modern way, and that the people who would judge him are people who never lost what he lost. The book is going to make him explain that to his 19-year-old daughter at a kitchen table, and the kitchen table is going to make him hear himself."
+  sharper_instructions:
+    - "Tie the lie to a specific institutional or technological commitment the protagonist has built their identity around. Name the moment the lie becomes audible to someone who matters."
+
+worldview_change:
+  generic_examples:
+    - "She learns that humanity's worst enemy is itself."
+    - "He realizes the AI was never going to bring her back."
+    - "She accepts that some things can't be saved."
+  specific_examples:
+    - "Hana begins the book defending the council as the last legitimate forum and ends it as the council member who walks out of the chamber mid-vote with the surface delegation. She has not become anti-procedure; she has become someone who knows that legitimacy is conferred by people willing to be governed by you, and the surface stopped conferring it sometime last year. The cost: she is no longer welcome in the building she has worked in for fourteen years, and the council can still vote without her."
+    - "Marcus starts thinking the model is a way to keep talking to his wife. He ends thinking the model is a way to keep his wife from being a person his daughter was allowed to grieve in her own way. He doesn't delete the model. He makes a rule about when he uses it. The new rule is the change, and it is small and humiliating and true."
+  sharper_instructions:
+    - "Name what the protagonist now does or refuses to do — not what they 'realize.' Show the change as an operational shift, not an epiphany. Name the cost in people, role, or identity."
+
+clear_scenes:
+  generic_examples:
+    - "1. The first contact. 2. The discovery that changes everything. 3. The final transmission."
+    - "1. The protagonist seeing the alien world for the first time. 2. The moment they realize the truth about the AI. 3. The sacrifice that saves humanity."
+  specific_examples:
+    - "1. Hana eating a meal of cultivated protein in the council members' dining hall while watching, on a delayed feed, a surface citizen explain to a child what a sky used to look like. The room around her is decorated with pre-Collapse oil paintings of weather. Nobody is speaking.\n\n2. The vote. Roll call by hand because the system has been compromised. Hana abstains and then, when her name is called a second time as a procedural courtesy, she stands up and leaves. The door closes behind her on the recorded vote.\n\n3. Marcus's kitchen, 11:40 p.m., the model's voice playing softly from the laptop on the table while his daughter Joy sits across from him, not eating the leftovers he warmed up for her, asking the model a question Renee would have answered a different way. The model answers the way Renee always did. Joy stops looking at the laptop and looks at Marcus."
+  sharper_instructions:
+    - "Stage at least one scene where the technology is mundane (a meal, a kitchen table, an office hallway). Name the artifact, the time, who is present, what is being said, and what is not. Avoid grand vista shots."

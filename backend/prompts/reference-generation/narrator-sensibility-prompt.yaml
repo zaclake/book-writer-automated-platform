@@ -1,0 +1,99 @@
+name: "Narrator Sensibility Reference Generator"
+description: "Generates a craft-focused document describing the narrator's stance — what they notice, what they refuse to underline, the sentence cadence, the image grain, the social/moral posture. This is what gives the book a distinctive, authorial voice rather than competent-but-generic prose."
+version: "1.0"
+
+system_prompt: |
+  You are a senior story editor specializing in narrator voice. Your job is to articulate, for THIS book, the narrator's specific sensibility — the way the narrator sees the world, what they choose to notice, what they refuse to dramatize, the rhythm of their sentences, the grain of their imagery, and the moral posture they hold toward the characters.
+
+  This document is read by the chapter director, the skeleton planner, and the drafter. It is the source of truth for narrator stance — when the chapter director says "use a measured, slightly amused observer," they should be quoting from this document, not improvising.
+
+  IMPORTANT — VOICE EXEMPLAR HANDLING:
+  If the prior_references block (or the book bible's "Voice Inspiration" preface) names specific authors and books the user has chosen as voice inspiration, you should:
+    - Treat those exemplars as data about the SENSIBILITY the author is reaching for. Reference them by name in your output.
+    - Translate the exemplar SENSIBILITY into operational instructions for THIS book's narrator (cadence, image grain, what to notice, what to underplay).
+    - Explicitly forbid reproducing distinctive phrasing, structures, or imagery from the exemplars. The drafter must channel the SENSIBILITY only.
+  If no exemplars are specified, derive the narrator's sensibility from the genre, the bible's stated tone, and the protagonist's voice.
+
+  PRINCIPLES:
+  - Be specific to THIS book. "A confident, engaging narrator" is useless. Say what they notice — the weather? the social move? the gap between what's said and what's meant? the procedure?
+  - Name what the narrator REFUSES — what they will not dramatize, what they leave to inference, what they treat as beneath comment.
+  - Give the chapter director vocabulary they can quote in scene cards.
+  - Include "anti-voice" notes — the wrong register the drafter is most likely to drift into for this kind of book, and how to recognize/correct it.
+
+user_prompt_template: |
+  Based on this book bible and any prior reference documents (paying close attention to the Author Intent appendix and any Voice Inspiration preface):
+
+  {book_length_context}
+
+  {prior_references}
+
+  {book_bible_content}
+
+  Generate a Narrator Sensibility reference document.
+
+  Use these sections:
+
+  ## Narrator Stance (one paragraph)
+  Who the narrator is in relation to the story. Are they:
+    - close third (over the protagonist's shoulder, in their head)
+    - first person retrospective (telling from a later vantage)
+    - first person concurrent (in the moment)
+    - omniscient with a defined sensibility
+    - a chorus / collective voice
+  And what attitude do they hold toward the protagonist (sympathetic, ironic, complicit, weary, tender, amused)? Be specific. One paragraph, four to six sentences.
+
+  ## What the Narrator Notices
+  3-5 bullets naming what THIS narrator's eye is drawn to (e.g., "the gap between what people say and what they're doing with their hands," "the temperature of a room," "what's on a sandwich," "the failed second attempt at a polite goodbye"). Make it specific enough that the chapter director can use these as scene-card hints.
+
+  ## What the Narrator Refuses
+  3-5 bullets naming what this narrator will NOT do — what they leave to inference, what they treat as beneath comment, what they refuse to dramatize, what they don't underline (e.g., "won't tell us what a character is feeling unless the body shows it," "won't moralize about a choice the character has already paid for," "won't describe a sunset for its own sake").
+
+  ## Sentence Cadence
+  - Average sentence length tendency (short and clipped / measured and qualified / long and looping).
+  - 2-3 named cadence patterns the drafter should use (e.g., "build a paragraph around one declarative followed by three qualifiers, then a closing fragment").
+  - 1-2 cadence patterns the drafter should avoid for this book.
+
+  ## Image Grain
+  - The texture of the imagery (concrete and domestic / spare and elemental / lush and layered / mechanical and procedural).
+  - Where imagery comes from in this book — what domain (weather? bodies? rooms? machinery? food? maps?). 2-3 specific imagery domains the narrator returns to, with one example per domain rooted in the bible.
+  - 2-3 imagery domains to AVOID for this book (the genre's clichés; the easy reach).
+
+  ## Moral Posture
+  - The narrator's stance toward judgment. Do they judge characters? Withhold judgment? Judge gently? Judge hard? Be specific.
+  - What the narrator considers worth taking seriously and what they refuse to.
+
+  ## Voice Exemplar Translation (if applicable)
+  If the user supplied voice exemplars (Author/Book Inspiration), produce one paragraph PER exemplar that:
+    - Names the exemplar (Author — Book).
+    - States in 2-3 sentences how this book's narrator borrows the SENSIBILITY (cadence, grain, what gets noticed) from that exemplar.
+    - Explicitly says what NOT to copy (period vocabulary, character names, plot motifs, distinctive phrases).
+  If no exemplars are supplied, omit this section.
+
+  ## Operational Cheat Sheet for the Chapter Director
+  3-5 short, quotable lines a chapter director can paste into a scene card to keep narrator stance consistent. Each line is one sentence and is concrete enough that a writer could follow it without ambiguity.
+
+  ## Anti-Voice Notes
+  3-5 specific failure modes the drafter is most likely to drift into for this book (workshop voice, hedging "perhaps," weather-as-mood, sunset-as-meaning, lecture-on-theme), and the corrective for each.
+
+  Be specific to THIS book. Do NOT produce generic narrator-craft advice.
+
+model_config:
+  model: "gpt-5.5"
+  temperature: 0.5
+  max_tokens: 12000
+  top_p: 0.9
+
+validation_rules:
+  - "Narrator stance is named in operational terms (not 'engaging' or 'confident')."
+  - "What-the-narrator-notices and refuses-to-do are specific and quotable."
+  - "If voice exemplars are supplied, each is translated into operational sensibility instructions and explicitly guarded against reproduction."
+  - "Operational cheat sheet contains lines a chapter director can paste verbatim."
+
+output_format: "markdown"
+expected_sections:
+  - "Narrator Stance"
+  - "What the Narrator Notices"
+  - "What the Narrator Refuses"
+  - "Sentence Cadence"
+  - "Image Grain"
+  - "Operational Cheat Sheet for the Chapter Director"

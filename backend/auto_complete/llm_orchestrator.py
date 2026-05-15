@@ -448,17 +448,42 @@ class LLMOrchestrator:
         reasoning models on the chat.completions endpoint.
 
         - Renames ``max_tokens`` → ``max_completion_tokens``.
+        - Enforces a reasoning-aware ``max_completion_tokens`` floor so the
+          internal reasoning trace cannot starve out the visible output.
+          Reasoning tokens and visible output share the same budget; with
+          structured-JSON prompts a budget below ~8k routinely returns empty
+          content. Floor is env-overridable via
+          ``OPENAI_REASONING_MIN_OUTPUT_TOKENS`` (default 12000).
+        - Passes ``reasoning_effort`` through unchanged for reasoning models;
+          drops it for non-reasoning models (chat completions rejects it).
         - Drops ``temperature``, ``top_p``, ``frequency_penalty``,
           ``presence_penalty`` (reasoning models only accept defaults).
 
-        No-op for legacy chat models (gpt-4*, gpt-4o*, etc.).
+        No-op for legacy chat models (gpt-4*, gpt-4o*, etc.) other than
+        stripping ``reasoning_effort`` if a caller passed it.
         """
         if not self._is_reasoning_model(model):
+            kwargs.pop("reasoning_effort", None)
             return
         if "max_tokens" in kwargs:
             mt = kwargs.pop("max_tokens")
             if "max_completion_tokens" not in kwargs and isinstance(mt, int) and mt > 0:
                 kwargs["max_completion_tokens"] = mt
+        try:
+            min_output = int(os.getenv("OPENAI_REASONING_MIN_OUTPUT_TOKENS", "12000"))
+        except (TypeError, ValueError):
+            min_output = 12000
+        if min_output > 0:
+            current = kwargs.get("max_completion_tokens")
+            model_cap = self._get_model_max_output_tokens(model)
+            target = min(max(current or 0, min_output), model_cap)
+            if not isinstance(current, int) or current < target:
+                if isinstance(current, int) and current < target:
+                    self.logger.debug(
+                        f"Raising max_completion_tokens from {current} to {target} "
+                        f"for reasoning model {model} (floor={min_output}, cap={model_cap})"
+                    )
+                kwargs["max_completion_tokens"] = target
         for k in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
             kwargs.pop(k, None)
         
@@ -789,6 +814,30 @@ class LLMOrchestrator:
         kwargs.pop("model_role", None)
         for key in ("frequency_penalty", "presence_penalty", "temperature", "top_p"):
             kwargs.pop(key, None)
+
+        # Reasoning models on the Responses API: enforce the same output-token
+        # floor used for chat completions and translate `reasoning_effort` into
+        # the Responses API's `reasoning` object shape. Non-reasoning models
+        # silently drop the param.
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        if self._is_reasoning_model(effective_model):
+            try:
+                min_output = int(os.getenv("OPENAI_REASONING_MIN_OUTPUT_TOKENS", "12000"))
+            except (TypeError, ValueError):
+                min_output = 12000
+            if min_output > 0:
+                model_cap = self._get_model_max_output_tokens(effective_model)
+                target = min(max(int(max_tokens or 0), min_output), model_cap)
+                if not isinstance(max_tokens, int) or max_tokens < target:
+                    if isinstance(max_tokens, int) and max_tokens < target:
+                        self.logger.debug(
+                            f"Raising max_output_tokens from {max_tokens} to {target} "
+                            f"for reasoning model {effective_model} "
+                            f"(floor={min_output}, cap={model_cap})"
+                        )
+                    max_tokens = target
+            if reasoning_effort and "reasoning" not in kwargs:
+                kwargs["reasoning"] = {"effort": str(reasoning_effort)}
         if self.billable_client:
             async with semaphore(get_llm_semaphore()):
                 billable_response = await self.client.responses_create(
@@ -812,6 +861,16 @@ class LLMOrchestrator:
             if os.getenv("REQUIRE_OPENAI_RESPONSES", "false").lower() == "true":
                 raise RuntimeError("OpenAI Responses API required but not available in client runtime.")
             self.logger.warning("Responses API unavailable; falling back to chat completions")
+            # The Responses-shaped `reasoning` object is invalid on chat
+            # completions — strip it and re-run the chat-completions translator
+            # so reasoning models still get max_completion_tokens, the floor,
+            # and a valid reasoning_effort top-level param.
+            chat_kwargs = dict(kwargs)
+            reasoning_obj = chat_kwargs.pop("reasoning", None)
+            if reasoning_obj and isinstance(reasoning_obj, dict) and reasoning_obj.get("effort"):
+                chat_kwargs.setdefault("reasoning_effort", reasoning_obj["effort"])
+            chat_kwargs["max_tokens"] = max_tokens
+            self._translate_params_for_chat_completions(effective_model, chat_kwargs)
             with thread_semaphore(get_llm_thread_semaphore()):
                 response = await asyncio.to_thread(
                     functools.partial(
@@ -819,8 +878,7 @@ class LLMOrchestrator:
                         model=effective_model,
                         messages=messages,
                         timeout=timeout,
-                        max_tokens=max_tokens,
-                        **kwargs
+                        **chat_kwargs
                     )
                 )
             try:
@@ -5097,15 +5155,28 @@ class LLMOrchestrator:
         response = await self._make_api_call(
             messages=messages,
             temperature=template.get("temperature", 0.4),
-            max_tokens=template.get("max_tokens", 1600),
+            max_tokens=template.get("max_tokens", 12000),
             top_p=1,
             vector_store_ids=context.get("vector_store_ids", []),
             use_file_search=context.get("use_file_search", True),
             model_role="planner",
+            reasoning_effort="low",
         )
 
         content, _ = self._extract_content_and_usage(response)
         brief = content.strip()
+        if not brief:
+            self.logger.warning(
+                f"Director brief returned EMPTY content for Chapter {chapter_number}. "
+                "Likely cause: reasoning model consumed entire token budget on internal "
+                "reasoning. Will retry with explicit constraint notes."
+            )
+        elif not self._director_brief_has_required_fields(brief):
+            self.logger.warning(
+                f"Director brief for Chapter {chapter_number} missing required sections "
+                f"(world markers / artifact / interaction). Length={len(brief)} chars. "
+                "Retrying with explicit constraint notes."
+            )
         if not self._director_brief_has_required_fields(brief):
             extra_notes = "Director brief must include: Unique World Markers (2 per scene), Concrete Artifact, Named Interaction."
             context = {**context, "director_notes": (context.get("director_notes", "") + "\n" + extra_notes).strip()}
@@ -5119,14 +5190,20 @@ class LLMOrchestrator:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=template.get("temperature", 0.4),
-                max_tokens=template.get("max_tokens", 1600),
+                max_tokens=template.get("max_tokens", 12000),
                 top_p=1,
                 vector_store_ids=context.get("vector_store_ids", []),
                 use_file_search=context.get("use_file_search", True),
                 model_role="planner",
+                reasoning_effort="low",
             )
             content, _ = self._extract_content_and_usage(response)
             brief = content.strip()
+            if not brief:
+                self.logger.warning(
+                    f"Director brief retry also returned EMPTY for Chapter {chapter_number}. "
+                    "Validator will surface this as missing-sections downstream."
+                )
         return brief
 
     def _director_brief_has_required_fields(self, brief: str) -> bool:

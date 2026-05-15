@@ -1,0 +1,64 @@
+name: "Historical Fiction Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for historical fiction."
+genre: "historical"
+matches:
+  - historical
+  - historical fiction
+  - period fiction
+  - regency
+  - victorian
+  - wwii
+  - world war
+  - civil war
+  - medieval
+
+reader_feeling:
+  generic_examples:
+    - "Transported to another time and place."
+    - "Inspired by the resilience of the human spirit."
+    - "Educated and entertained."
+  specific_examples:
+    - "The specific discomfort of having understood the era from inside the head of someone who held a position the reader morally rejects. The book should leave the reader unable to talk about the period in clean shorthand for a while."
+    - "Tenderness for one ordinary, undocumented life lived inside a famous catastrophe. The reader should care less, briefly, about the famous people they came in caring about."
+  sharper_instructions:
+    - "Name a feeling tied to a specific moral discomfort or shift in how the reader will talk about this period. Avoid 'transported.'"
+
+central_question:
+  generic_examples:
+    - "Can love survive the war?"
+    - "Will the truth of history be remembered?"
+    - "What does it cost to do the right thing in a dark time?"
+  specific_examples:
+    - "When the family that took you in is harboring you in exchange for a service you did not understand you would owe, do you keep providing it or do you leave and what happens to them then? Anya has the message in her pocket and the courier comes back at dusk."
+    - "If the only way to save the parish records is to lie to the bishop about what happened in 1602, do you save the lie or save the records? Father Cecil has the book in his hand and the bishop's man is in the rectory drinking tea."
+  sharper_instructions:
+    - "Pose the question as a specific decision in a specific week, in language and stakes appropriate to the period. Name the artifact and the people who will pay either way."
+
+protagonist_lie:
+  generic_examples:
+    - "She believes she's powerless to change history."
+    - "He thinks he can stay neutral."
+    - "She believes survival is enough."
+  specific_examples:
+    - "Anya believes she is paying a clean rent for her room in the Vasileu house — a small service, mechanically performed, no moral content. She has talked herself into the cleanness of the transaction over six months of bread and tea. The book is going to show her, on the morning the courier comes back, that the cleanness was a story she told herself to keep eating."
+  sharper_instructions:
+    - "Name the period-specific bargain or arrangement the protagonist has rationalized as morally clean. Show why it has worked. Imply the moment it stops being possible to keep telling the story."
+
+worldview_change:
+  generic_examples:
+    - "She learns that history is made by ordinary people."
+    - "He realizes that neutrality is a choice."
+    - "She accepts that survival has a cost."
+  specific_examples:
+    - "Anya begins the book paying a clean rent and ends it knowing she paid no rent at all, that she was an instrument and that the service mattered. She does not stop accepting the room. She stops calling it rent. The cost: her dignity inside the house is now smaller and more honest, and the Vasileus see her differently because they see her seeing them."
+  sharper_instructions:
+    - "Show the change as a shift in vocabulary and posture inside the same daily arrangement. Name what gets quieter, smaller, or more ashamed in the protagonist's daily life."
+
+clear_scenes:
+  generic_examples:
+    - "1. The protagonist arriving in a new place. 2. The dramatic historical event. 3. The bittersweet farewell at the end."
+    - "1. A romantic moment against the backdrop of war. 2. The death of a beloved character. 3. Years later, a letter is opened."
+  specific_examples:
+    - "1. Anya at the Vasileu kitchen table at 5:30 a.m., the wood stove warming, Mrs. Vasileu kneading bread without looking at her, the morning conversation about chickens that they have every day in identical sentences and that has come to mean what it means to both of them.\n\n2. The courier at dusk. Two sentences exchanged at the side door. Anya goes back inside and serves the soup that has been on the stove since noon. Mr. Vasileu does not ask. Mrs. Vasileu does not look up. The soup is good and there is enough of it.\n\n3. The morning Anya leaves the house, three months later, with a satchel the Vasileus packed for her. They are standing in the doorway. Mrs. Vasileu hands her a wrapped piece of cheese. Mr. Vasileu nods once. Nobody says the word for what was done in this house. Anya walks toward the road."
+  sharper_instructions:
+    - "Stage at least one scene in mundane period detail — kitchen, rectory, kitchen garden — where the historical pressure is felt as a small adjustment in conversation, posture, or shared silence. Avoid the famous-event set piece."

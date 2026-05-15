@@ -1,0 +1,55 @@
+name: "Default / Fallback Exemplars"
+description: "Genre-agnostic exemplars used when the book's genre does not match a specific exemplar pack."
+genre: "default"
+matches:
+  - default
+
+reader_feeling:
+  generic_examples:
+    - "Hopeful and inspired."
+    - "Satisfied with the ending."
+    - "Eager to recommend it to a friend."
+  specific_examples:
+    - "A specific, mixed feeling tied to a closing image or a delayed thought — not a primary-color emotion. The reader should put the book down and need a minute before doing the next ordinary thing in their day."
+    - "Tenderness for a character they did not like for most of the book and now cannot quite explain why they care about. The book should have earned that turn without announcing it."
+  sharper_instructions:
+    - "Name a complex feeling — relief AND grief, recognition AND shame, tenderness AND discomfort. Tie it to a specific image, character, or delayed thought from the book."
+
+central_question:
+  generic_examples:
+    - "Can the protagonist overcome the obstacles in their way?"
+    - "What does it mean to live a meaningful life?"
+    - "Will love / truth / justice prevail?"
+  specific_examples:
+    - "When [specific named character] has to choose between [specific value rooted in this book] and [specific competing value rooted in this book] before [specific deadline in the book], which choice can they live with — and at what cost? Both options must be defensible by reasonable people."
+  sharper_instructions:
+    - "Phrase the question as a real fork in the protagonist's next 48 hours / next week / next month. Two competing values, both legitimate. Name a specific deadline or artifact in the bible."
+
+protagonist_lie:
+  generic_examples:
+    - "She doesn't believe she's worthy of love / success / forgiveness."
+    - "He thinks he has to do everything alone."
+    - "She doesn't trust her own judgment."
+  specific_examples:
+    - "[Protagonist] believes that [specific belief in their voiced internal language] — and they have built [specific number of years] of [specific kind of life] on that belief. The book is going to put them in front of [specific person or event from the bible] who will make the belief audible as the wrong thing it has always been."
+  sharper_instructions:
+    - "State the belief as the protagonist would actually hold it (not a clinical label). Tie it to one biographical fact in the bible. Imply what specific moment will prove it wrong."
+
+worldview_change:
+  generic_examples:
+    - "She learns to open her heart and let people in."
+    - "He realizes that what he was running from was inside himself."
+    - "She finds her voice and stops apologizing."
+  specific_examples:
+    - "[Protagonist] begins the book convinced [specific old belief in voiced language] and ends it knowing [specific new belief in voiced language]. The change is not an epiphany — it is [specific operational shift, e.g., a phone call they make, a routine they break, a conversation they finally have]. The cost: [specific named relationship or role] is not the same shape after."
+  sharper_instructions:
+    - "Show the change as an operational shift, not an epiphany. State the old belief, the new belief, and the concrete cost in people, role, or daily life."
+
+clear_scenes:
+  generic_examples:
+    - "1. The opening scene where we meet the protagonist. 2. The midpoint where everything changes. 3. The final scene where she has grown."
+    - "1. The inciting incident. 2. The dark night of the soul. 3. The triumphant ending."
+  specific_examples:
+    - "1. [Specific time and place — kitchen, parking lot, hospital corridor, classroom — with named characters present, a concrete artifact in someone's hand, and a specific moment of held tension. 2-4 sentences.]\n\n2. [A different kind of scene — quiet if the first was loud, social if the first was alone, ambiguous if the first was clear. Name the location, the artifact, the time. 2-4 sentences.]\n\n3. [A late or closing scene — small in scale, large in consequence. Name what has changed and what has not. 2-4 sentences.]"
+  sharper_instructions:
+    - "Three concrete scenes. Each one names location, time, who is present, what is held. Vary the tone and shape (one quiet, one loud, one ambiguous; or early/middle/late). Avoid generic plot beats."

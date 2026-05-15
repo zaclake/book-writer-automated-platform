@@ -1,0 +1,69 @@
+name: "Thriller Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for thrillers."
+genre: "thriller"
+matches:
+  - thriller
+  - suspense
+  - psychological thriller
+  - domestic thriller
+  - crime thriller
+  - legal thriller
+  - political thriller
+  - spy
+  - spy thriller
+  - espionage
+  - techno-thriller
+
+reader_feeling:
+  generic_examples:
+    - "On the edge of their seat the whole way through."
+    - "Satisfied that justice was done."
+    - "Shocked and ready for the sequel."
+  specific_examples:
+    - "Caught — like they'd been a suspect themselves and the case just closed around the wrong person. The reader should look up from the last page and not be sure whether the right people are now in danger."
+    - "The specific exhaustion of having held a secret for someone you don't trust anymore. The reader should be relieved the book is over and a little ashamed of how much of it they enjoyed."
+    - "Wary of the next person who's nice to them at work. The book has shown them what a charm offensive looks like from the inside, and now the world is slightly different shape for a few days."
+  sharper_instructions:
+    - "Name a delayed, social feeling — paranoia about a specific kind of person, complicity in a specific judgment, a residual unease that lasts past the closing chapter. Tie it to who the book has trained the reader to misread."
+
+central_question:
+  generic_examples:
+    - "Can the truth be uncovered before it's too late?"
+    - "How far would you go to protect the people you love?"
+    - "Who can you really trust?"
+  specific_examples:
+    - "When the only person who can corroborate your story is the person who set you up, do you go to the police or to her? Maya has 36 hours before the indictment drops and the recording is only on Lena's phone."
+    - "Is exposing your father's quiet decades-long crime worth what it will do to the people he hurt — who built lives on the silence and would rather you'd left it alone? Ben has the documents in his hand and a flight to Cleveland in the morning."
+  sharper_instructions:
+    - "Phrase the question as a real fork in the next 48 hours of the protagonist's life. Two real options, both with a real cost. Name the deadline, the artifact (recording, documents, body), and the people who will pay either way."
+
+protagonist_lie:
+  generic_examples:
+    - "She thinks she can handle it on her own."
+    - "He believes he's the smartest person in the room."
+    - "She doesn't think she deserves to survive this."
+  specific_examples:
+    - "Maya believes she can read people — that 12 years as a homicide detective gave her a deep, intuitive accuracy about who is lying and who isn't. She is right about strangers and dead wrong about Lena, and the book is going to take her four hundred pages to admit it."
+    - "Ben believes that being the responsible son means containing the family damage and never asking for help. He thinks calling his sister would be a kind of failure. He is going to find out, late, that his sister has been waiting for that call for fifteen years."
+  sharper_instructions:
+    - "Name the specific competence the protagonist has built their identity around. Show why the lie is plausible (it has worked for them in their actual job/life). Then point at the specific other character whose existence will prove the lie wrong."
+
+worldview_change:
+  generic_examples:
+    - "She learns she can't trust anyone."
+    - "He realizes he was wrong about who the real enemy was."
+    - "She stops running from her past and faces it head-on."
+  specific_examples:
+    - "Maya starts the book treating her instinct as her primary tool and ends it treating it as the thing that nearly got her killed. She has not become someone who doubts herself in general — she has become someone who knows there is exactly one kind of person she is structurally unable to read, and now she has to live the rest of her career around that hole."
+    - "Ben begins thinking that if he holds the family secret he is protecting the people his father hurt. He ends thinking the people his father hurt have a right to choose whether they want to be protected, and that he was protecting himself the whole time. The cost: Cleveland is going to be a courtroom for the next two years and his sister's anger is going to be the relationship he has to rebuild."
+  sharper_instructions:
+    - "Tie the change to the protagonist's professional or relational identity (cop, lawyer, son, sibling). State the new belief in operational terms — what they will now DO differently, and at what real cost to who they were."
+
+clear_scenes:
+  generic_examples:
+    - "1. The opening crime scene. 2. The interrogation where she discovers the truth. 3. The final showdown."
+    - "1. The protagonist getting threatened. 2. The big reveal. 3. The climactic confrontation."
+  specific_examples:
+    - "1. Maya in her car at 2:14 a.m. outside Lena's apartment, watching Lena walk from her front door to the trash bin and back, ordinary, in her socks, and feeling — for the first time in twelve years on the job — that she has no idea what she is looking at.\n\n2. The interview room conversation where Lena describes Maya's own life back to her, every detail accurate, calmly, the way you would describe a stranger's. Maya understands, two minutes in, that this is the closing argument and she has been the case file.\n\n3. The pre-dawn parking lot of the station, after the press conference, Maya standing alone with her badge in one hand and her phone in the other. She has not decided yet whether to call her ex-husband or her partner. The scene ends before she chooses."
+  sharper_instructions:
+    - "Name the time of day, the location, and what is in the protagonist's hand. Stage at least one scene where the protagonist is being read by someone the reader trusts more than the protagonist does."

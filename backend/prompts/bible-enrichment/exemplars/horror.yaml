@@ -1,0 +1,61 @@
+name: "Horror Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for horror."
+genre: "horror"
+matches:
+  - horror
+  - psychological horror
+  - cosmic horror
+  - gothic
+  - supernatural horror
+  - quiet horror
+  - body horror
+
+reader_feeling:
+  generic_examples:
+    - "Scared and unable to put the book down."
+    - "Disturbed and ready to sleep with the lights on."
+    - "Shocked by the twists."
+  specific_examples:
+    - "An unspecific dread that latches onto an ordinary household object for a few days. The reader should look at their own basement door, or their wedding photos, or the hallway outside their bedroom and feel the book is still happening to them slightly."
+    - "Sympathy for the haunted thing they should not have sympathy for. The book should make the reader complicit in a kind of patience the world does not reward."
+  sharper_instructions:
+    - "Pick a feeling that follows the reader into a specific room of their own house, or onto a specific object, for a specific number of days. Tie it to one image the book made load-bearing."
+
+central_question:
+  generic_examples:
+    - "Will they survive?"
+    - "What is haunting them?"
+    - "Can the protagonist escape?"
+  specific_examples:
+    - "When the only person who believes the house is doing this is the daughter you have not been speaking to for four years, do you call her or do you keep handling it alone? Lin has the disconnected line for the upstairs phone in her hand and her daughter's number written on the back of an envelope."
+  sharper_instructions:
+    - "Phrase the question as a real choice the protagonist faces this week, with the supernatural pressure as the deadline. Name the artifact and the relationship at stake."
+
+protagonist_lie:
+  generic_examples:
+    - "She doesn't believe in the supernatural."
+    - "He thinks he can save them all."
+    - "She believes she's losing her mind."
+  specific_examples:
+    - "Lin believes that her competence at handling the house — her routines, her notebooks, her quiet vigilance over four decades — is the same as protecting the people in it. She has confused effort for outcome. The book is going to show her, in one specific scene, that the house has been waiting her out and that her routines have been what made it patient."
+  sharper_instructions:
+    - "Name the specific routine, vigilance, or competence the protagonist has built around the threat. Show why it feels like care. Imply the moment the threat will reveal it as something else."
+
+worldview_change:
+  generic_examples:
+    - "She accepts that some things can't be controlled."
+    - "He learns that fighting only makes it stronger."
+    - "She realizes the real monster was within her all along."
+  specific_examples:
+    - "Lin begins the book treating the house as a problem to be managed and ends it treating it as something she has been keeping company with for forty years and has feelings about. She does not move out. She makes one phone call. The cost: her daughter is going to spend the rest of her life knowing what is in the house her mother lives in, and Lin will have to live with what knowing does to her daughter's face."
+  sharper_instructions:
+    - "Show the change as a shift in relationship with the haunted thing — from problem to something more honest and more disturbing. Name the relational cost (a child, a partner, a town) of being honest about it."
+
+clear_scenes:
+  generic_examples:
+    - "1. The first sign that something is wrong. 2. The terrifying confrontation. 3. The escape (or non-escape)."
+    - "1. The protagonist hearing strange noises. 2. The discovery of the source. 3. The climactic banishment."
+  specific_examples:
+    - "1. Lin in the kitchen at 4:14 a.m. making the second cup of tea she pretends she does not need, knowing the house will start the noise within the hour and that she has fourteen minutes to drink the tea before she has to be standing somewhere specific. The cup says WORLD'S GREATEST MOM in faded letters her granddaughter painted ten years ago.\n\n2. The phone call to her daughter, daytime, mundane voice, ordinary kitchen, asking how the kids are, then a small pause Lin has rehearsed for forty years, and then asking her daughter to come over for the weekend. The daughter says yes. Lin sets down the phone and sits on the floor of the kitchen for the time it takes the kettle to boil itself dry.\n\n3. The first night her daughter is in the house. The two of them sitting on the bed in the daughter's old room, Lin's notebook on the bedside table, the daughter reading the first three pages without speaking. The room is exactly the temperature it always is at this hour. Lin does not look away from her daughter's face."
+  sharper_instructions:
+    - "Stage at least one scene in mundane domestic detail — kitchen, kettle, mug, phone call. Name the time, the artifact, what is on the painted mug. Let the dread sit underneath ordinary action."

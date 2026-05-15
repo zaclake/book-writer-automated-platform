@@ -3,7 +3,7 @@ description: "Creates detailed plot structure with scene-level chapter breakdown
 version: "3.0"
 
 model_config:
-  model: "gpt-5.2-pro"
+  model: "gpt-5.5"
   temperature: 0.65
   max_tokens: 10000
   top_p: 0.9

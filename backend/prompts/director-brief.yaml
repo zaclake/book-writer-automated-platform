@@ -110,5 +110,5 @@ user_prompt: |
   Ensure each Scene Card includes two distinct world markers.
   Each scene must provide enough named artifacts/interactions to support one per paragraph in the draft.
 
-max_tokens: 1600
+max_tokens: 12000
 temperature: 0.4

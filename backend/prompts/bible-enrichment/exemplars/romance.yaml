@@ -1,0 +1,65 @@
+name: "Romance Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for romance."
+genre: "romance"
+matches:
+  - romance
+  - contemporary romance
+  - romantic comedy
+  - romcom
+  - rom-com
+  - romantasy
+  - women's fiction with romance
+  - love story
+
+reader_feeling:
+  generic_examples:
+    - "Warm and fuzzy, like the world is a kinder place."
+    - "Happy that the couple ended up together."
+    - "Swooning and ready for the next book."
+  specific_examples:
+    - "Specifically forgiven — the book should leave the reader feeling that the kind of mistake they made years ago was forgivable, not because mistakes don't matter, but because they were the kind of person who could grow out of it the way the protagonists did."
+    - "A small, unembarrassed wish to text someone they're not in touch with. The reader should not actually do it, but the book should have made the wish feel like a normal, dignified thing to have."
+  sharper_instructions:
+    - "Name a warm but ambivalent feeling tied to the reader's own life, not the characters'. Avoid 'happy' and 'satisfied' — the reader's emotional life after the book is the target."
+
+central_question:
+  generic_examples:
+    - "Will they end up together?"
+    - "Can love overcome the obstacles in their way?"
+    - "What does it mean to truly love someone?"
+  specific_examples:
+    - "When the man who broke your heart at 22 has shown up at your sister's wedding ten years later, sober now and obviously different, do you owe him a conversation or do you owe yourself the right to keep treating him as the worst thing that ever happened to you? Mara has the rehearsal dinner in four hours."
+    - "Is wanting a person who has chosen a job that will keep her in another country for the next six years a serious wish or a romantic one? Eli has the lease renewal in his email and Priya's plane lands at midnight."
+  sharper_instructions:
+    - "Pose the question as a real choice in the next 48 hours, with two real options that both cost the protagonist something specific. Name the deadline, the artifact, the people who will see the choice."
+
+protagonist_lie:
+  generic_examples:
+    - "She doesn't believe she deserves love."
+    - "He thinks he's better off alone."
+    - "She thinks she has to choose between love and her career."
+  specific_examples:
+    - "Mara believes that the version of her at 22 was the real her and that everything since has been a slightly more polished disguise. She has built ten years of a life on the assumption that the disguise is what's left. The book is going to make her stand next to the person who knew the 22-year-old and discover that he was always talking to the polished version too, and that the disguise was the growth."
+    - "Eli believes that wanting to live in the same country as someone is a small, embarrassing, suburban kind of want — that real adult love accommodates distance. He has wrapped the belief in a moral language about not asking too much. He is going to find out that asking is not the failure, that asking and being told no would also not be the failure, that the failure was rehearsing the no on the person's behalf for three years."
+  sharper_instructions:
+    - "Name the belief in the protagonist's voiced internal language. Tie it to one biographical fact. Imply the moment a particular other person is going to make the belief audible."
+
+worldview_change:
+  generic_examples:
+    - "She learns to open her heart and let love in."
+    - "He realizes that vulnerability isn't weakness."
+    - "She finds out that she deserves to be loved for who she is."
+  specific_examples:
+    - "Mara starts the book performing the polished version and ends it telling the truth about the polished version to one specific person and seeing that he is not surprised. The change is not that she loves him; she has loved him for eleven years. The change is that she is willing to ask for a particular thing that she would not have asked for at 22, and she is going to tolerate the answer either way."
+    - "Eli begins by thinking that asking for a specific arrangement of a relationship is a kind of failure of imagination, and ends by asking Priya for one specifically. The book does not promise she says yes. The book promises he asks. The cost: he has to live with the answer in front of his friends, his family, and himself."
+  sharper_instructions:
+    - "Show the change as a specific thing the protagonist asks for or refuses to perform anymore. Avoid 'opens up.' Name the conversation, the day, the person."
+
+clear_scenes:
+  generic_examples:
+    - "1. Their first meeting. 2. The first kiss. 3. The grand romantic gesture at the end."
+    - "1. The meet-cute. 2. The midpoint conflict. 3. The reunion in the rain."
+  specific_examples:
+    - "1. The rehearsal dinner. Mara seeing Sam from across the patio, sober, in a shirt his sister probably bought him, talking to her father with the particular careful attention you give a person whose forgiveness you are not entitled to. He has not yet seen her. The scene ends before he does.\n\n2. Eli driving to the airport at 11:14 p.m. with the lease renewal email open on his phone in the cup holder, deciding which version of the question he is going to ask Priya in the car on the way home. He drafts three. He does not commit to one before she walks out of arrivals.\n\n3. Mara and Sam at 2 a.m. in the empty venue after the rehearsal dinner, sitting on the dance floor, no music, eating leftover bread off a plate she carried in from the kitchen, talking about the year between them in normal voices for the first time in ten years. They do not kiss. The scene ends with the kitchen lights being turned off by the staff."
+  sharper_instructions:
+    - "Stage at least one scene that is not the meet, the kiss, or the reunion. Pick a quiet, social, specific moment — leftovers, a drive, a pause. Name what is held, what is said, what is not."

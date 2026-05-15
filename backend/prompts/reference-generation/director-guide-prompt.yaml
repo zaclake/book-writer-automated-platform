@@ -3,9 +3,9 @@ description: "Creates a project-wide director guide for natural, high-quality fi
 version: "1.0"
 
 model_config:
-  model: "gpt-5.2-pro"
+  model: "gpt-5.5"
   temperature: 0.5
-  max_tokens: 3000
+  max_tokens: 12000
   top_p: 0.9
 
 system_prompt: |

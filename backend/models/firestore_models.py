@@ -124,6 +124,20 @@ class BookBible(BaseModel):
     modified_by: Optional[str] = None
     version: int = 1
     word_count: int = 0
+    # Optional enrichment payload — produced by the bible enrichment intake.
+    # When present, the rendered "Author Intent" appendix is appended to
+    # `content` whenever the bible is fed into reference generation, the book
+    # plan, the chapter blueprint, or the director brief.
+    bible_enrichment: Optional[Dict[str, Any]] = None
+    # Optional voice exemplars payload — produced by the Author and Book
+    # Inspiration intake. Stored alongside the bible so it is project-scoped.
+    # Schema: {
+    #   "selected": [{"author": str, "book": str, "rationale": str?}],
+    #   "consent": bool,                 # user accepted the contemporary-author notice
+    #   "consent_at": ISO8601,
+    #   "schema_version": int,
+    # }
+    voice_exemplars: Optional[Dict[str, Any]] = None
 
     @classmethod
     def get_book_length_specs(cls, tier: BookLengthTier) -> Dict[str, Any]:
@@ -588,6 +602,12 @@ class CreateProjectRequest(BaseModel):
     estimated_chapters: Optional[int] = None
     target_word_count: Optional[int] = None
     source_data: Optional[dict] = None
+    # Optional enrichment payload (see bible_enrichment.EnrichmentResult.to_dict).
+    # When supplied, the appendix is rendered into the bible content used for
+    # reference generation and downstream planning.
+    bible_enrichment: Optional[Dict[str, Any]] = None
+    # Optional voice exemplars payload (see services.voice_exemplars).
+    voice_exemplars: Optional[Dict[str, Any]] = None
 
 class UpdateProjectRequest(BaseModel):
     title: Optional[str] = None

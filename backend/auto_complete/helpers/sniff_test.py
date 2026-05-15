@@ -378,9 +378,10 @@ async def run_sniff_test(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.5,
-            max_tokens=4000,
+            max_tokens=12000,
             response_format={"type": "json_object"},
             model_role="editor",
+            reasoning_effort="low",
         )
     except Exception as e:
         log.warning(f"Chapter {chapter_number}: sniff-test critique LLM call failed: {e}")
@@ -392,15 +393,28 @@ async def run_sniff_test(
     elif response and hasattr(response, "choices") and response.choices:
         content = response.choices[0].message.content
     if not content:
+        log.warning(
+            f"Chapter {chapter_number}: sniff-test critique returned EMPTY content — "
+            "no rewrites will be applied. Likely cause: reasoning model consumed entire "
+            "token budget on internal reasoning."
+        )
         return {"skipped": True, "reason": "empty_response"}
 
     try:
         parsed = json.loads(content)
     except Exception as e:
-        log.warning(f"Chapter {chapter_number}: sniff-test JSON parse failed: {e}")
+        snippet = (content or "")[:300].replace("\n", " ")
+        log.warning(
+            f"Chapter {chapter_number}: sniff-test JSON parse failed ({type(e).__name__}: {e}). "
+            f"Snippet: {snippet!r}"
+        )
         return {"skipped": True, "reason": "json_parse_error"}
 
     if not isinstance(parsed, dict):
+        log.warning(
+            f"Chapter {chapter_number}: sniff-test critique returned JSON of type "
+            f"{type(parsed).__name__} (expected object). Skipping."
+        )
         return {"skipped": True, "reason": "json_not_object"}
 
     # Normalize and cap LLM-critic rewrites.
@@ -662,6 +676,7 @@ async def apply_targeted_rewrites(
             # Output is full chapter; size for the worst case.
             max_tokens=max(8000, len(chapter_text.split()) * 2),
             model_role="editor",
+            reasoning_effort="low",
         )
     except Exception as e:
         log.warning(f"Chapter {chapter_number}: targeted-rewrite LLM call failed: {e}")
@@ -674,6 +689,11 @@ async def apply_targeted_rewrites(
     elif response and hasattr(response, "choices") and response.choices:
         new_text = response.choices[0].message.content
     if not new_text:
+        log.warning(
+            f"Chapter {chapter_number}: targeted-rewrite returned EMPTY content "
+            f"({len(matched)} matched paragraphs were skipped). Likely cause: "
+            "reasoning model consumed entire token budget on internal reasoning."
+        )
         info["skipped_reason"] = "empty_response"
         return chapter_text, info
 

@@ -1,0 +1,66 @@
+name: "Fantasy Exemplars"
+description: "Worked examples of specific vs. generic answers to bible-enrichment questions for fantasy."
+genre: "fantasy"
+matches:
+  - fantasy
+  - epic fantasy
+  - high fantasy
+  - low fantasy
+  - urban fantasy
+  - portal fantasy
+  - grimdark
+  - sword and sorcery
+  - magical realism
+
+reader_feeling:
+  generic_examples:
+    - "Awed by the world and ready for more."
+    - "Hopeful that good can triumph over evil."
+    - "Sad to leave the characters behind."
+  specific_examples:
+    - "The specific fatigue of having walked beside someone whose victory cost more than the reader had quite let themselves track. The reader should put the book down and need a minute before going back to the kitchen."
+    - "Reverence for an institution the book invented and then quietly broke. The reader should feel the loss of a thing they did not know existed twenty hours ago."
+  sharper_instructions:
+    - "Name a feeling that comes from the cost of the win, not the win. Tie it to one specific thing the world or the protagonist had to give up that the reader did not see coming."
+
+central_question:
+  generic_examples:
+    - "Can good defeat evil?"
+    - "Will the chosen one fulfill the prophecy?"
+    - "What is the price of power?"
+  specific_examples:
+    - "If the only way to keep the binding is to put another generation of children inside it the way her grandmother put her, does Yenne sustain the city or break the spell and let what comes through come through? The renewal ritual is at midwinter."
+    - "When the king you have served for thirty years gives an order that is technically lawful and obviously evil, do you obey, refuse, or kill him? Captain Daro has eight other men who will follow whichever choice he makes."
+  sharper_instructions:
+    - "Phrase the question as a real fork rooted in this world's specific magic system, political structure, or vow. Name the deadline (ritual, coronation, season), the artifact, and the people who will pay either way."
+
+protagonist_lie:
+  generic_examples:
+    - "She believes she's not powerful enough to make a difference."
+    - "He thinks the prophecy will protect him."
+    - "She doesn't think she's worthy of her gift."
+  specific_examples:
+    - "Yenne believes that the binding is the price the city has always paid and that the cost is morally settled because her grandmother and her grandmother's grandmother paid it. She mistakes inheritance for consent. The book is going to make her hold a child the morning of the ritual and find that the calculation she has carried since she was eleven does not survive contact with that specific child."
+    - "Daro believes that the difference between a soldier and a murderer is the order — that the institution holds the moral weight and his job is competent execution. He is going to receive an order that makes the institution audible as the thing the institution always was, and his thirty years of practice will not tell him what to do."
+  sharper_instructions:
+    - "Tie the lie to the specific magical, political, or martial commitment the protagonist has built their life around. Name the specific moment the lie becomes audible — the ritual, the order, the meeting."
+
+worldview_change:
+  generic_examples:
+    - "She learns that true power comes from within."
+    - "He realizes the prophecy was a lie all along."
+    - "She accepts her destiny and becomes who she was meant to be."
+  specific_examples:
+    - "Yenne begins the book convinced the binding is what holds the city together and ends it knowing the binding has been the city's slow suicide for nine generations. She does not know yet whether to break it. She has stopped pretending the cost is settled. The cost: the people who raised her are going to feel betrayed by her thinking out loud, and they have a case."
+    - "Daro starts thinking the institution carries the moral weight and ends thinking he carries it whether he wants it or not, and that thirty years of competent execution are now part of his ledger. He does not become disloyal. He becomes someone who has to weigh each order. The cost: the eight men under him who liked him better when the institution did the weighing, and who do not entirely trust him anymore."
+  sharper_instructions:
+    - "Show the change as a stop, not a discovery. The protagonist stops doing something that was the spine of their life. Name the people who feel betrayed and the new daily weight."
+
+clear_scenes:
+  generic_examples:
+    - "1. The protagonist discovering their power. 2. The training montage. 3. The final battle."
+    - "1. A vision of the dark lord. 2. The first use of magic. 3. The climactic confrontation."
+  specific_examples:
+    - "1. Yenne in the binding chamber the morning of midwinter, sitting on the cold stone with the chosen child eating a sweet roll on her lap, learning the child's name for the first time. The room smells like the candles her grandmother used. Yenne is supposed to walk her down the corridor at noon. The scene ends at 11:40.\n\n2. The throne room at dawn. Captain Daro receiving the order from the king with eight of his men in the room. The order is delivered in the polite language the institution uses for routine things. Daro's left hand goes to his sword belt and stops. Nobody else in the room sees his hand stop.\n\n3. The kitchen of the binding house, late, after the ritual that did or did not happen — the book chooses — and Yenne sitting across from her aunt eating cold porridge, the two of them not speaking, the city outside continuing to do whatever it now does. The scene ends with one of them setting down a spoon."
+  sharper_instructions:
+    - "Stage at least one scene in a kitchen, a corridor, or a small chamber — domestic-scale even when the world is epic. Name the food, the smell, the artifact, the time. Avoid throne-room set pieces unless something domestic is happening inside them."

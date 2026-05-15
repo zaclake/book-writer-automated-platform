@@ -11,9 +11,11 @@ from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 try:
+    import openai
     from openai import OpenAI
     _OPENAI_AVAILABLE = True
 except Exception:
+    openai = None
     OpenAI = None
     _OPENAI_AVAILABLE = False
 # Concurrency controls with robust import fallbacks
@@ -115,7 +117,10 @@ class ReferenceContentGenerator:
         if not _OPENAI_AVAILABLE:
             logger.warning("OpenAI library not installed. Reference generation disabled.")
         elif api_key:
-            self.sync_client = OpenAI(api_key=api_key)
+            # max_retries=0 disables the SDK's built-in retry loop (default 2)
+            # so our outer retry loops in generate_content / _make_openai_request
+            # are the single source of truth. Prevents 4 × 3 × 300s worst-case stacking.
+            self.sync_client = OpenAI(api_key=api_key, max_retries=0)
             if self.user_id and os.getenv('ENABLE_CREDITS_BILLING', 'false').lower() == 'true':
                 # Try to use billable client
                 try:
@@ -138,8 +143,119 @@ class ReferenceContentGenerator:
         """Check if content generation is available (API key configured)."""
         return self.client is not None and _OPENAI_AVAILABLE
 
+    @staticmethod
+    def _is_reasoning_model(model: Optional[str]) -> bool:
+        """True for OpenAI reasoning models (gpt-5.x, o1, o3, o4)."""
+        if not model:
+            return False
+        name = str(model).lower()
+        return (
+            name.startswith("gpt-5")
+            or name.startswith("o1")
+            or name.startswith("o3")
+            or name.startswith("o4")
+        )
+
+    @staticmethod
+    def _reasoning_min_output_tokens() -> int:
+        """Floor for max_completion_tokens / max_output_tokens on reasoning models.
+
+        Mirrors LLMOrchestrator's floor so reference-generation calls (which
+        bypass the orchestrator) get the same protection against the visible
+        output being starved by internal reasoning tokens. Env-overridable
+        via ``OPENAI_REASONING_MIN_OUTPUT_TOKENS`` (default 12000). Set to 0
+        to disable.
+        """
+        try:
+            return max(0, int(os.getenv("OPENAI_REASONING_MIN_OUTPUT_TOKENS", "12000")))
+        except (TypeError, ValueError):
+            return 12000
+
+    @staticmethod
+    def _reasoning_model_cap(model: Optional[str]) -> int:
+        """Conservative output-token cap per reasoning model family."""
+        name = (model or "").lower()
+        for key, limit in (
+            ("gpt-5.5-pro", 65536),
+            ("gpt-5.5", 32768),
+            ("gpt-5.2-pro", 65536),
+            ("gpt-5.2", 32768),
+            ("gpt-5", 32768),
+            ("o4", 32768),
+            ("o3", 32768),
+            ("o1", 32768),
+        ):
+            if key in name:
+                return limit
+        return 32768
+
+    def _apply_reasoning_floor_chat(self, model: str, kwargs: Dict[str, Any]) -> None:
+        """Translate kwargs for reasoning models on the chat-completions path.
+
+        Mirrors LLMOrchestrator._translate_params_for_chat_completions. For
+        non-reasoning models this is a no-op except that it strips
+        ``reasoning_effort`` (which chat completions rejects on legacy models).
+        """
+        if not self._is_reasoning_model(model):
+            kwargs.pop("reasoning_effort", None)
+            return
+        if "max_tokens" in kwargs:
+            mt = kwargs.pop("max_tokens")
+            if "max_completion_tokens" not in kwargs and isinstance(mt, int) and mt > 0:
+                kwargs["max_completion_tokens"] = mt
+        floor = self._reasoning_min_output_tokens()
+        if floor > 0:
+            current = kwargs.get("max_completion_tokens")
+            cap = self._reasoning_model_cap(model)
+            target = min(max(int(current or 0), floor), cap)
+            if not isinstance(current, int) or current < target:
+                if isinstance(current, int) and current < target:
+                    logger.debug(
+                        "Raising max_completion_tokens from %s to %s for reasoning "
+                        "model %s (floor=%s, cap=%s) on reference-gen call",
+                        current, target, model, floor, cap,
+                    )
+                kwargs["max_completion_tokens"] = target
+        for key in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
+            kwargs.pop(key, None)
+
+    def _apply_reasoning_floor_responses(
+        self, model: str, kwargs: Dict[str, Any]
+    ) -> None:
+        """Translate kwargs for reasoning models on the Responses API path.
+
+        Floors `max_output_tokens` and converts the convenience
+        ``reasoning_effort='low'|'medium'|'high'`` param into the API's
+        ``reasoning={"effort": ...}`` shape.
+        """
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        if not self._is_reasoning_model(model):
+            return
+        floor = self._reasoning_min_output_tokens()
+        if floor > 0:
+            current = kwargs.get("max_output_tokens")
+            cap = self._reasoning_model_cap(model)
+            target = min(max(int(current or 0), floor), cap)
+            if not isinstance(current, int) or current < target:
+                if isinstance(current, int) and current < target:
+                    logger.debug(
+                        "Raising max_output_tokens from %s to %s for reasoning "
+                        "model %s (floor=%s, cap=%s) on reference-gen Responses call",
+                        current, target, model, floor, cap,
+                    )
+                kwargs["max_output_tokens"] = target
+        if reasoning_effort and "reasoning" not in kwargs:
+            kwargs["reasoning"] = {"effort": str(reasoning_effort)}
+
     def _call_chat_completion(self, **kwargs):
-        """Invoke chat completions with billing-aware fallback."""
+        """Invoke chat completions with billing-aware fallback.
+
+        Applies the reasoning-model floor + ``reasoning_effort`` translation
+        in line with LLMOrchestrator so reference-generation never silently
+        empty-fails on a starved token budget.
+        """
+        model_name = kwargs.get("model", "")
+        self._apply_reasoning_floor_chat(model_name, kwargs)
         if self.billable_client:
             try:
                 asyncio.get_running_loop()
@@ -155,7 +271,11 @@ class ReferenceContentGenerator:
         return self.client.chat.completions.create(**kwargs)
 
     def _call_responses_completion(self, **kwargs):
-        """Invoke Responses API with billing-aware fallback."""
+        """Invoke Responses API with billing-aware fallback.
+
+        Applies the reasoning-model floor + ``reasoning_effort`` translation
+        before dispatch.
+        """
         input_messages = kwargs.pop("messages", None)
         if input_messages is None:
             input_messages = kwargs.pop("input", None)
@@ -166,6 +286,8 @@ class ReferenceContentGenerator:
             kwargs["max_output_tokens"] = max_tokens
         for key in ("frequency_penalty", "presence_penalty", "temperature", "top_p"):
             kwargs.pop(key, None)
+        model_name = kwargs.get("model", "")
+        self._apply_reasoning_floor_responses(model_name, kwargs)
 
         if self.billable_client:
             try:
@@ -189,7 +311,11 @@ class ReferenceContentGenerator:
         if hasattr(response, "choices"):
             try:
                 return response.choices[0].message.content or ""
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Reference-gen response parse failed (%s: %s) — returning empty.",
+                    type(exc).__name__, exc,
+                )
                 return ""
         return ""
 
@@ -469,7 +595,14 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 # For other errors or final attempt, log and raise
                 logger.error(f"OpenAI API request failed for {request_type} (attempt {attempt + 1}): {e}")
                 
-                if "timeout" in error_str:
+                # OpenAI SDK raises APITimeoutError whose str is "Request timed out." (no "timeout" substring).
+                # Match by exception type when available, with a substring fallback covering both spellings.
+                is_timeout = (
+                    (_OPENAI_AVAILABLE and isinstance(e, openai.APITimeoutError))
+                    or "timed out" in error_str
+                    or "timeout" in error_str
+                )
+                if is_timeout:
                     raise Exception("Content generation timed out. Please try again.")
                 elif "rate_limit" in error_str or "429" in error_str or "insufficient_quota" in error_str:
                     raise Exception("API rate limit exceeded after retries. Please try again later.")
@@ -534,11 +667,28 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         "entity-registry": ["characters", "world-building"],
         "style-guide": ["characters"],
         "themes-and-motifs": ["outline"],
-        "director-guide": ["outline", "characters", "style-guide"],
+        "director-guide": [
+            "outline",
+            "characters",
+            "style-guide",
+            # Path B (Proposal 3) — director-guide consumes the new craft refs.
+            "character-contradictions",
+            "thematic-spine",
+            "narrator-sensibility",
+            # Proposal 8 — subtext bible feeds director-guide so per-chapter
+            # briefs can pull the relevant relationship subtext rows.
+            "subtext-bible",
+        ],
         "relationship-map": ["characters", "outline", "plot-timeline"],
         "research-notes": [],
         "target-audience-profile": [],
         "series-bible": [],
+        # Proposal 3: Reference upgrade.
+        "character-contradictions": ["characters", "outline"],
+        "thematic-spine": ["outline", "themes-and-motifs"],
+        "narrator-sensibility": ["characters", "style-guide", "target-audience-profile"],
+        # Proposal 8: Subtext bible.
+        "subtext-bible": ["characters", "character-contradictions", "relationship-map"],
     }
 
     CHAINING_TRIM_LIMITS: Dict[str, int] = {
@@ -550,6 +700,12 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         "themes-and-motifs": 2000,
         "entity-registry": 3000,
         "relationship-map": 3000,
+        # New craft references — keep tight to bound prompt cost.
+        "character-contradictions": 3000,
+        "thematic-spine": 3000,
+        "narrator-sensibility": 2500,
+        "subtext-bible": 3000,
+        "target-audience-profile": 1500,
     }
 
     @staticmethod
@@ -758,6 +914,11 @@ Ensure all elements work together cohesively and provide specific, actionable gu
 
                 model_name = model_config.get('model', 'gpt-4o')
                 use_responses = model_name.startswith("gpt-5")
+                # For reasoning models the prompts are structured-extraction tasks, not
+                # deep reasoning; default reasoning_effort to 'low' to leave the token
+                # budget for visible output. YAML can override via model_config.reasoning_effort.
+                default_effort = "low" if self._is_reasoning_model(model_name) else None
+                effort = model_config.get("reasoning_effort", default_effort)
                 try:
                     if use_responses:
                         response = self._call_responses_completion(
@@ -766,7 +927,8 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                             temperature=model_config.get('temperature', 0.7),
                             max_tokens=model_config.get('max_tokens', 4000),
                             top_p=model_config.get('top_p', 0.9),
-                            timeout=90  # 90s per attempt
+                            reasoning_effort=effort,
+                            timeout=300  # 5m per attempt; matches LLMOrchestrator for reasoning models
                         )
                     else:
                         response = self._call_chat_completion(
@@ -775,7 +937,8 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                             temperature=model_config.get('temperature', 0.7),
                             max_tokens=model_config.get('max_tokens', 4000),
                             top_p=model_config.get('top_p', 0.9),
-                            timeout=90  # 90s per attempt
+                            reasoning_effort=effort,
+                            timeout=300  # 5m per attempt; matches LLMOrchestrator for reasoning models
                         )
                 except Exception as e:
                     if not use_responses and "not a chat model" in str(e).lower():
@@ -786,7 +949,8 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                             temperature=model_config.get('temperature', 0.7),
                             max_tokens=model_config.get('max_tokens', 4000),
                             top_p=model_config.get('top_p', 0.9),
-                            timeout=90  # 90s per attempt
+                            reasoning_effort=effort,
+                            timeout=300  # 5m per attempt; matches LLMOrchestrator for reasoning models
                         )
                     else:
                         raise
@@ -797,7 +961,22 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 generated_content = self._extract_response_text(response)
 
                 if not generated_content or len(generated_content.strip()) < 100:
-                    raise Exception("Generated content is too short or empty")
+                    visible_len = len(generated_content or "")
+                    msg = (
+                        f"Generated content is too short or empty (got {visible_len} chars). "
+                        "If using a reasoning model (gpt-5.x), this often means the entire "
+                        "max_completion_tokens / max_output_tokens budget was consumed by "
+                        "internal reasoning. Increase max_tokens in the prompt YAML or set "
+                        "OPENAI_REASONING_MIN_OUTPUT_TOKENS env."
+                    )
+                    logger.warning(
+                        "Reference-gen empty-content for %s on attempt %s/%s using %s "
+                        "(max_tokens=%s)",
+                        reference_type, attempt, max_attempts,
+                        model_config.get('model', 'gpt-4o'),
+                        model_config.get('max_tokens'),
+                    )
+                    raise Exception(msg)
 
                 # Path A+ P3.1 — Fail-closed on continuation-placeholder strings.
                 # The model has a habit of writing one chapter block for "outline"
@@ -829,7 +1008,13 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 error_str = str(e).lower()
                 is_transient = any(tok in error_str for tok in ["502", "bad gateway", "5xx", "service unavailable"]) \
                     or "httpstatuserror" in error_str or "gateway" in error_str
-                is_timeout = "timeout" in error_str
+                # OpenAI SDK raises APITimeoutError whose str is "Request timed out." (no "timeout" substring).
+                # Match by exception type when available, with a substring fallback covering both spellings.
+                is_timeout = (
+                    (_OPENAI_AVAILABLE and isinstance(e, openai.APITimeoutError))
+                    or "timed out" in error_str
+                    or "timeout" in error_str
+                )
                 is_rate = ("rate_limit" in error_str or "429" in error_str or "insufficient_quota" in error_str)
                 # Path A+ P3.1 — placeholder detection is a regenerate-worthy
                 # quality failure, not a transport error.
@@ -946,10 +1131,20 @@ Ensure all elements work together cohesively and provide specific, actionable gu
         'entity-registry',
         'style-guide',
         'themes-and-motifs',
-        'director-guide',
         'relationship-map',
         'research-notes',
         'target-audience-profile',
+        # Proposal 3 — craft references slot in BEFORE director-guide so the
+        # director-guide can consume them. Order: contradictions before
+        # thematic-spine (so themes can reference character splits), then
+        # narrator-sensibility (which leans on characters + style + audience),
+        # then the subtext-bible (Proposal 8) which depends on contradictions
+        # and the relationship-map.
+        'character-contradictions',
+        'thematic-spine',
+        'narrator-sensibility',
+        'subtext-bible',
+        'director-guide',
     ]
 
     def generate_all_references(self, book_bible_content: str, 
@@ -1023,6 +1218,11 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                     'director-guide': 'director-guide.md',
                     'entity-registry': 'entity-registry.md',
                     'relationship-map': 'relationship-map.md',
+                    # Proposals 3 + 8 — craft references.
+                    'character-contradictions': 'character-contradictions.md',
+                    'thematic-spine': 'thematic-spine.md',
+                    'narrator-sensibility': 'narrator-sensibility.md',
+                    'subtext-bible': 'subtext-bible.md',
                 }
                 
                 filename = filename_map.get(ref_type, f"{ref_type}.md")
@@ -1072,7 +1272,7 @@ Ensure all elements work together cohesively and provide specific, actionable gu
             # Determine filename and write
             filename_map = {
                 'characters': 'characters.md',
-                'outline': 'outline.md', 
+                'outline': 'outline.md',
                 'world-building': 'world-building.md',
                 'style-guide': 'style-guide.md',
                 'plot-timeline': 'plot-timeline.md',
@@ -1083,8 +1283,12 @@ Ensure all elements work together cohesively and provide specific, actionable gu
                 'director-guide': 'director-guide.md',
                 'entity-registry': 'entity-registry.md',
                 'relationship-map': 'relationship-map.md',
+                'character-contradictions': 'character-contradictions.md',
+                'thematic-spine': 'thematic-spine.md',
+                'narrator-sensibility': 'narrator-sensibility.md',
+                'subtext-bible': 'subtext-bible.md',
             }
-            
+
             filename = filename_map.get(reference_type, f"{reference_type}.md")
             file_path = references_dir / filename
             

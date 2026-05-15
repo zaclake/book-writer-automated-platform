@@ -3,7 +3,7 @@ description: "Creates comprehensive setting, proper noun registry, rules engine,
 version: "3.0"
 
 model_config:
-  model: "gpt-5.2-pro"
+  model: "gpt-5.5"
   temperature: 0.72
   max_tokens: 9000
   top_p: 0.9

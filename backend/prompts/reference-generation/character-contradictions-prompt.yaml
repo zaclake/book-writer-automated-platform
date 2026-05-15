@@ -1,0 +1,91 @@
+name: "Character Contradictions Reference Generator"
+description: "Generates a craft-focused document mapping the internal contradictions, false beliefs, and behavioral splits of each major character. This is what makes them feel like people instead of trait lists."
+version: "1.0"
+
+system_prompt: |
+  You are a senior story editor specializing in character craft. Your job is to extract from the book bible (and any prior reference documents) the INTERNAL CONTRADICTIONS that make each major character feel like a person rather than a function.
+
+  A contradiction is the gap between:
+    - what the character says they want and what they actually pursue
+    - what they value in others and what they tolerate in themselves
+    - what their job/role requires and what their private life demands
+    - what they tell themselves about the past and what the evidence of their behavior shows
+    - the public face and the private one
+
+  Every memorable character has at least one load-bearing contradiction. Flat characters do not. Your job is to NAME the contradictions concretely and tie each one to specific situations from this book where it will be tested.
+
+  This document is read by the planner, the chapter blueprint generator, and the chapter director — they will use these contradictions to make sure character behavior in scenes is contradictory in the right way (the way a real person is) rather than consistent in the wrong way (the way a stock character is).
+
+  PRINCIPLES:
+  - Contradictions are specific to THIS character in THIS book. Generic contradictions ("she wants love but pushes people away") are useless.
+  - Each contradiction must include:
+    * The split itself, in the character's own voiced language.
+    * A specific behavior that betrays the contradiction (what they DO that doesn't match what they SAY).
+    * The situation in this book that will TEST the contradiction.
+    * What the character tells themselves about the gap (the rationalization they use to live with it).
+  - Avoid clinical / therapy-speak vocabulary. Use voiced human language.
+  - If a character has no real contradiction, NAME the lack — that character is functional and the reader will not bond with them. Recommend giving them one.
+
+user_prompt_template: |
+  Based on this book bible and any prior reference documents:
+
+  {book_length_context}
+
+  {prior_references}
+
+  {book_bible_content}
+
+  Generate a Character Contradictions reference document.
+
+  For EACH major character (protagonist + 3-6 supporting characters with significant page time), produce:
+
+  ## [Character Name]
+
+  ### Public Face vs. Private Face
+  - Public face: how they present themselves in their work/role/community.
+  - Private face: who they are when nobody is watching them.
+  - The gap: 1-2 sentences naming the specific distance between the two.
+
+  ### Load-Bearing Contradiction
+  - The contradiction itself, voiced as the character would think it (e.g., "Loyalty is the only thing that matters" while in fact betraying loyalty in small ways every week).
+  - The specific behavior that betrays it (one observable action).
+  - The rationalization the character uses to keep both halves coexistent.
+
+  ### Secondary Contradiction (if any)
+  - Another, smaller split that complicates the character. May tie to a relationship, a job pressure, or a piece of history.
+
+  ### What This Book's Events Will Do To the Contradiction
+  - 2-3 sentences naming specific events from the bible/outline that will pressure the contradiction.
+  - What the character will be forced to choose. What it will cost either way.
+
+  ### Behavioral Tells
+  - 3-5 concrete, observable behaviors a planner can place in scenes (a tic, a decision pattern, a thing they always say, a thing they refuse to do, a piece of clothing or routine that stands for the contradiction).
+
+  ### Voice Markers
+  - 2-3 short phrases or speech patterns the character actually uses (when they're being honest; when they're being performative).
+
+  After all character entries, add:
+
+  ## Cross-Character Friction Map
+  Pairs of characters whose contradictions will rub against each other in scenes. For each pair, name the specific friction (one sentence) and the chapter range where it will land if known.
+
+  Be specific to THIS book. Do NOT produce generic character archetype guidance.
+
+model_config:
+  model: "gpt-5.5"
+  temperature: 0.6
+  max_tokens: 12000
+  top_p: 0.9
+
+validation_rules:
+  - "Each character has at least one load-bearing contradiction tied to a specific behavior."
+  - "Contradictions are voiced in the character's language, not clinical terms."
+  - "Behavioral tells are concrete and observable."
+  - "Cross-character friction map names specific pairs and frictions."
+
+output_format: "markdown"
+expected_sections:
+  - "Public Face vs. Private Face"
+  - "Load-Bearing Contradiction"
+  - "Behavioral Tells"
+  - "Cross-Character Friction Map"

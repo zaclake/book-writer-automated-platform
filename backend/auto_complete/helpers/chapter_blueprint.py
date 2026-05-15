@@ -14,11 +14,15 @@ like the same chapter written 26 times.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Pattern Tracker (runs AFTER each chapter) ──────────────────────────────
@@ -749,12 +753,23 @@ async def generate_chapter_blueprint(
     book_bible: str,
     anti_pattern_context: str,
     style_guide: str = "",
+    *,
+    outstanding_promises_block: str = "",
+    thematic_spine: str = "",
 ) -> Dict[str, Any]:
     """
     Generate a structural blueprint for a chapter before it is written.
 
     Returns a dict with: opening_approach, chapter_shape, scenes, ending_approach,
-    prose_register, timer_allowed, max_new_evidence, and specific_instructions.
+    prose_register, timer_allowed, max_new_evidence, specific_instructions,
+    plus chapter_tier (Proposal 2), thematic_move / thematic_move_note
+    (Proposal 5), and promises_planted / promises_paid (Proposal 4).
+
+    ``outstanding_promises_block`` is a pre-rendered string from
+    ``promises_ledger.compose_outstanding_block`` that lists open promises
+    relevant to this chapter. ``thematic_spine`` is an excerpt of the
+    ``thematic-spine.md`` reference so the blueprint can ground its
+    thematic_move in the book's central question.
     """
 
     plan_summary = chapter_plan.get("summary", "")
@@ -770,6 +785,12 @@ async def generate_chapter_blueprint(
     plan_prose_register = chapter_plan.get("prose_register", "")
     plan_tension_level = chapter_plan.get("tension_level", "")
     plan_new_developments = chapter_plan.get("new_developments", "")
+    # Proposal-2 / Proposal-5 fields from the upgraded book plan.
+    plan_chapter_tier = str(chapter_plan.get("chapter_tier", "") or "").strip().lower()
+    plan_thematic_move = str(chapter_plan.get("thematic_move", "") or "").strip().lower()
+    plan_thematic_move_note = chapter_plan.get("thematic_move_note", "") or ""
+    plan_promises_planted = chapter_plan.get("promises_planted") or []
+    plan_promises_paid = chapter_plan.get("promises_paid") or []
 
     system_prompt = (
         "You are a novel architect. Create a structural blueprint for a single chapter.\n"
@@ -791,6 +812,43 @@ async def generate_chapter_blueprint(
             structural_guidance += f"- Suggested new developments: {plan_new_developments}\n"
         structural_guidance += "\n"
 
+    # Proposals 2 + 5 — make tier and thematic_move first-class context for
+    # the blueprint generator. Setpieces in particular get a stronger reminder
+    # so the chapter can be built with the appropriate weight.
+    tier_thematic_block = ""
+    if plan_chapter_tier or plan_thematic_move:
+        tier_thematic_block = "CHAPTER TIER AND THEMATIC MOVE (Proposals 2 + 5):\n"
+        if plan_chapter_tier == "setpiece":
+            tier_thematic_block += (
+                "- chapter_tier: SETPIECE — this is one of the book's must-execute chapters "
+                "(climax, decisive confrontation, major reveal, or emotional turning point). "
+                "Do not under-write it. The reader has been built up to this. Plan more scenes, "
+                "more dialogue, more sensory grounding, more interior weight than a typical "
+                "chapter. Setpieces deserve room to land — do not let them feel rushed.\n"
+            )
+        elif plan_chapter_tier == "connective":
+            tier_thematic_block += (
+                "- chapter_tier: CONNECTIVE — this is a quieter chapter that bridges setpieces. "
+                "Its job is to give the reader breathing room, deepen relationships, process "
+                "previous events, or move characters into position. Do NOT manufacture artificial "
+                "tension here. The valley is what makes the next peak visible.\n"
+            )
+        elif plan_chapter_tier == "development":
+            tier_thematic_block += (
+                "- chapter_tier: DEVELOPMENT — an engine chapter. Escalate, complicate, or "
+                "deepen. Not a setpiece, but not a rest stop either.\n"
+            )
+        elif plan_chapter_tier:
+            tier_thematic_block += f"- chapter_tier: {plan_chapter_tier}\n"
+        if plan_thematic_move:
+            tier_thematic_block += (
+                f"- thematic_move: {plan_thematic_move} — this chapter's MOVE in the book's "
+                "thematic argument (not what it's about, but what it DOES to the central question).\n"
+            )
+        if plan_thematic_move_note:
+            tier_thematic_block += f"- thematic_move_note: {plan_thematic_move_note}\n"
+        tier_thematic_block += "\n"
+
     user_prompt = (
         f"Create a structural blueprint for Chapter {chapter_number} of {total_chapters}.\n\n"
         f"CHAPTER PLAN:\n"
@@ -804,7 +862,17 @@ async def generate_chapter_blueprint(
     )
     if plan_transition:
         user_prompt += f"- Transition from previous chapter: {plan_transition}\n"
+    if plan_promises_planted:
+        user_prompt += f"- Promises this chapter is planned to PLANT: {json.dumps(plan_promises_planted)}\n"
+    if plan_promises_paid:
+        user_prompt += f"- Promises this chapter is planned to PAY: {json.dumps(plan_promises_paid)}\n"
     user_prompt += f"\n{structural_guidance}"
+    if tier_thematic_block:
+        user_prompt += tier_thematic_block
+    if thematic_spine:
+        user_prompt += f"THEMATIC SPINE (book's central question):\n{thematic_spine[:1500]}\n\n"
+    if outstanding_promises_block:
+        user_prompt += f"{outstanding_promises_block}\n\n"
     user_prompt += f"BOOK BIBLE (excerpt):\n{book_bible[:3000]}\n\n"
     if style_guide:
         user_prompt += f"STYLE GUIDE:\n{style_guide[:1500]}\n\n"
@@ -824,6 +892,11 @@ async def generate_chapter_blueprint(
         '  "prose_register": "How intense the prose should be: plain/moderate/lyrical",\n'
         '  "tension_level": "low/moderate/high — must vary from recent chapters",\n'
         '  "new_developments": 1,\n'
+        '  "chapter_tier": "setpiece | development | connective",\n'
+        '  "thematic_move": "introduce | complicate | invert | deepen | stake | foreclose | reaffirm | answer | coda",\n'
+        '  "thematic_move_note": "one-sentence operational description of what this chapter does TO the central question",\n'
+        '  "promises_planted": ["pX", ...],\n'
+        '  "promises_paid": ["pY", ...],\n'
         '  "specific_instructions": "Any chapter-specific craft notes"\n'
         "}\n\n"
         "Rules:\n"
@@ -833,6 +906,13 @@ async def generate_chapter_blueprint(
         "- prose_register should vary: if recent chapters were intense, make this one mostly plain.\n"
         "- tension_level must alternate: do not have 3 high-tension chapters in a row.\n"
         "- new_developments should be 0-2. Some chapters should deepen existing threads, not introduce new ones.\n"
+        "- chapter_tier MUST match the plan tier above (setpiece chapters need more scenes and depth).\n"
+        "- thematic_move MUST be a concrete move on the book's central question, not a topic label.\n"
+        "  thematic_move_note must describe what this chapter DOES to that question in <= 200 chars.\n"
+        "- promises_paid MUST list every promise_id from the OUTSTANDING PROMISES block whose payoff "
+        "  window includes this chapter, unless paying it here would break continuity.\n"
+        "- promises_planted lists promise_ids that this chapter newly sets up. Reuse plan-level IDs "
+        "  (pX) where possible; if you must invent a new one, use the next free pN.\n"
         f"- Vary the opening: choose from {json.dumps(OPENING_TYPES)}\n"
         f"- Vary the ending: choose from {json.dumps(ENDING_TYPES)}\n"
         f"- Vary the chapter structure: choose from {json.dumps(CHAPTER_SHAPES)}\n"
@@ -845,12 +925,18 @@ async def generate_chapter_blueprint(
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.3,
-            max_tokens=1500,
+            max_tokens=12000,
             response_format={"type": "json_object"},
             model_role="planner",
+            reasoning_effort="low",
         )
-    except Exception:
-        return _default_blueprint(chapter_number, total_chapters)
+    except Exception as exc:
+        logger.warning(
+            "Chapter %s blueprint LLM call raised %s: %s — using positional default. "
+            "If using a reasoning model, ensure max_tokens covers reasoning + output.",
+            chapter_number, type(exc).__name__, exc,
+        )
+        return _default_blueprint(chapter_number, total_chapters, chapter_plan=chapter_plan)
 
     content = ""
     if hasattr(response, "output_text"):
@@ -859,12 +945,24 @@ async def generate_chapter_blueprint(
         content = response.choices[0].message.content
 
     if not content:
-        return _default_blueprint(chapter_number, total_chapters)
+        logger.warning(
+            "Chapter %s blueprint LLM returned EMPTY content — using positional default. "
+            "Common cause: reasoning model consumed entire max_completion_tokens budget on "
+            "internal reasoning. Increase max_tokens or pass reasoning_effort='low'.",
+            chapter_number,
+        )
+        return _default_blueprint(chapter_number, total_chapters, chapter_plan=chapter_plan)
 
     try:
         blueprint = json.loads(content)
-    except Exception:
-        return _default_blueprint(chapter_number, total_chapters)
+    except Exception as exc:
+        snippet = (content or "")[:300].replace("\n", " ")
+        logger.warning(
+            "Chapter %s blueprint LLM returned non-JSON content (%s: %s) — "
+            "using positional default. Snippet: %r",
+            chapter_number, type(exc).__name__, exc, snippet,
+        )
+        return _default_blueprint(chapter_number, total_chapters, chapter_plan=chapter_plan)
 
     blueprint.setdefault("opening_approach", "Start in media res")
     blueprint.setdefault("chapter_shape", "balanced")
@@ -874,12 +972,51 @@ async def generate_chapter_blueprint(
     blueprint.setdefault("tension_level", "moderate")
     blueprint.setdefault("new_developments", 1)
     blueprint.setdefault("specific_instructions", "")
+    # Proposals 2, 4, 5 — the PLAN has authority for tier/move/promises.
+    # The plan was constructed with full-book context (adjacency rules, story
+    # arc shape, BoN budget); a single-chapter blueprint LLM call must not
+    # override it. We OVERRIDE blueprint values whenever the plan has a value;
+    # we only fall back to the LLM's blueprint value (or a safe default) when
+    # the plan didn't supply one.
+    if plan_chapter_tier:
+        blueprint["chapter_tier"] = plan_chapter_tier
+    else:
+        blueprint.setdefault("chapter_tier", "development")
+    if plan_thematic_move:
+        blueprint["thematic_move"] = plan_thematic_move
+    else:
+        blueprint.setdefault("thematic_move", "deepen")
+    if plan_thematic_move_note:
+        blueprint["thematic_move_note"] = plan_thematic_move_note
+    else:
+        blueprint.setdefault("thematic_move_note", "")
+    if plan_promises_planted:
+        blueprint["promises_planted"] = list(plan_promises_planted)
+    else:
+        blueprint.setdefault("promises_planted", [])
+    if plan_promises_paid:
+        blueprint["promises_paid"] = list(plan_promises_paid)
+    else:
+        blueprint.setdefault("promises_paid", [])
 
     return blueprint
 
 
-def _default_blueprint(chapter_number: int, total_chapters: int) -> Dict[str, Any]:
-    """Fallback blueprint when LLM call fails."""
+def _default_blueprint(
+    chapter_number: int,
+    total_chapters: int,
+    *,
+    chapter_plan: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Fallback blueprint when LLM call fails.
+
+    Even on LLM failure we MUST respect the plan's chapter_tier /
+    thematic_move / promises arrays — the plan was constructed with full-book
+    context and the BoN gate, drafter tier guidance, and post-chapter
+    promises ledger updates all depend on these fields. Without this respect,
+    a transient LLM failure on a setpiece chapter silently degrades it to a
+    'development' chapter and BoN never fires.
+    """
     position = chapter_number / max(total_chapters, 1)
     if position <= 0.15:
         shape = "world_building_routine"
@@ -898,6 +1035,13 @@ def _default_blueprint(chapter_number: int, total_chapters: int) -> Dict[str, An
         register = "moderate"
         tension = "moderate"
 
+    plan = chapter_plan or {}
+    plan_tier = str(plan.get("chapter_tier", "") or "").strip().lower() or "development"
+    plan_move = str(plan.get("thematic_move", "") or "").strip().lower() or "deepen"
+    plan_move_note = plan.get("thematic_move_note", "") or ""
+    plan_planted = list(plan.get("promises_planted") or [])
+    plan_paid = list(plan.get("promises_paid") or [])
+
     return {
         "opening_approach": OPENING_TYPES[chapter_number % len(OPENING_TYPES)],
         "chapter_shape": shape,
@@ -907,12 +1051,40 @@ def _default_blueprint(chapter_number: int, total_chapters: int) -> Dict[str, An
         "tension_level": tension,
         "new_developments": 1,
         "specific_instructions": "",
+        "chapter_tier": plan_tier,
+        "thematic_move": plan_move,
+        "thematic_move_note": plan_move_note,
+        "promises_planted": plan_planted,
+        "promises_paid": plan_paid,
     }
 
 
 def format_blueprint_for_prompt(blueprint: Dict[str, Any]) -> str:
     """Format a blueprint as a prompt section for chapter generation."""
     lines = ["CHAPTER BLUEPRINT (follow this structural plan):"]
+    # Lead with chapter tier so the drafter knows whether this is a setpiece.
+    tier = str(blueprint.get("chapter_tier", "") or "").strip().lower()
+    if tier:
+        if tier == "setpiece":
+            lines.append(
+                "- CHAPTER TIER: SETPIECE — this chapter is one of the book's "
+                "must-execute moments. Write it with the maximum craft attention "
+                "the prose pipeline allows. Do NOT under-write or rush it."
+            )
+        elif tier == "connective":
+            lines.append(
+                "- CHAPTER TIER: CONNECTIVE — this is a quieter bridge chapter. "
+                "Earn its quiet. No manufactured tension; let characters breathe."
+            )
+        else:
+            lines.append(f"- CHAPTER TIER: {tier.upper()}")
+    move = str(blueprint.get("thematic_move", "") or "").strip().lower()
+    move_note = str(blueprint.get("thematic_move_note", "") or "").strip()
+    if move:
+        if move_note:
+            lines.append(f"- THEMATIC MOVE: {move} — {move_note}")
+        else:
+            lines.append(f"- THEMATIC MOVE: {move}")
     lines.append(f"- OPENING: {blueprint.get('opening_approach', 'Start naturally')}")
     lines.append(f"- CHAPTER SHAPE: {blueprint.get('chapter_shape', 'balanced')}")
     lines.append(f"- ENDING: {blueprint.get('ending_approach', 'End cleanly')}")
@@ -951,5 +1123,20 @@ def format_blueprint_for_prompt(blueprint: Dict[str, Any]) -> str:
     instructions = blueprint.get("specific_instructions", "")
     if instructions:
         lines.append(f"- CRAFT NOTES: {instructions}")
+
+    promises_paid = blueprint.get("promises_paid") or []
+    promises_planted = blueprint.get("promises_planted") or []
+    if promises_paid:
+        lines.append(
+            "- PROMISES TO PAY THIS CHAPTER: "
+            + ", ".join(str(p) for p in promises_paid)
+            + " — every listed promise must be delivered ON-PAGE, not summarized."
+        )
+    if promises_planted:
+        lines.append(
+            "- PROMISES TO PLANT THIS CHAPTER: "
+            + ", ".join(str(p) for p in promises_planted)
+            + " — these setups will be paid off in later chapters."
+        )
 
     return "\n".join(lines)

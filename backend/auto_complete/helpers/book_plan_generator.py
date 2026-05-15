@@ -165,6 +165,7 @@ class BookPlanGenerator:
         self.state_dir = self.project_path / ".project-state"
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.plan_path = self.state_dir / "book-plan.json"
+        self.promises_ledger_path = self.state_dir / "book-promises.json"
 
     def load_existing_plan(self) -> Optional[Dict[str, Any]]:
         if not self.plan_path.exists():
@@ -176,6 +177,108 @@ class BookPlanGenerator:
 
     def save_plan(self, plan: Dict[str, Any]) -> None:
         self.plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # ------------------------------------------------------------------
+    # Plan extension backfills (Proposals 2, 4, 5)
+    #
+    # The planner is instructed to emit chapter_tier / thematic_move /
+    # promises_ledger, but we never want a missing field to crash the chapter
+    # pipeline. These helpers normalize the plan in-place with conservative
+    # defaults so downstream consumers can rely on the fields being present.
+    # ------------------------------------------------------------------
+
+    _ALLOWED_CHAPTER_TIERS = {"setpiece", "development", "connective"}
+    _ALLOWED_THEMATIC_MOVES = {
+        "introduce", "complicate", "invert", "deepen", "stake",
+        "foreclose", "reaffirm", "answer", "coda",
+    }
+
+    # Cycle of safe non-repeating moves used when we have to break an adjacent
+    # duplicate. Order chosen to be the gentlest possible nudge while still
+    # representing a meaningfully different thematic move from any neighbor.
+    _MOVE_ROTATION_CYCLE: tuple[str, ...] = (
+        "deepen", "complicate", "stake", "reaffirm", "invert", "foreclose"
+    )
+
+    def _backfill_plan_extensions(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure chapter_tier / thematic_move / promises arrays are present.
+
+        Defaults err on the safe side: an unspecified chapter is tagged as a
+        ``development`` chapter (the most common tier) with a ``deepen``
+        thematic move (the least disruptive to the per-chapter-move-variety
+        rule). The promises ledger defaults to an empty list. Adjacent
+        duplicate thematic moves are corrected by walking the rotation cycle
+        until a non-conflicting move is found.
+        """
+        chapters = plan.get("chapters")
+        if isinstance(chapters, list):
+            prev_move: Optional[str] = None
+            for chapter in chapters:
+                if not isinstance(chapter, dict):
+                    continue
+                tier = str(chapter.get("chapter_tier") or "").strip().lower()
+                if tier not in self._ALLOWED_CHAPTER_TIERS:
+                    chapter["chapter_tier"] = "development"
+                else:
+                    chapter["chapter_tier"] = tier
+
+                move = str(chapter.get("thematic_move") or "").strip().lower()
+                if move not in self._ALLOWED_THEMATIC_MOVES:
+                    move = "deepen"
+                if prev_move is not None and move == prev_move:
+                    for candidate in self._MOVE_ROTATION_CYCLE:
+                        if candidate != prev_move:
+                            move = candidate
+                            break
+                chapter["thematic_move"] = move
+                prev_move = move
+
+                if not isinstance(chapter.get("thematic_move_note"), str):
+                    chapter["thematic_move_note"] = ""
+
+                if not isinstance(chapter.get("promises_planted"), list):
+                    chapter["promises_planted"] = []
+                if not isinstance(chapter.get("promises_paid"), list):
+                    chapter["promises_paid"] = []
+
+        if not isinstance(plan.get("promises_ledger"), list):
+            plan["promises_ledger"] = []
+        return plan
+
+    def save_promises_ledger(self, plan: Dict[str, Any]) -> None:
+        """Persist the initial promises ledger alongside the plan.
+
+        The ledger lives in its own file so the lifecycle service can update it
+        chapter-by-chapter without touching ``book-plan.json``. This is the
+        canonical artifact the chapter pipeline reads to inject outstanding
+        promises.
+        """
+        promises = plan.get("promises_ledger") or []
+        if not isinstance(promises, list):
+            promises = []
+        ledger = {
+            "version": 1,
+            "created_at": datetime.utcnow().isoformat(),
+            "promises": [
+                {
+                    "promise_id": str(p.get("promise_id") or f"p{idx + 1}"),
+                    "label": str(p.get("label") or "").strip(),
+                    "description": str(p.get("description") or "").strip(),
+                    "planted_chapter": p.get("planted_chapter"),
+                    "expected_payoff_window": p.get("expected_payoff_window") or [],
+                    "promise_type": str(p.get("promise_type") or "").strip().lower() or "obligation",
+                    "weight": str(p.get("weight") or "minor").strip().lower() or "minor",
+                    "status": "open",
+                    "history": [],
+                }
+                for idx, p in enumerate(promises)
+                if isinstance(p, dict)
+            ],
+        }
+        self.promises_ledger_path.write_text(
+            json.dumps(ledger, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     def compute_source_hashes(self, book_bible: str, references: Dict[str, str]) -> Dict[str, str]:
         """
@@ -261,8 +364,17 @@ class BookPlanGenerator:
                 "prose_register": str(chapter.get("prose_register", ""))[:40],
                 "tension_level": str(chapter.get("tension_level", ""))[:40],
                 "new_developments": chapter.get("new_developments", ""),
+                "chapter_tier": str(chapter.get("chapter_tier", ""))[:40],
+                "thematic_move": str(chapter.get("thematic_move", ""))[:40],
+                "thematic_move_note": str(chapter.get("thematic_move_note", ""))[:200],
+                "promises_planted": [str(p)[:40] for p in (chapter.get("promises_planted") or [])][:6],
+                "promises_paid": [str(p)[:40] for p in (chapter.get("promises_paid") or [])][:6],
                 "character_arc_beats": chapter.get("character_arc_beats", []),
             })
+        # Preserve the top-level promises ledger across fix-passes so we don't
+        # silently drop the book's setups/payoffs map during chapter-count repair.
+        if isinstance(plan.get("promises_ledger"), list):
+            compact["promises_ledger"] = plan["promises_ledger"]
         return compact
 
     def _normalize_chapter_count_local(
@@ -677,7 +789,23 @@ class BookPlanGenerator:
             '      "prose_register": "plain | moderate | lyrical",\n'
             '      "new_developments": number (0-2),\n'
             '      "tension_level": "low | moderate | high",\n'
+            '      "chapter_tier": "setpiece | development | connective",\n'
+            '      "thematic_move": "introduce | complicate | invert | deepen | stake | foreclose | reaffirm | answer | coda",\n'
+            '      "thematic_move_note": "one-sentence operational description of what this chapter is doing TO the central question",\n'
+            '      "promises_planted": [string],\n'
+            '      "promises_paid": [string],\n'
             '      "character_arc_beats": [{"character": "Name", "arc_position": "initial | shift | deepening | crisis | resolution", "emotional_register": "description of emotional state", "motivation": "why this shift happens now"}]\n'
+            "    }\n"
+            "  ],\n"
+            '  "promises_ledger": [\n'
+            "    {\n"
+            '      "promise_id": "p1",\n'
+            '      "label": "short human-readable label",\n'
+            '      "description": "what was set up and what kind of payoff the reader is owed",\n'
+            '      "planted_chapter": number,\n'
+            '      "expected_payoff_window": [number, number],\n'
+            '      "promise_type": "object | place | relationship | mystery | obligation | threat | rule",\n'
+            '      "weight": "minor | major | central"\n'
             "    }\n"
             "  ]\n"
             "}\n\n"
@@ -706,12 +834,57 @@ class BookPlanGenerator:
             "Resolution chapters deserve the same depth as the rest of the book — the reader has "
             "invested time, so give them a satisfying landing with enough room for emotional payoff.\n"
             "  - The final chapter's ending_type should be 'scene_completed_cleanly' or 'dialogue_trailing_off', NOT 'character_alone_reflecting'.\n"
+            "\n"
+            "CHAPTER-TIER RULES (Proposal 2 — Setpiece Tiering):\n"
+            "- Every chapter MUST be tagged `chapter_tier` as one of:\n"
+            "  * setpiece — climax, major reveal, decisive confrontation, emotional turning point, \n"
+            "    or other moment the entire book has been building toward. Setpieces are non-negotiable\n"
+            "    must-execute scenes that deserve maximum craft attention. Most books have 3-6 setpieces.\n"
+            "  * development — the engine chapters that escalate, complicate, deepen relationships,\n"
+            "    or introduce significant new pressure. The book's middle is mostly developments.\n"
+            "  * connective — quieter chapters that bridge developments, process events, give the\n"
+            "    reader time to breathe, or move characters into position. Connectives are the\n"
+            "    valleys that make the peaks visible.\n"
+            "- Distribution: A book of N chapters should typically have ~15-25% setpieces, ~50-65%\n"
+            "  developments, ~15-30% connectives. Two consecutive setpiece chapters is a structural\n"
+            "  red flag (the second will read as anticlimax).\n"
+            "- The opening chapter is rarely a setpiece (the reader is still buying in). The climax\n"
+            "  chapter MUST be a setpiece. The final chapter may be setpiece OR connective depending\n"
+            "  on whether the climax happens in it or before it.\n"
+            "\n"
+            "THEMATIC-MOVE RULES (Proposal 5 — Per-Chapter Thematic Move):\n"
+            "- Every chapter MUST be tagged `thematic_move` from the allowed vocabulary above. The\n"
+            "  thematic_move names what the chapter is DOING to the book's central question — not\n"
+            "  what the chapter is about, but the chapter's MOVE in the larger thematic argument.\n"
+            "- No two adjacent chapters may share the same thematic_move.\n"
+            "- Most chapters should NOT be `answer` — that move is reserved for 1-2 chapters near\n"
+            "  the end where the book's position lands. `coda` is for the final 1-2 chapters of\n"
+            "  resonance after the answer.\n"
+            "- `thematic_move_note` is a one-sentence operational description (e.g., 'Complicates\n"
+            "  the question by showing that David's silence at the funeral cost him his sons'\n"
+            "  willingness to stay in touch this winter.'). Generic notes ('explores the theme of\n"
+            "  loss') are not acceptable.\n"
+            "\n"
+            "PROMISES-LEDGER RULES (Proposal 4 — Promises and Payoffs):\n"
+            "- Every setup the book makes (an object the protagonist notices, a question someone\n"
+            "  asks, a debt referenced, a knock at a door, a location seen but not entered, a rule\n"
+            "  established about the world, a character introduced who carries weight) creates a\n"
+            "  PROMISE the reader expects to see paid off. Unpaid promises rot the ending.\n"
+            "- Use the per-chapter `promises_planted` and `promises_paid` arrays plus the top-level\n"
+            "  `promises_ledger` to track these. Each promise gets a unique `promise_id` (\"p1\",\n"
+            "  \"p2\", \"p3\", ...) used as the reference in both planted/paid arrays.\n"
+            "- Every promise that is `weight: major` or `weight: central` MUST be paid by the\n"
+            "  expected_payoff_window or earlier. Minor promises may be left unpaid only if their\n"
+            "  irrelevance is itself meaningful (e.g., a small thing the protagonist learns to let go).\n"
+            "- 8-15 promises across the book is a healthy range. Fewer means the book under-promises\n"
+            "  and feels slack. More means the book is over-promising and will feel busy.\n"
             "Output constraints:\n"
             "- Keep summaries <= 200 characters.\n"
             "- Titles <= 80 characters.\n"
             "- Objectives: max 4 items, each <= 150 characters.\n"
             "- Required plot points: max 3 items, each <= 120 characters.\n"
             "- Continuity requirements: max 3 items.\n"
+            "- thematic_move_note: <= 200 characters.\n"
         )
 
         messages = [
@@ -839,5 +1012,17 @@ class BookPlanGenerator:
         except Exception:
             pass
 
+        # Proposals 2, 4, 5 — make sure the new fields exist and persist the
+        # initial promises ledger so the chapter pipeline can read it.
+        try:
+            plan = self._backfill_plan_extensions(plan)
+        except Exception as backfill_err:  # pragma: no cover - defensive
+            logger.warning("Failed to backfill plan extensions: %s", backfill_err)
+
         self.save_plan(plan)
+        try:
+            self.save_promises_ledger(plan)
+        except Exception as ledger_err:  # pragma: no cover - defensive
+            logger.warning("Failed to persist initial promises ledger: %s", ledger_err)
+
         return BookPlanResult(success=True, plan=plan)
